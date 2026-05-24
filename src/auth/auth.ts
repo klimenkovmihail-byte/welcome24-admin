@@ -124,11 +124,18 @@ export async function fetchMe(): Promise<AdminUser | null> {
   }
 }
 
-/** Open the agent portal as a specific agent (impersonation). */
-export function impersonate(agentId: number, agentName: string) {
+/** Open the agent portal as a specific agent (impersonation).
+ *  Получает временный JWT агента и передаёт его на портал через URL. */
+export async function impersonate(agentId: number, agentName: string) {
   const returnUrl = `${ADMIN_URL}/agents`;
-  const url = `${PORTAL_URL}/dashboard?impersonate=${agentId}&agentName=${encodeURIComponent(agentName)}&returnUrl=${encodeURIComponent(returnUrl)}`;
-  window.location.href = url;
+  try {
+    const { token } = await api.post<{ token: string }>('/api/auth/impersonate', { agentId });
+    const url = `${PORTAL_URL}/dashboard?impersonateToken=${encodeURIComponent(token)}&impersonate=${agentId}&agentName=${encodeURIComponent(agentName)}&returnUrl=${encodeURIComponent(returnUrl)}`;
+    window.location.href = url;
+  } catch (e) {
+    console.error('Impersonation failed', e);
+    alert('Не удалось войти как агент: ' + (e instanceof Error ? e.message : 'ошибка'));
+  }
 }
 
 /** SSO из URL: префиллим email (пароль вводит пользователь). */
