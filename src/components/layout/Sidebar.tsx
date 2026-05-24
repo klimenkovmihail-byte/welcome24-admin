@@ -1,0 +1,132 @@
+import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Chip, Tooltip, IconButton, Divider } from '@mui/material';
+import { motion, AnimatePresence } from 'framer-motion';
+import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
+import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
+import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
+import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
+import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded';
+import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded';
+import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded';
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
+import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
+import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
+import { logout, getCurrentUser } from '../../auth/auth';
+import Logo, { LogoIcon } from '../Logo';
+
+const navItems = [
+  { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
+  { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: '127' },
+  { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon />, badge: '3' },
+  { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
+  { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
+  { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
+  { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
+  { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
+];
+
+export default function Sidebar() {
+  const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const user = getCurrentUser();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
+
+  return (
+    <motion.div animate={{ width: collapsed ? 72 : 248 }} transition={{ duration: 0.3 }} style={{ flexShrink: 0, overflow: 'hidden' }}>
+      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0A1020 0%, #080C18 100%)', borderRight: '1px solid rgba(201,168,76,0.1)', position: 'sticky', top: 0, overflow: 'hidden' }}>
+
+        {/* Logo */}
+        <Box sx={{ p: collapsed ? 1.5 : 2.5, pt: 3, display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 1.5 }}>
+          {collapsed ? (
+            <Box sx={{ position: 'relative', flexShrink: 0 }}>
+              <LogoIcon size={40} color="#C9A84C" />
+              <Box sx={{ position: 'absolute', top: -3, right: -3, width: 14, height: 14, background: '#EF4444', borderRadius: '50%', border: '2px solid #080C18', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <AdminPanelSettingsRoundedIcon sx={{ fontSize: 8, color: '#fff' }} />
+              </Box>
+            </Box>
+          ) : (
+            <AnimatePresence>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}>
+                <Logo variant="full" size={32} color="#F1F5F9" />
+                <Box sx={{ display: 'flex', flexDirection: 'column', borderLeft: '2px solid rgba(239,68,68,0.4)', pl: 1.2, lineHeight: 1.05 }}>
+                  <Typography variant="caption" sx={{ color: '#EF4444', fontWeight: 800, letterSpacing: '0.06em', fontSize: 10 }}>
+                    ADMIN
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#EF4444', fontWeight: 800, letterSpacing: '0.06em', fontSize: 10 }}>
+                    PANEL
+                  </Typography>
+                </Box>
+              </motion.div>
+            </AnimatePresence>
+          )}
+        </Box>
+
+        <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)', mx: 2 }} />
+
+        {/* Nav */}
+        <List sx={{ flex: 1, px: 1.5, py: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {navItems.map((item) => {
+            const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+            return (
+              <ListItem key={item.path} disablePadding>
+                <Tooltip title={collapsed ? item.label : ''} placement="right">
+                  <ListItemButton onClick={() => navigate(item.path)} sx={{ borderRadius: 2.5, minHeight: 44, px: collapsed ? 1.5 : 2, justifyContent: collapsed ? 'center' : 'flex-start', position: 'relative', background: active ? 'linear-gradient(135deg, rgba(201,168,76,0.14), rgba(201,168,76,0.07))' : 'transparent', border: active ? '1px solid rgba(201,168,76,0.2)' : '1px solid transparent', color: active ? '#C9A84C' : '#94A3B8', '&:hover': { background: 'rgba(201,168,76,0.07)', color: '#E2C97E', border: '1px solid rgba(201,168,76,0.12)' }, transition: 'all 0.2s' }}>
+                    {active && <Box sx={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 3, height: 20, background: '#C9A84C', borderRadius: '0 3px 3px 0' }} />}
+                    <ListItemIcon sx={{ minWidth: collapsed ? 0 : 34, color: 'inherit' }}>{item.icon}</ListItemIcon>
+                    <AnimatePresence>
+                      {!collapsed && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <ListItemText primary={item.label} slotProps={{ primary: { style: { fontSize: 14, fontWeight: active ? 700 : 500 } } }} />
+                          {item.badge && (
+                            <Box sx={{ background: active ? '#C9A84C' : 'rgba(239,68,68,0.85)', color: active ? '#0A0E1A' : '#fff', borderRadius: 10, px: 0.8, py: 0.1, fontSize: 10, fontWeight: 800, minWidth: 20, textAlign: 'center', lineHeight: '18px' }}>
+                              {item.badge}
+                            </Box>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </ListItemButton>
+                </Tooltip>
+              </ListItem>
+            );
+          })}
+        </List>
+
+        <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)', mx: 2 }} />
+
+        <Box sx={{ p: 1.5, pb: 2.5 }}>
+          {!collapsed && (
+            <Box sx={{ p: 1.5, borderRadius: 2.5, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', mb: 1 }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: '#F1F5F9', display: 'block', fontSize: 12 }}>{user?.name || 'Администратор'}</Typography>
+              <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>{user?.email || 'admin@w24.agency'}</Typography>
+            </Box>
+          )}
+          <Box sx={{ display: 'flex', justifyContent: collapsed ? 'center' : 'space-between', alignItems: 'center' }}>
+            <Tooltip title="Выйти" placement="right">
+              <IconButton size="small" onClick={handleLogout} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                <LogoutRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {!collapsed ? (
+              <IconButton size="small" onClick={() => setCollapsed(true)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+                <ChevronLeftRoundedIcon fontSize="small" />
+              </IconButton>
+            ) : (
+              <IconButton size="small" onClick={() => setCollapsed(false)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+                <ChevronRightRoundedIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Box>
+        </Box>
+      </Box>
+    </motion.div>
+  );
+}
