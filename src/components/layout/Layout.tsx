@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
+import { notificationsApi } from '../../api/notifications';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
 import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded';
@@ -37,26 +38,33 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
 
 interface AdminNotification {
   id: number;
-  type: 'deal' | 'agent' | 'shares' | 'alert';
+  type: string;
   title: string;
   desc: string;
   time: string;
   unread: boolean;
 }
 
-const initNotifs: AdminNotification[] = [
-  { id: 1, type: 'deal', title: 'Новая сделка ожидает верификации', desc: 'Кулаков С.В., Орлова Н.С. — 12 000 000 ₽', time: '5 мин назад', unread: true },
-  { id: 2, type: 'agent', title: 'Зарегистрирован новый агент', desc: 'Михалева Полина — приглашена Мухиным В.А.', time: '15 мин назад', unread: true },
-  { id: 3, type: 'deal', title: 'Сделка ожидает оплаты', desc: 'Мухин В.А., Козлов Д.П. — 6 200 000 ₽', time: '1 час назад', unread: true },
-  { id: 4, type: 'shares', title: 'Операция с акциями', desc: 'Выкуп 300 акций у Санкина А.А.', time: '2 часа назад', unread: true },
-  { id: 5, type: 'alert', title: 'Достигнут уровень комиссии', desc: 'Радченко Д.В. перешёл на 95% (L3)', time: '5 часов назад', unread: true },
-];
+function relativeTime(iso: string): string {
+  if (!iso) return '';
+  const t = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = Date.now() - t;
+  if (diff < 60_000)        return 'только что';
+  if (diff < 3_600_000)     return `${Math.floor(diff / 60_000)} мин назад`;
+  if (diff < 86_400_000)    return `${Math.floor(diff / 3_600_000)} ч назад`;
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} дн назад`;
+  return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
 
-const notifConfig = {
-  deal: { icon: <HandshakeRoundedIcon sx={{ fontSize: 18 }} />, color: '#22C55E' },
-  agent: { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#3B82F6' },
+const notifConfig: Record<string, { icon: React.ReactNode; color: string }> = {
+  deal:   { icon: <HandshakeRoundedIcon sx={{ fontSize: 18 }} />, color: '#22C55E' },
+  agent:  { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#3B82F6' },
   shares: { icon: <DiamondRoundedIcon sx={{ fontSize: 18 }} />, color: '#C9A84C' },
-  alert: { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#F59E0B' },
+  alert:  { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#F59E0B' },
+  news:   { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
+  team:   { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
+  system: { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#64748B' },
 };
 
 interface SearchResult {
@@ -88,7 +96,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [adminAnchor, setAdminAnchor] = useState<HTMLElement | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [notifs, setNotifs] = useState(initNotifs);
+  const [notifs, setNotifs] = useState<AdminNotification[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    notificationsApi.list()
+      .then(rows => {
+        if (cancelled) return;
+        setNotifs(rows.map(n => ({
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          desc: n.description,
+          time: relativeTime(n.createdAt),
+          unread: !n.readAt,
+        })));
+      })
+      .catch(() => { /* tolerate */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const unreadCount = notifs.filter(n => n.unread).length;
 
@@ -105,7 +131,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const handleMarkAllRead = () => setNotifs(prev => prev.map(n => ({ ...n, unread: false })));
+  const handleMarkAllRead = () => {
+    setNotifs(prev => prev.map(n => ({ ...n, unread: false })));
+    notificationsApi.markAllRead().catch(() => { /* tolerate */ });
+  };
 
   const handleLogout = () => {
     setAdminAnchor(null);
@@ -252,6 +281,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     key={n.id}
                     onClick={() => {
                       setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, unread: false } : x));
+                      notificationsApi.markRead(n.id).catch(() => { /* tolerate */ });
                       if (n.type === 'deal') navigate('/deals');
                       if (n.type === 'agent') navigate('/agents');
                       if (n.type === 'shares') navigate('/shares');

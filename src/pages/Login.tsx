@@ -18,21 +18,24 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [redirect, setRedirect] = useState<string | null>(null);
 
   useEffect(() => {
-    const ssoUser = trySsoFromUrl();
-    if (ssoUser) navigate('/dashboard', { replace: true });
-  }, [navigate]);
+    const sso = trySsoFromUrl();
+    if (sso) setEmail(sso.ssoEmail);
+  }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null); setRedirect(null);
-    const result = login(email);
+    setLoading(true);
+    const result = await login(email, password);
     if (result.ok) {
       navigate('/dashboard', { replace: true });
     } else {
+      setLoading(false);
       setError(result.error);
       if (result.redirectTo) {
         setRedirect(result.redirectTo);
@@ -94,8 +97,8 @@ export default function Login() {
                 endAdornment: <InputAdornment position="end"><IconButton size="small" onClick={() => setShowPw(s => !s)} sx={{ color: '#64748B' }}>{showPw ? <VisibilityOffRoundedIcon fontSize="small" /> : <VisibilityRoundedIcon fontSize="small" />}</IconButton></InputAdornment>,
               } }}
             />
-            <Button type="submit" fullWidth variant="contained" size="large" endIcon={<ArrowForwardRoundedIcon />} sx={{ py: 1.3 }}>
-              Войти в админку
+            <Button type="submit" fullWidth variant="contained" size="large" disabled={loading} endIcon={<ArrowForwardRoundedIcon />} sx={{ py: 1.3 }}>
+              {loading ? 'Входим…' : 'Войти в админку'}
             </Button>
           </form>
 

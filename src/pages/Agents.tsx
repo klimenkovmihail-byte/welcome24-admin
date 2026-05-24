@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
@@ -32,10 +32,12 @@ import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded';
 import { Rating } from '@mui/material';
-import { agents as initialAgents, companySettings, agentReviews as initialReviews } from '../data/mockData';
+import { companySettings } from '../data/mockData';
 import type { AgentReview, ReviewModeration, AgentSocials } from '../types';
 import { impersonate } from '../auth/auth';
 import type { Agent, AgentLevel, AgentStatus } from '../types';
+import { agentsApi, enrichAgents } from '../api/agents';
+import { CircularProgress } from '@mui/material';
 
 const SPECIALIZATIONS = ['Жилая', 'Вторичная', 'Коммерческая', 'Загородная', 'Новостройки', 'Аренда'];
 
@@ -55,6 +57,7 @@ const fmt = (n: number) => n.toLocaleString('ru-RU');
 
 const emptyForm = {
   name: '', email: '', phone: '', city: '',
+  password: '' as string, // только при создании
   level: 1 as AgentLevel, commission: 80 as 80 | 90 | 95,
   status: 'active' as AgentStatus,
   parentType: 'company' as 'company' | 'agent',
@@ -68,7 +71,11 @@ const emptyForm = {
 };
 
 export default function Agents() {
-  const [agents, setAgents] = useState<Agent[]>(initialAgents);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<AgentStatus | 'all'>('all');
   const [filterLevel, setFilterLevel] = useState<AgentLevel | 0>(0);
@@ -76,13 +83,53 @@ export default function Agents() {
   const [editTarget, setEditTarget] = useState<Agent | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
   // Reviews
-  const [reviews, setReviews] = useState<AgentReview[]>(initialReviews);
+  const [reviews, setReviews] = useState<AgentReview[]>([]);     // отзывы открытого в модалке агента
+  const [pendingCount, setPendingCount] = useState(0);
   const [reviewsDlgFor, setReviewsDlgFor] = useState<Agent | null>(null);
-  const pendingReviewsCount = reviews.filter(r => r.moderation === 'pending').length;
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const pendingReviewsCount = pendingCount;
 
-  const setReviewModeration = (id: number, status: ReviewModeration) =>
+  const reloadAgents = () => {
+    setLoading(true);
+    return agentsApi.list()
+      .then(list => setAgents(list))
+      .catch(err => setError(err?.message || 'Ошибка загрузки агентов'))
+      .finally(() => setLoading(false));
+  };
+
+  const reloadPending = () => {
+    agentsApi.pendingReviews()
+      .then(rows => setPendingCount(rows.length))
+      .catch(() => { /* tolerate */ });
+  };
+
+  // Начальная загрузка списка + счётчика отзывов на модерации.
+  useEffect(() => { reloadAgents(); reloadPending(); }, []);
+
+  // При открытии модалки отзывов агента — грузим ВСЕ отзывы (включая pending/rejected).
+  useEffect(() => {
+    if (!reviewsDlgFor) { setReviews([]); return; }
+    let cancelled = false;
+    setReviewsLoading(true);
+    agentsApi.reviews(reviewsDlgFor.id, { all: true })
+      .then(rows => { if (!cancelled) setReviews(rows); })
+      .catch(() => { if (!cancelled) setReviews([]); })
+      .finally(() => { if (!cancelled) setReviewsLoading(false); });
+    return () => { cancelled = true; };
+  }, [reviewsDlgFor]);
+
+  const setReviewModeration = async (id: number, status: ReviewModeration) => {
+    await agentsApi.setReviewModeration(id, status);
     setReviews(prev => prev.map(r => r.id === id ? { ...r, moderation: status } : r));
-  const deleteReview = (id: number) => setReviews(prev => prev.filter(r => r.id !== id));
+    reloadPending();
+    reloadAgents(); // у агента пересчитался rating
+  };
+  const deleteReview = async (id: number) => {
+    await agentsApi.deleteReview(id);
+    setReviews(prev => prev.filter(r => r.id !== id));
+    reloadPending();
+    reloadAgents();
+  };
 
   const filtered = useMemo(() => agents.filter(a => {
     const q = search.toLowerCase();
@@ -122,40 +169,47 @@ export default function Agents() {
     setForm(f => ({ ...f, parentId: agent ? agent.id : null, parentName: agent ? agent.name : null }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.name.trim() || !form.email.trim()) return;
-    const parent = form.parentType === 'company' ? { parentId: null, parentName: null } : { parentId: form.parentId, parentName: form.parentName };
-    if (editTarget) {
-      setAgents(prev => prev.map(a => a.id === editTarget.id ? {
-        ...a, name: form.name, email: form.email, phone: form.phone, city: form.city,
-        level: form.level, commission: form.commission, status: form.status,
-        ...parent, specialization: form.specialization,
-        photo: form.photo || null,
-        bio: form.bio,
-        socials: form.socials,
-      } : a));
-    } else {
-      const newAgent: Agent = {
-        id: Math.max(...agents.map(a => a.id)) + 1,
-        name: form.name, email: form.email, phone: form.phone, city: form.city,
-        level: form.level, commission: form.commission, status: form.status,
-        ...parent,
-        joinDate: new Date().toISOString().slice(0, 10),
-        specialization: form.specialization,
-        vkdYear: 0, incomeYear: 0, dealsYear: 0, shares: 0, teamSize: 0,
-        photo: form.photo || null,
-        bio: form.bio,
-        socials: form.socials,
-        rating: 0,
-        reviewsCount: 0,
-      };
-      setAgents(prev => [...prev, newAgent]);
+    if (!editTarget && !form.password.trim()) {
+      setError('Введите пароль для нового агента');
+      return;
     }
-    setDialogOpen(false);
+    const parentId = form.parentType === 'company' ? null : form.parentId;
+    setSaving(true); setError(null);
+    try {
+      if (editTarget) {
+        await agentsApi.update(editTarget.id, {
+          name: form.name, email: form.email, phone: form.phone, city: form.city,
+          level: form.level, commission: form.commission, status: form.status,
+          parentId, specialization: form.specialization,
+          photo: form.photo || null, bio: form.bio, socials: form.socials,
+        });
+      } else {
+        await agentsApi.create({
+          name: form.name, email: form.email, password: form.password,
+          phone: form.phone, city: form.city,
+          level: form.level, commission: form.commission, status: form.status,
+          parentId, specialization: form.specialization,
+          photo: form.photo || null, bio: form.bio, socials: form.socials,
+        });
+      }
+      await reloadAgents();
+      setDialogOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить агента');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const toggleStatus = (id: number, status: AgentStatus) => {
-    setAgents(prev => prev.map(a => a.id === id ? { ...a, status } : a));
+  const toggleStatus = async (id: number, status: AgentStatus) => {
+    try {
+      await agentsApi.update(id, { status });
+      setAgents(prev => enrichAgents(prev.map(a => a.id === id ? { ...a, status } : a)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось обновить статус');
+    }
   };
 
   const stats = useMemo(() => ({
@@ -221,8 +275,17 @@ export default function Agents() {
         </Button>
       </Box>
 
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>
+      )}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+          <CircularProgress sx={{ color: '#C9A84C' }} />
+        </Box>
+      )}
+
       {/* Table */}
-      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
+      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: loading ? 'none' : 'block' }}>
         <Table>
           <TableHead>
             <TableRow>
@@ -250,7 +313,14 @@ export default function Agents() {
                       </Avatar>
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9', lineHeight: 1.2 }}>{agent.name}</Typography>
-                        <Typography variant="caption" sx={{ color: '#64748B' }}>{agent.email}</Typography>
+                        <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>
+                          {agent.email.endsWith('@w24.local') ? 'архивная запись (без логина)' : agent.email}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: agent.terminatedAt ? '#EF4444' : '#475569', fontSize: 10 }}>
+                          {agent.terminatedAt
+                            ? `с ${agent.joinDate} · уволен ${agent.terminatedAt}`
+                            : `с ${agent.joinDate}`}
+                        </Typography>
                       </Box>
                     </Box>
                   </TableCell>
@@ -297,9 +367,9 @@ export default function Agents() {
                           <LoginRoundedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title={`Отзывы (${reviews.filter(r => r.agentId === agent.id).length})`}>
+                      <Tooltip title={`Отзывы (${agent.reviewsCount})`}>
                         <IconButton size="small" onClick={() => setReviewsDlgFor(agent)} sx={{
-                          color: reviews.some(r => r.agentId === agent.id && r.moderation === 'pending') ? '#F59E0B' : '#64748B',
+                          color: '#64748B',
                           '&:hover': { color: '#F59E0B' },
                         }}>
                           <RateReviewRoundedIcon fontSize="small" />
@@ -356,6 +426,15 @@ export default function Agents() {
               <TextField fullWidth label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} size="small" />
               <TextField fullWidth label="Телефон" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} size="small" />
             </Box>
+            {!editTarget && (
+              <TextField
+                fullWidth size="small" type="password"
+                label="Пароль (минимум 6 символов)"
+                value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                helperText="Агент сможет сменить позже в личном кабинете"
+              />
+            )}
             <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
 
             {/* MLM binding */}
@@ -493,9 +572,9 @@ export default function Agents() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={handleSave} disabled={!form.name.trim() || !form.email.trim()}>
-            {editTarget ? 'Сохранить' : 'Создать агента'}
+          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={handleSave} disabled={saving || !form.name.trim() || !form.email.trim() || (!editTarget && !form.password.trim())}>
+            {saving ? 'Сохранение…' : editTarget ? 'Сохранить' : 'Создать агента'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -519,8 +598,13 @@ export default function Agents() {
         </DialogTitle>
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 2 }}>
-          {reviewsDlgFor && (() => {
-            const list = reviews.filter(r => r.agentId === reviewsDlgFor.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+          {reviewsLoading && (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <CircularProgress size={28} sx={{ color: '#C9A84C' }} />
+            </Box>
+          )}
+          {!reviewsLoading && reviewsDlgFor && (() => {
+            const list = [...reviews].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
             if (list.length === 0) {
               return (
                 <Box sx={{ py: 4, textAlign: 'center' }}>

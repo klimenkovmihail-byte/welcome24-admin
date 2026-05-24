@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Tooltip, Stack, Divider,
-  Autocomplete,
+  Autocomplete, CircularProgress, Alert,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -17,8 +17,9 @@ import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
 import MonetizationOnRoundedIcon from '@mui/icons-material/MonetizationOnRounded';
 import PendingRoundedIcon from '@mui/icons-material/PendingRounded';
 import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
-import { deals as initialDeals, agents } from '../data/mockData';
-import type { Deal, DealStatus } from '../types';
+import type { Deal, DealStatus, Agent } from '../types';
+import { dealsApi } from '../api/deals';
+import { agentsApi } from '../api/agents';
 
 const statusConfig: Record<DealStatus, { label: string; color: string; bg: string }> = {
   pending: { label: 'Ожидание', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' },
@@ -47,7 +48,12 @@ const emptyForm: FormState = {
 };
 
 export default function Deals() {
-  const [deals, setDeals] = useState<Deal[]>(initialDeals);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<DealStatus | 'all'>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -55,6 +61,20 @@ export default function Deals() {
   const [form, setForm] = useState<FormState>({ ...emptyForm });
 
   const income = useMemo(() => Math.round((parseFloat(form.vkd) || 0) * form.commission / 100), [form.vkd, form.commission]);
+
+  const reloadDeals = () => {
+    setLoading(true);
+    return dealsApi.list()
+      .then(setDeals)
+      .catch(err => setError(err?.message || 'Ошибка загрузки сделок'))
+      .finally(() => setLoading(false));
+  };
+
+  // Сделки + список агентов для Autocomplete на старте.
+  useEffect(() => {
+    reloadDeals();
+    agentsApi.list().then(setAgents).catch(() => { /* ignore */ });
+  }, []);
 
   const filtered = useMemo(() => deals.filter(d => {
     const q = search.toLowerCase();
@@ -84,7 +104,7 @@ export default function Deals() {
     setDialogOpen(true);
   };
 
-  const handleAgentChange = (agent: (typeof agents)[0] | null) => {
+  const handleAgentChange = (agent: Agent | null) => {
     if (agent) {
       setForm(f => ({ ...f, agentId: agent.id, agentName: agent.name, commission: agent.commission }));
     } else {
@@ -92,32 +112,46 @@ export default function Deals() {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.agentId || !form.clientName || !form.vkd) return;
     const vkdNum = parseFloat(form.vkd);
-    const incomeNum = Math.round(vkdNum * form.commission / 100);
-    if (editTarget) {
-      setDeals(prev => prev.map(d => d.id === editTarget.id ? {
-        ...d, agentId: form.agentId!, agentName: form.agentName,
-        clientName: form.clientName, address: form.address, city: form.city,
-        type: form.type as Deal['type'], vkd: vkdNum, income: incomeNum,
-        commission: form.commission, notes: form.notes, status: form.status, date: form.date,
-      } : d));
-    } else {
-      const newDeal: Deal = {
-        id: Math.max(...deals.map(d => d.id)) + 1,
-        agentId: form.agentId!, agentName: form.agentName,
-        clientName: form.clientName, address: form.address, city: form.city,
-        type: form.type as Deal['type'], vkd: vkdNum, income: incomeNum,
-        commission: form.commission, notes: form.notes, status: form.status, date: form.date,
-      };
-      setDeals(prev => [...prev, newDeal]);
+    setSaving(true); setError(null);
+    try {
+      if (editTarget) {
+        await dealsApi.update(editTarget.id, {
+          clientName: form.clientName, address: form.address, city: form.city,
+          type: form.type as Deal['type'], vkd: vkdNum,
+          income: Math.round(vkdNum * form.commission / 100),
+          commission: form.commission, notes: form.notes, status: form.status, date: form.date,
+        });
+      } else {
+        await dealsApi.create({
+          agentId: form.agentId!,
+          clientName: form.clientName, address: form.address, city: form.city,
+          type: form.type as Deal['type'], vkd: vkdNum,
+          commission: form.commission as 80 | 90 | 95,
+          notes: form.notes, status: form.status, date: form.date,
+        });
+      }
+      await reloadDeals();
+      setDialogOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить сделку');
+    } finally {
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
-  const updateStatus = (id: number, status: DealStatus) => {
-    setDeals(prev => prev.map(d => d.id === id ? { ...d, status } : d));
+  const updateStatus = async (id: number, status: DealStatus) => {
+    try {
+      if (status === 'confirmed') await dealsApi.confirm(id);
+      else if (status === 'paid') await dealsApi.pay(id);
+      else if (status === 'cancelled') await dealsApi.cancel(id);
+      else await dealsApi.update(id, { status });
+      setDeals(prev => prev.map(d => d.id === id ? { ...d, status } : d));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось обновить статус');
+    }
   };
 
   return (
@@ -165,8 +199,17 @@ export default function Deals() {
         </Button>
       </Box>
 
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>
+      )}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+          <CircularProgress sx={{ color: '#C9A84C' }} />
+        </Box>
+      )}
+
       {/* Table */}
-      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
+      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: loading ? 'none' : 'block' }}>
         <Table>
           <TableHead>
             <TableRow>
@@ -346,9 +389,9 @@ export default function Deals() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={handleSave} disabled={!form.agentId || !form.clientName || !form.vkd}>
-            {editTarget ? 'Сохранить' : 'Создать сделку'}
+          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={handleSave} disabled={saving || !form.agentId || !form.clientName || !form.vkd}>
+            {saving ? 'Сохранение…' : editTarget ? 'Сохранить' : 'Создать сделку'}
           </Button>
         </DialogActions>
       </Dialog>

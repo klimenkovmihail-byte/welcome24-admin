@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
@@ -9,7 +10,7 @@ import News from './pages/News';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
-import { isAuthenticated } from './auth/auth';
+import { isAuthenticated, fetchMe } from './auth/auth';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -24,6 +25,11 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    // Валидируем токен на старте (в фоне). Если 401 — fetchMe сам стирает user.
+    fetchMe();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

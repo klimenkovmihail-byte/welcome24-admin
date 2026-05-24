@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
@@ -18,8 +18,10 @@ import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip, ResponsiveContainer } from 'recharts';
 import ShowChartRoundedIcon from '@mui/icons-material/ShowChartRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
-import { shareOperations as initialOps, agents, companySettings as initialSettings, shareQuotes as initialQuotes } from '../data/mockData';
-import type { ShareOperation, ShareOperationType } from '../types';
+import { companySettings as initialSettings } from '../data/mockData';
+import type { ShareOperationType, Agent } from '../types';
+import { sharesApi, type ShareOperation, type ShareQuote } from '../api/shares';
+import { agentsApi } from '../api/agents';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
@@ -44,35 +46,52 @@ const emptyForm: FormState = {
 };
 
 export default function Shares() {
-  const [ops, setOps] = useState<ShareOperation[]>(initialOps);
+  const [ops, setOps] = useState<ShareOperation[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [quotes, setQuotes] = useState<ShareQuote[]>([]);
   const [settings, setSettings] = useState(initialSettings);
+  const [error, setError] = useState<string | null>(null);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [priceDialogOpen, setPriceDialogOpen] = useState(false);
   const [newPrice, setNewPrice] = useState(String(initialSettings.sharePrice));
   const [filterType, setFilterType] = useState<ShareOperationType | 'all'>('all');
   const [form, setForm] = useState<FormState>({ ...emptyForm });
 
-  // Quote history
-  const [quotes, setQuotes] = useState(initialQuotes);
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
   const [quoteForm, setQuoteForm] = useState({ date: new Date().toISOString().slice(0, 10), price: '', note: '' });
 
-  const handleAddQuote = () => {
+  const reloadAll = () => Promise.all([
+    sharesApi.operations().then(setOps).catch(() => { /* tolerate */ }),
+    sharesApi.quotes().then(qs => {
+      setQuotes(qs);
+      if (qs.length) setSettings(s => ({ ...s, sharePrice: qs[qs.length - 1].price }));
+    }).catch(() => { /* tolerate */ }),
+    agentsApi.list().then(setAgents).catch(() => { /* tolerate */ }),
+  ]);
+
+  useEffect(() => { reloadAll(); }, []);
+
+  const handleAddQuote = async () => {
     const p = parseFloat(quoteForm.price);
     if (!p || !quoteForm.date) return;
-    const newQuote = { id: Math.max(0, ...quotes.map(q => q.id)) + 1, date: quoteForm.date, price: p, note: quoteForm.note || '—' };
-    const sorted = [...quotes, newQuote].sort((a, b) => a.date.localeCompare(b.date));
-    setQuotes(sorted);
-    // sync current share price with the latest quote
-    setSettings(s => ({ ...s, sharePrice: sorted[sorted.length - 1].price }));
-    setQuoteDialogOpen(false);
-    setQuoteForm({ date: new Date().toISOString().slice(0, 10), price: '', note: '' });
+    try {
+      await sharesApi.addQuote({ date: quoteForm.date, price: p, note: quoteForm.note || '' });
+      await reloadAll();
+      setQuoteDialogOpen(false);
+      setQuoteForm({ date: new Date().toISOString().slice(0, 10), price: '', note: '' });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось добавить котировку');
+    }
   };
 
-  const handleDeleteQuote = (id: number) => {
-    const next = quotes.filter(q => q.id !== id);
-    setQuotes(next);
-    if (next.length) setSettings(s => ({ ...s, sharePrice: next[next.length - 1].price }));
+  const handleDeleteQuote = async (id: number) => {
+    try {
+      await sharesApi.deleteQuote(id);
+      await reloadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось удалить котировку');
+    }
   };
 
   const totalAmount = useMemo(() => Math.round((parseFloat(form.quantity) || 0) * (parseFloat(form.pricePerShare) || 0)), [form.quantity, form.pricePerShare]);
@@ -80,12 +99,13 @@ export default function Shares() {
   const filtered = useMemo(() => filterType === 'all' ? ops : ops.filter(o => o.type === filterType), [ops, filterType]);
 
   const agentShares = useMemo(() => {
+    // a.shares в бэке нет (пересчитывается из share_packets). Пока 0.
     const map = new Map<number, number>();
-    agents.forEach(a => map.set(a.id, a.shares));
+    agents.forEach(a => map.set(a.id, 0));
     return map;
-  }, []);
+  }, [agents]);
 
-  const handleOpSave = () => {
+  const handleOpSave = async () => {
     const qty = parseInt(form.quantity);
     const price = parseFloat(form.pricePerShare);
     if (!qty || !price) return;
@@ -94,18 +114,21 @@ export default function Shares() {
     if (form.type === 'transfer' && (!form.fromAgentId || !form.toAgentId)) return;
     if (form.type === 'buyback' && !form.fromAgentId) return;
 
-    const newOp: ShareOperation = {
-      id: Math.max(...ops.map(o => o.id)) + 1,
-      type: form.type,
-      fromAgentId: form.fromAgentId, fromAgentName: form.fromAgentName,
-      toAgentId: form.toAgentId, toAgentName: form.toAgentName,
-      quantity: qty, pricePerShare: price,
-      totalAmount: Math.round(qty * price),
-      date: new Date().toISOString().slice(0, 10),
-      notes: form.notes,
-    };
-    setOps(prev => [newOp, ...prev]);
-    setDialogOpen(false);
+    try {
+      await sharesApi.addOperation({
+        type: form.type,
+        fromAgentId: form.fromAgentId,
+        toAgentId: form.toAgentId,
+        quantity: qty,
+        pricePerShare: price,
+        notes: form.notes,
+      });
+      await reloadAll();
+      setDialogOpen(false);
+      setForm({ ...emptyForm });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось создать операцию');
+    }
   };
 
   const handlePriceSave = () => {

@@ -1,54 +1,21 @@
-import type { ReactNode } from 'react';
-import { Box, Typography, Paper } from '@mui/material';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Box, Typography, Paper, CircularProgress, Alert } from '@mui/material';
 import { motion } from 'framer-motion';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { agents, deals, shareOperations } from '../data/mockData';
+import { statsApi, type OverviewResponse } from '../api/stats';
+import { sharesApi, type ShareQuote } from '../api/shares';
 
-const fmt = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : String(n);
-const fmtRub = (n: number) => `${(n / 1e6).toFixed(1)} млн`;
-
-const monthlyVKD = [
-  { month: 'Янв', vkd: 4.2, income: 3.9, deals: 8 },
-  { month: 'Фев', vkd: 5.8, income: 5.4, deals: 11 },
-  { month: 'Мар', vkd: 3.9, income: 3.6, deals: 7 },
-  { month: 'Апр', vkd: 7.1, income: 6.6, deals: 14 },
-  { month: 'Май', vkd: 8.4, income: 7.8, deals: 17 },
-  { month: 'Июн', vkd: 6.2, income: 5.9, deals: 12 },
-  { month: 'Июл', vkd: 9.5, income: 8.8, deals: 20 },
-  { month: 'Авг', vkd: 11.2, income: 10.4, deals: 23 },
-  { month: 'Сен', vkd: 7.8, income: 7.2, deals: 16 },
-  { month: 'Окт', vkd: 10.1, income: 9.4, deals: 21 },
-  { month: 'Ноя', vkd: 12.3, income: 11.5, deals: 26 },
-  { month: 'Дек', vkd: 14.6, income: 13.6, deals: 31 },
-];
-
-const levelData = [
-  { name: 'Уровень 1 (80%)', value: agents.filter(a => a.level === 1).length, color: '#64748B' },
-  { name: 'Уровень 2 (90%)', value: agents.filter(a => a.level === 2).length, color: '#4361EE' },
-  { name: 'Уровень 3 (95%)', value: agents.filter(a => a.level === 3).length, color: '#C9A84C' },
-];
-
-const cityData = Object.entries(
-  agents.reduce((acc, a) => { acc[a.city] = (acc[a.city] || 0) + 1; return acc; }, {} as Record<string, number>)
-).map(([city, count]) => ({ city, count })).sort((a, b) => b.count - a.count);
-
-const topAgents = [...agents].sort((a, b) => b.vkdYear - a.vkdYear).slice(0, 5);
-
-const shareHistory = shareOperations.map((op, i) => ({
-  date: op.date, price: op.pricePerShare, label: op.notes.slice(0, 20),
-})).sort((a, b) => a.date.localeCompare(b.date));
-
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
   if (!active || !payload?.length) return null;
   return (
     <Box sx={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 2, p: 1.5 }}>
       <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mb: 0.5 }}>{label}</Typography>
-      {payload.map((p: any) => (
+      {payload.map(p => (
         <Typography key={p.name} variant="body2" sx={{ color: p.color, fontWeight: 600 }}>
-          {p.name}: {typeof p.value === 'number' ? (p.name.includes('Сделок') ? p.value : `${p.value} млн ₽`) : p.value}
+          {p.name}: {typeof p.value === 'number' ? (p.name.includes('Сделок') ? p.value : `${p.value.toFixed(1)} млн ₽`) : p.value}
         </Typography>
       ))}
     </Box>
@@ -63,20 +30,66 @@ const card = (content: ReactNode, delay = 0) => (
   </motion.div>
 );
 
+const LEVEL_COLORS: Record<number, string> = { 1: '#64748B', 2: '#4361EE', 3: '#C9A84C' };
+const LEVEL_LABEL: Record<number, string> = { 1: 'Уровень 1 (80%)', 2: 'Уровень 2 (90%)', 3: 'Уровень 3 (95%)' };
+
 export default function Analytics() {
-  const totalVKD = agents.reduce((s, a) => s + a.vkdYear, 0);
-  const totalIncome = agents.reduce((s, a) => s + a.incomeYear, 0);
-  const avgDeal = deals.length > 0 ? deals.reduce((s, d) => s + d.vkd, 0) / deals.length : 0;
+  const [data, setData] = useState<OverviewResponse | null>(null);
+  const [quotes, setQuotes] = useState<ShareQuote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const currentYear = String(new Date().getFullYear());
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      statsApi.overview({ year: currentYear }),
+      sharesApi.quotes(),
+    ])
+      .then(([s, q]) => { if (!cancelled) { setData(s); setQuotes(q); } })
+      .catch(err => { if (!cancelled) setError(err?.message || 'Ошибка загрузки'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
+  if (error)   return <Alert severity="error">{error}</Alert>;
+  if (!data)   return null;
+
+  const totalVKD = data.deals.totalVkd;
+  const totalIncome = data.deals.totalIncome;
+  const avgDeal = data.deals.total > 0 ? totalVKD / data.deals.total : 0;
+
+  // Преобразуем для графиков
+  const monthlyVKD = data.monthlyDeals.map(b => ({
+    month: b.m,
+    vkd: b.vkd / 1e6,
+    income: b.income / 1e6,
+    deals: b.deals,
+  }));
+  const levelData = data.agentsByLevel.map(d => ({
+    name: LEVEL_LABEL[d.level] || `Уровень ${d.level}`,
+    value: d.count,
+    color: LEVEL_COLORS[d.level] || '#94A3B8',
+  }));
+  const cityData = data.agentsByCity.map(c => ({ city: c.city, count: c.agents }));
+  const topAgents = data.topAgents.slice(0, 5);
+  const maxTop = topAgents[0]?.vkd || 1;
+
+  const shareHistory = quotes
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(q => ({ date: q.date, price: q.price }));
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {/* KPI row */}
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         {[
-          { label: 'Общий ВКД (год)', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, sub: 'за 2026 год', color: '#C9A84C' },
+          { label: 'Общий ВКД (год)', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, sub: `за ${currentYear} год`, color: '#C9A84C' },
           { label: 'Доход компании', value: `${(totalIncome / 1e6).toFixed(1)} млн ₽`, sub: 'комиссионные', color: '#22C55E' },
-          { label: 'Средняя сделка', value: `${(avgDeal / 1e6).toFixed(1)} млн ₽`, sub: 'ВКД на сделку', color: '#3B82F6' },
-          { label: 'Всего агентов', value: String(agents.length), sub: `${agents.filter(a => a.status === 'active').length} активных`, color: '#8B5CF6' },
+          { label: 'Средняя сделка', value: `${(avgDeal / 1000).toFixed(0)} тыс ₽`, sub: 'ВКД на сделку', color: '#3B82F6' },
+          { label: 'Всего агентов', value: String(data.agents.total), sub: `${data.agents.active} активных · ${data.agents.inactive} в архиве`, color: '#8B5CF6' },
         ].map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }} style={{ flex: '1 1 180px' }}>
             <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: `1px solid ${s.color}20` }}>
@@ -88,7 +101,7 @@ export default function Analytics() {
         ))}
       </Box>
 
-      {/* Monthly VKD chart */}
+      {/* Monthly VKD + Levels */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' }, gap: 3 }}>
         {card(
           <>
@@ -125,7 +138,7 @@ export default function Analytics() {
                 <Pie data={levelData} cx="50%" cy="50%" innerRadius={52} outerRadius={78} paddingAngle={3} dataKey="value">
                   {levelData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                 </Pie>
-                <Tooltip formatter={(v, n) => [v, n]} contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }} />
+                <Tooltip contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }} />
               </PieChart>
             </ResponsiveContainer>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8, mt: 1 }}>
@@ -143,16 +156,16 @@ export default function Analytics() {
         )}
       </Box>
 
-      {/* City bar + top performers */}
+      {/* City bar + Top-5 */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 3 }}>
         {card(
           <>
             <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9', mb: 2.5 }}>Агенты по городам</Typography>
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={Math.max(220, cityData.length * 28)}>
               <BarChart data={cityData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
                 <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="city" tick={{ fill: '#94A3B8', fontSize: 12 }} axisLine={false} tickLine={false} width={80} />
+                <YAxis type="category" dataKey="city" tick={{ fill: '#94A3B8', fontSize: 12 }} axisLine={false} tickLine={false} width={110} />
                 <Tooltip contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }} />
                 <Bar dataKey="count" name="Агентов" fill="#4361EE" radius={[0, 6, 6, 0]} />
               </BarChart>
@@ -172,10 +185,10 @@ export default function Analytics() {
                   <Box sx={{ flex: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9', fontSize: 13 }}>{a.name.split(' ').slice(0, 2).join(' ')}</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C', fontSize: 13 }}>{(a.vkdYear / 1e6).toFixed(1)} млн</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C', fontSize: 13 }}>{(a.vkd / 1e6).toFixed(1)} млн</Typography>
                     </Box>
                     <Box sx={{ height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.06)' }}>
-                      <Box sx={{ height: '100%', borderRadius: 99, background: i === 0 ? 'linear-gradient(90deg,#C9A84C,#E2C97E)' : '#4361EE', width: `${(a.vkdYear / topAgents[0].vkdYear) * 100}%`, transition: 'width 0.8s ease' }} />
+                      <Box sx={{ height: '100%', borderRadius: 99, background: i === 0 ? 'linear-gradient(90deg,#C9A84C,#E2C97E)' : '#4361EE', width: `${(a.vkd / maxTop) * 100}%`, transition: 'width 0.8s ease' }} />
                     </Box>
                   </Box>
                 </Box>
@@ -185,8 +198,8 @@ export default function Analytics() {
         )}
       </Box>
 
-      {/* Share price trend */}
-      {card(
+      {/* Share price */}
+      {shareHistory.length > 0 && card(
         <>
           <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9', mb: 2.5 }}>История курса акции (₽)</Typography>
           <ResponsiveContainer width="100%" height={160}>
@@ -201,7 +214,7 @@ export default function Analytics() {
               <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
               <Tooltip contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }}
-                formatter={(v: any) => [`${v.toLocaleString('ru-RU')} ₽`, 'Курс']} />
+                formatter={(v: number) => [`${v.toLocaleString('ru-RU')} ₽`, 'Курс']} />
               <Area type="monotone" dataKey="price" stroke="#C9A84C" fill="url(#gShare)" strokeWidth={2.5} dot={{ fill: '#C9A84C', r: 4 }} />
             </AreaChart>
           </ResponsiveContainer>

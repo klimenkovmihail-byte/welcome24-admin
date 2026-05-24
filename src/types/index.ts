@@ -46,6 +46,7 @@ export interface Agent {
   socials: AgentSocials;
   rating: number;        // avg 1.0–5.0
   reviewsCount: number;
+  terminatedAt: string | null;  // ISO дата увольнения, null если работает
 }
 
 export interface Deal {

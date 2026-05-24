@@ -1,0 +1,151 @@
+/**
+ * api/agents — обёртка над /api/agents/* для админки.
+ *
+ * Бэк отдаёт snake_case (parent_id, team_level, reviews_count, ...).
+ * Нормализуем в camelCase к фронтовому типу Agent. Вычисляемые поля
+ * (vkdYear/incomeYear/dealsYear/shares/teamSize/parentName) ставим в 0
+ * — они дополнятся когда подключим Deals/Shares и постфактум считаются
+ * из массива агентов (для teamSize/parentName).
+ */
+
+import { api } from './apiClient';
+import type { Agent, AgentReview, AgentSocials, AgentLevel, AgentStatus, ReviewModeration } from '../types';
+
+type RawAgent = {
+  id: number;
+  email: string;
+  name: string;
+  phone: string;
+  city: string;
+  photo: string | null;
+  bio: string;
+  role: 'admin' | 'agent';
+  status: AgentStatus;
+  level: number;
+  commission: number;
+  parent_id: number | null;
+  team_level: number;
+  join_date: string;
+  experience_years: number;
+  specialization: string[];
+  socials: AgentSocials;
+  rating: number;
+  reviews_count: number;
+  terminated_at: string | null;
+};
+
+type RawReview = {
+  id: number;
+  agent_id: number;
+  author_id: number | null;
+  author_name: string;
+  rating: 1 | 2 | 3 | 4 | 5;
+  text: string;
+  moderation: ReviewModeration;
+  created_at: string;
+};
+
+export function normalizeAgent(raw: RawAgent): Agent {
+  return {
+    id: raw.id,
+    name: raw.name,
+    email: raw.email,
+    phone: raw.phone || '',
+    city: raw.city || '',
+    level: (raw.level || 1) as AgentLevel,
+    commission: (raw.commission || 80) as 80 | 90 | 95,
+    status: raw.status,
+    parentId: raw.parent_id,
+    parentName: null, // обогащается на странице из списка по parentId
+    joinDate: raw.join_date,
+    specialization: raw.specialization || [],
+    vkdYear: 0,      // подключим вместе с Deals
+    incomeYear: 0,
+    dealsYear: 0,
+    shares: 0,       // подключим вместе с Shares
+    teamSize: 0,     // считается на странице из списка
+    photo: raw.photo,
+    bio: raw.bio || '',
+    socials: raw.socials || {},
+    rating: raw.rating || 0,
+    reviewsCount: raw.reviews_count || 0,
+    terminatedAt: raw.terminated_at || null,
+  };
+}
+
+export function normalizeReview(raw: RawReview): AgentReview {
+  return {
+    id: raw.id,
+    agentId: raw.agent_id,
+    authorName: raw.author_name,
+    rating: raw.rating,
+    text: raw.text,
+    createdAt: raw.created_at,
+    moderation: raw.moderation,
+  };
+}
+
+/** Дополняет parentName и teamSize по списку. Вызывать после загрузки. */
+export function enrichAgents(list: Agent[]): Agent[] {
+  const byId = new Map(list.map(a => [a.id, a]));
+  const teamCounts = new Map<number, number>();
+  for (const a of list) {
+    if (a.parentId != null) teamCounts.set(a.parentId, (teamCounts.get(a.parentId) || 0) + 1);
+  }
+  return list.map(a => ({
+    ...a,
+    parentName: a.parentId != null ? (byId.get(a.parentId)?.name ?? null) : null,
+    teamSize: teamCounts.get(a.id) || 0,
+  }));
+}
+
+export interface AgentCreatePayload {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  city?: string;
+  level?: AgentLevel;
+  commission?: 80 | 90 | 95;
+  status?: AgentStatus;
+  parentId?: number | null;
+  specialization?: string[];
+  socials?: AgentSocials;
+  photo?: string | null;
+  bio?: string;
+}
+
+export interface AgentUpdatePayload {
+  name?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  photo?: string | null;
+  bio?: string;
+  status?: AgentStatus;
+  level?: AgentLevel;
+  commission?: 80 | 90 | 95;
+  parentId?: number | null;
+  specialization?: string[];
+  socials?: AgentSocials;
+  password?: string;
+}
+
+export const agentsApi = {
+  list:    () => api.get<RawAgent[]>('/api/agents').then(rows => enrichAgents(rows.map(normalizeAgent))),
+  get:     (id: number) => api.get<RawAgent>(`/api/agents/${id}`).then(normalizeAgent),
+  create:  (payload: AgentCreatePayload) =>
+    api.post<RawAgent>('/api/agents', payload as unknown as Record<string, unknown>).then(normalizeAgent),
+  update:  (id: number, payload: AgentUpdatePayload) =>
+    api.patch<RawAgent>(`/api/agents/${id}`, payload as unknown as Record<string, unknown>).then(normalizeAgent),
+  remove:  (id: number) => api.del<{ ok: true }>(`/api/agents/${id}`),
+
+  reviews: (id: number, opts?: { all?: boolean }) =>
+    api.get<RawReview[]>(`/api/agents/${id}/reviews${opts?.all ? '?all=1' : ''}`).then(rows => rows.map(normalizeReview)),
+  pendingReviews: () =>
+    api.get<RawReview[]>('/api/agents/_all/pending').then(rows => rows.map(normalizeReview)),
+  setReviewModeration: (reviewId: number, moderation: ReviewModeration) =>
+    api.patch<{ ok: true }>(`/api/agents/_review/${reviewId}`, { moderation }),
+  deleteReview: (reviewId: number) =>
+    api.del<{ ok: true }>(`/api/agents/_review/${reviewId}`),
+};

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Box, Typography, Button, TextField, Stack, Divider, Paper,
@@ -26,6 +26,7 @@ import {
   type AchievementTier,
   type AchievementTriggerType,
 } from '../data/mockData';
+import { settingsApi } from '../api/settings';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
@@ -52,22 +53,79 @@ function Section({ title, subtitle, icon, children, delay = 0 }: SectionProps) {
 export default function Settings() {
   const [settings, setSettings] = useState(initialSettings);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [notifs, setNotifs] = useState({ newAgent: true, newDeal: true, paidDeal: false, shareOp: true });
   const [integrations, setIntegrations] = useState({ telegram: false, crm: false, email: true });
   const [plan, setPlan] = useState<MarketingPlanRow[]>(initialPlan);
   const [achievements, setAchievements] = useState<AchievementDef[]>(initialAchievements);
   const [editAch, setEditAch] = useState<AchievementDef | null>(null);
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  // Загрузка с бэка на старте.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      settingsApi.get(),
+      settingsApi.marketingPlan(),
+      settingsApi.achievements(),
+    ])
+      .then(([s, p, a]) => {
+        if (cancelled) return;
+        setSettings(prev => ({ ...prev, sharePrice: s.sharePrice || prev.sharePrice, totalSharesIssued: s.totalSharesIssued || prev.totalSharesIssued, totalSharesAvailable: s.totalSharesAvailable || prev.totalSharesAvailable }));
+        setPlan(p.map(r => ({
+          level: r.level,
+          protected: r.protectedPct,
+          growing: r.growingPct,
+          required: r.requiredL1,
+          capPerAgent: r.capPerAgent,
+        }) as MarketingPlanRow));
+        setAchievements(a.map(x => ({
+          id: x.id,
+          title: x.title,
+          description: x.description,
+          icon: x.icon,
+          tier: x.tier as AchievementTier,
+          trigger: x.triggerType as AchievementTriggerType,
+          threshold: x.threshold,
+          active: x.active,
+        }) as AchievementDef));
+      })
+      .catch(err => { if (!cancelled) setError(err?.message || 'Ошибка загрузки настроек'); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSave = async () => {
+    setError(null);
+    try {
+      await settingsApi.update({
+        share_price: settings.sharePrice,
+        total_shares: settings.totalSharesIssued,
+        available_shares: settings.totalSharesAvailable,
+        level1_threshold: settings.level1Threshold,
+        level2_threshold: settings.level2Threshold,
+      });
+      // Сохраняем план уровней (по каждому уровню).
+      await Promise.all(plan.map(r => settingsApi.updatePlan(r.level, {
+        protected: r.protected,
+        growing: r.growing,
+        required: r.required,
+        capPerAgent: r.capPerAgent,
+      })));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить');
+    }
   };
 
   const updatePlanCell = (level: number, field: keyof MarketingPlanRow, value: number | null) =>
     setPlan(prev => prev.map(r => r.level === level ? { ...r, [field]: value } : r));
 
-  const toggleAchActive = (id: string) =>
-    setAchievements(prev => prev.map(a => a.id === id ? { ...a, active: !a.active } : a));
+  const toggleAchActive = (id: string) => {
+    const cur = achievements.find(a => a.id === id);
+    const next = !(cur?.active ?? true);
+    setAchievements(prev => prev.map(a => a.id === id ? { ...a, active: next } : a));
+    settingsApi.updateAch(id, { active: next }).catch(() => { /* tolerate */ });
+  };
 
   const commissionProgress = [
     { label: 'Уровень 1 → Уровень 2', threshold: settings.level1Threshold, commission: settings.level2Commission, from: settings.level1Commission, color: '#4361EE' },
