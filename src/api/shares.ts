@@ -83,4 +83,5 @@ export const sharesApi = {
   operations:   () => api.get<RawOp[]>('/api/shares/operations').then(rows => rows.map(normalizeOp)),
   addOperation: (p: OperationCreatePayload) =>
     api.post<{ id: number }>('/api/shares/operations', p as unknown as Record<string, unknown>),
+  deleteOperation: (id: number) => api.del<{ ok: true }>(`/api/shares/operations/${id}`),
 };

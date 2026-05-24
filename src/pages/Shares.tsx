@@ -330,7 +330,7 @@ export default function Shares() {
               <TableCell align="right">Цена за акцию</TableCell>
               <TableCell align="right">Сумма</TableCell>
               <TableCell>Дата</TableCell>
-              <TableCell>Примечание</TableCell>
+              <TableCell align="center">Действие</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -373,8 +373,24 @@ export default function Shares() {
                   <TableCell>
                     <Typography variant="caption" sx={{ color: '#64748B' }}>{op.date}</Typography>
                   </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" sx={{ color: '#94A3B8' }}>{op.notes}</Typography>
+                  <TableCell align="center">
+                    <Tooltip title="Удалить операцию (откатит баланс)">
+                      <IconButton
+                        size="small"
+                        sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}
+                        onClick={async () => {
+                          if (!confirm(`Удалить операцию #${op.id}? Баланс агентов будет откатан.`)) return;
+                          try {
+                            await sharesApi.deleteOperation(op.id);
+                            await reloadAll();
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : 'Не удалось удалить');
+                          }
+                        }}
+                      >
+                        <DeleteRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </TableCell>
                 </motion.tr>
               );
