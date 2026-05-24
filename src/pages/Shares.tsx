@@ -265,7 +265,6 @@ export default function Shares() {
                 <TableCell>Дата</TableCell>
                 <TableCell align="right">Цена за акцию</TableCell>
                 <TableCell align="right">Изменение</TableCell>
-                <TableCell>Примечание</TableCell>
                 <TableCell align="center">Действие</TableCell>
               </TableRow>
             </TableHead>
@@ -294,9 +293,6 @@ export default function Shares() {
                       ) : (
                         <Typography variant="caption" sx={{ color: '#475569' }}>—</Typography>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption" sx={{ color: '#94A3B8' }}>{q.note}</Typography>
                     </TableCell>
                     <TableCell align="center">
                       <IconButton size="small" onClick={() => handleDeleteQuote(q.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
@@ -572,9 +568,6 @@ export default function Shares() {
             <TextField fullWidth size="small" label="Цена за акцию (₽)" type="number" value={quoteForm.price}
               onChange={e => setQuoteForm(f => ({ ...f, price: e.target.value }))}
               slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }} />
-            <TextField fullWidth size="small" label="Примечание" value={quoteForm.note}
-              onChange={e => setQuoteForm(f => ({ ...f, note: e.target.value }))}
-              placeholder="Например, Q4 2026 итоги" />
             <Alert severity="info" sx={{ py: 0.5 }}>
               После добавления курс автоматически синхронизируется с последней котировкой
             </Alert>
