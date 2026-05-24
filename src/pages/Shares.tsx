@@ -22,6 +22,8 @@ import { companySettings as initialSettings } from '../data/mockData';
 import type { ShareOperationType, Agent } from '../types';
 import { sharesApi, type ShareOperation, type ShareQuote } from '../api/shares';
 import { agentsApi } from '../api/agents';
+import { settingsApi } from '../api/settings';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
@@ -55,6 +57,8 @@ export default function Shares() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [priceDialogOpen, setPriceDialogOpen] = useState(false);
   const [newPrice, setNewPrice] = useState(String(initialSettings.sharePrice));
+  const [totalDialogOpen, setTotalDialogOpen] = useState(false);
+  const [newTotal, setNewTotal] = useState(String(initialSettings.totalSharesIssued));
   const [filterType, setFilterType] = useState<ShareOperationType | 'all'>('all');
   const [form, setForm] = useState<FormState>({ ...emptyForm });
 
@@ -68,6 +72,9 @@ export default function Shares() {
       if (qs.length) setSettings(s => ({ ...s, sharePrice: qs[qs.length - 1].price }));
     }).catch(() => { /* tolerate */ }),
     agentsApi.list().then(setAgents).catch(() => { /* tolerate */ }),
+    settingsApi.get().then(s => {
+      setSettings(prev => ({ ...prev, totalSharesIssued: s.totalSharesIssued || prev.totalSharesIssued }));
+    }).catch(() => { /* tolerate */ }),
   ]);
 
   useEffect(() => { reloadAll(); }, []);
@@ -114,6 +121,15 @@ export default function Shares() {
     if (form.type === 'transfer' && (!form.fromAgentId || !form.toAgentId)) return;
     if (form.type === 'buyback' && !form.fromAgentId) return;
 
+    // Контроль лимита: эмиссия не может превысить общее число акций.
+    if (form.type === 'issue') {
+      const inCirculation = totalIssued - totalBuyback;
+      if (inCirculation + qty > settings.totalSharesIssued) {
+        setError(`Превышен лимит: всего акций ${fmt(settings.totalSharesIssued)}, в обращении ${fmt(inCirculation)}, можно эмитировать максимум ${fmt(settings.totalSharesIssued - inCirculation)} шт. Увеличьте лимит или измените количество.`);
+        return;
+      }
+    }
+
     try {
       await sharesApi.addOperation({
         type: form.type,
@@ -156,9 +172,12 @@ export default function Shares() {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            <Box sx={{ textAlign: 'right' }}>
+            <Box sx={{ textAlign: 'right', cursor: 'pointer' }} onClick={() => { setNewTotal(String(settings.totalSharesIssued)); setTotalDialogOpen(true); }}>
               <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>Всего акций</Typography>
-              <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{fmt(settings.totalSharesIssued)}</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
+                <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{fmt(settings.totalSharesIssued)}</Typography>
+                <EditRoundedIcon sx={{ fontSize: 14, color: '#64748B' }} />
+              </Box>
             </Box>
             <Box sx={{ textAlign: 'right' }}>
               <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>В обращении</Typography>
@@ -489,6 +508,52 @@ export default function Shares() {
           <Button onClick={() => setPriceDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
           <Button variant="contained" onClick={handlePriceSave} disabled={!parseFloat(newPrice) || parseFloat(newPrice) <= 0}>
             Установить курс
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Изменить общее число акций */}
+      <Dialog open={totalDialogOpen} onClose={() => setTotalDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Общее количество акций</Typography>
+        </DialogTitle>
+        <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
+        <DialogContent sx={{ pt: 3 }}>
+          <Stack spacing={2}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, borderRadius: 2, background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)' }}>
+              <Typography variant="body2" sx={{ color: '#94A3B8' }}>Сейчас всего</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{fmt(settings.totalSharesIssued)} шт</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, borderRadius: 2, background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.12)' }}>
+              <Typography variant="body2" sx={{ color: '#94A3B8' }}>В обращении</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: '#22C55E' }}>{fmt(totalIssued - totalBuyback)} шт</Typography>
+            </Box>
+            <TextField
+              fullWidth label="Новое значение" type="number" value={newTotal}
+              onChange={e => setNewTotal(e.target.value)} size="small"
+              helperText={`Не может быть меньше чем в обращении (${fmt(totalIssued - totalBuyback)})`}
+            />
+            {parseInt(newTotal) > 0 && parseInt(newTotal) < (totalIssued - totalBuyback) && (
+              <Alert severity="error" sx={{ py: 0.5 }}>Значение меньше количества в обращении — нельзя</Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => setTotalDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
+          <Button variant="contained"
+            disabled={!parseInt(newTotal) || parseInt(newTotal) < (totalIssued - totalBuyback)}
+            onClick={async () => {
+              const n = parseInt(newTotal);
+              try {
+                await settingsApi.update({ total_shares: n });
+                setSettings(s => ({ ...s, totalSharesIssued: n }));
+                setTotalDialogOpen(false);
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Не удалось сохранить');
+              }
+            }}
+          >
+            Сохранить
           </Button>
         </DialogActions>
       </Dialog>
