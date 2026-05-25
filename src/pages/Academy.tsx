@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel,
   Stack, Divider, Grid, InputAdornment, Tabs, Tab, Switch, FormControlLabel,
+  Alert, CircularProgress,
 } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -21,11 +22,11 @@ import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded';
 import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 import {
-  adminCourses, adminWebinars, adminEvents,
   COURSE_CATEGORIES, WEBINAR_TOPICS,
   type AdminCourse, type AdminWebinar, type AdminEvent, type AdminEventFormat, type AdminLesson,
   type AcademyCategoryName, type WebinarTopicName,
 } from '../data/mockData';
+import { academyApi } from '../api/academy';
 
 const LEVELS = ['Начинающий', 'Средний', 'Продвинутый'] as const;
 const FORMATS: { value: AdminEventFormat; label: string; color: string }[] = [
@@ -44,14 +45,17 @@ const cardSx = {
 
 export default function Academy() {
   const [tab, setTab] = useState<'courses' | 'webinars' | 'events'>('courses');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   // ============== COURSES STATE ==============
-  const [courses, setCourses] = useState<AdminCourse[]>(adminCourses);
+  const [courses, setCourses] = useState<AdminCourse[]>([]);
   const [coursesSearch, setCoursesSearch] = useState('');
   const [coursesCat, setCoursesCat] = useState<string>('all');
   const [courseDlgOpen, setCourseDlgOpen] = useState(false);
   const emptyCourse = (): AdminCourse => ({
-    id: Date.now(), title: '', description: '', category: 'Базовый', level: 'Начинающий',
+    id: 0, title: '', description: '', category: 'Базовый', level: 'Начинающий',
     coverUrl: '', duration: '', author: '', lessons: [], rating: 0, ratingCount: 0, published: false,
   });
   const [courseForm, setCourseForm] = useState<AdminCourse>(emptyCourse());
@@ -64,30 +68,63 @@ export default function Academy() {
   const openCourseEdit = (c: AdminCourse) => { setCourseForm({ ...c, lessons: c.lessons.map(l => ({ ...l })) }); setCourseDlgOpen(true); };
   const openCourseNew = () => { setCourseForm(emptyCourse()); setCourseDlgOpen(true); };
 
-  const saveCourse = () => {
-    if (!courseForm.title.trim()) return;
-    const existing = courses.find(c => c.id === courseForm.id);
-    if (existing) {
-      setCourses(prev => prev.map(c => c.id === courseForm.id ? courseForm : c));
-    } else {
-      setCourses(prev => [...prev, { ...courseForm, id: Date.now() }]);
+  const saveCourse = async () => {
+    if (!courseForm.title.trim() || saving) return;
+    setSaving(true);
+    try {
+      const payload = {
+        title: courseForm.title,
+        description: courseForm.description,
+        category: courseForm.category,
+        level: courseForm.level,
+        coverUrl: courseForm.coverUrl,
+        duration: courseForm.duration,
+        authorName: courseForm.author,
+        published: courseForm.published,
+        lessons: courseForm.lessons.map(l => ({ title: l.title, duration: l.duration, videoUrl: l.videoUrl })),
+      };
+      if (courseForm.id > 0) {
+        await academyApi.updateCourse(courseForm.id, payload);
+      } else {
+        await academyApi.createCourse(payload);
+      }
+      setCourseDlgOpen(false);
+      await loadCourses();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка сохранения курса');
+    } finally {
+      setSaving(false);
     }
-    setCourseDlgOpen(false);
   };
-  const deleteCourse = (id: number) => setCourses(prev => prev.filter(c => c.id !== id));
-  const togglePublishCourse = (id: number) => setCourses(prev => prev.map(c => c.id === id ? { ...c, published: !c.published } : c));
+  const deleteCourse = async (id: number) => {
+    if (!confirm('Удалить курс?')) return;
+    try {
+      await academyApi.removeCourse(id);
+      setCourses(prev => prev.filter(c => c.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    }
+  };
+  const togglePublishCourse = async (c: AdminCourse) => {
+    try {
+      await academyApi.updateCourse(c.id, { published: !c.published });
+      setCourses(prev => prev.map(x => x.id === c.id ? { ...x, published: !x.published } : x));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка обновления');
+    }
+  };
 
   const addLesson = () => setCourseForm(f => ({ ...f, lessons: [...f.lessons, { id: Date.now(), title: '', duration: '', videoUrl: '' }] }));
   const updateLesson = (i: number, patch: Partial<AdminLesson>) => setCourseForm(f => ({ ...f, lessons: f.lessons.map((l, idx) => idx === i ? { ...l, ...patch } : l) }));
   const removeLesson = (i: number) => setCourseForm(f => ({ ...f, lessons: f.lessons.filter((_, idx) => idx !== i) }));
 
   // ============== WEBINARS STATE ==============
-  const [webinars, setWebinars] = useState<AdminWebinar[]>(adminWebinars);
+  const [webinars, setWebinars] = useState<AdminWebinar[]>([]);
   const [webinarSearch, setWebinarSearch] = useState('');
   const [webinarTopic, setWebinarTopic] = useState<string>('all');
   const [webinarDlgOpen, setWebinarDlgOpen] = useState(false);
   const emptyWebinar = (): AdminWebinar => ({
-    id: Date.now(), title: '', description: '', topic: 'Новостройки', coverUrl: '', videoUrl: '',
+    id: 0, title: '', description: '', topic: 'Новостройки', coverUrl: '', videoUrl: '',
     duration: '', date: new Date().toISOString().slice(0, 10), speaker: '', views: 0, likes: 0, published: false, isNew: true,
   });
   const [webinarForm, setWebinarForm] = useState<AdminWebinar>(emptyWebinar());
@@ -99,23 +136,58 @@ export default function Academy() {
 
   const openWebinarEdit = (w: AdminWebinar) => { setWebinarForm({ ...w }); setWebinarDlgOpen(true); };
   const openWebinarNew = () => { setWebinarForm(emptyWebinar()); setWebinarDlgOpen(true); };
-  const saveWebinar = () => {
-    if (!webinarForm.title.trim()) return;
-    if (webinars.find(w => w.id === webinarForm.id)) {
-      setWebinars(prev => prev.map(w => w.id === webinarForm.id ? webinarForm : w));
-    } else {
-      setWebinars(prev => [...prev, { ...webinarForm, id: Date.now() }]);
+  const saveWebinar = async () => {
+    if (!webinarForm.title.trim() || saving) return;
+    setSaving(true);
+    try {
+      const payload = {
+        title: webinarForm.title,
+        description: webinarForm.description,
+        topic: webinarForm.topic,
+        videoUrl: webinarForm.videoUrl,
+        coverUrl: webinarForm.coverUrl,
+        duration: webinarForm.duration,
+        date: webinarForm.date,
+        speakerName: webinarForm.speaker,
+        isNew: webinarForm.isNew,
+        published: webinarForm.published,
+      };
+      if (webinarForm.id > 0) {
+        await academyApi.updateWebinar(webinarForm.id, payload);
+      } else {
+        await academyApi.createWebinar(payload);
+      }
+      setWebinarDlgOpen(false);
+      await loadWebinars();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка сохранения вебинара');
+    } finally {
+      setSaving(false);
     }
-    setWebinarDlgOpen(false);
   };
-  const deleteWebinar = (id: number) => setWebinars(prev => prev.filter(w => w.id !== id));
-  const togglePublishWebinar = (id: number) => setWebinars(prev => prev.map(w => w.id === id ? { ...w, published: !w.published } : w));
+  const deleteWebinar = async (id: number) => {
+    if (!confirm('Удалить запись вебинара?')) return;
+    try {
+      await academyApi.removeWebinar(id);
+      setWebinars(prev => prev.filter(w => w.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    }
+  };
+  const togglePublishWebinar = async (w: AdminWebinar) => {
+    try {
+      await academyApi.updateWebinar(w.id, { published: !w.published });
+      setWebinars(prev => prev.map(x => x.id === w.id ? { ...x, published: !x.published } : x));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка обновления');
+    }
+  };
 
   // ============== EVENTS STATE ==============
-  const [events, setEvents] = useState<AdminEvent[]>(adminEvents);
+  const [events, setEvents] = useState<AdminEvent[]>([]);
   const [eventDlgOpen, setEventDlgOpen] = useState(false);
   const emptyEvent = (): AdminEvent => ({
-    id: Date.now(), title: '', description: '', date: new Date().toISOString().slice(0, 10),
+    id: 0, title: '', description: '', date: new Date().toISOString().slice(0, 10),
     startTime: '14:00', endTime: '15:30', speaker: '', format: 'webinar', topic: '',
     location: 'Онлайн', link: '', capacity: null, registered: 0, published: true,
   });
@@ -123,22 +195,78 @@ export default function Academy() {
 
   const openEventEdit = (e: AdminEvent) => { setEventForm({ ...e }); setEventDlgOpen(true); };
   const openEventNew = () => { setEventForm(emptyEvent()); setEventDlgOpen(true); };
-  const saveEvent = () => {
-    if (!eventForm.title.trim()) return;
-    if (events.find(e => e.id === eventForm.id)) {
-      setEvents(prev => prev.map(e => e.id === eventForm.id ? eventForm : e));
-    } else {
-      setEvents(prev => [...prev, { ...eventForm, id: Date.now() }]);
+  const saveEvent = async () => {
+    if (!eventForm.title.trim() || saving) return;
+    setSaving(true);
+    try {
+      const payload = {
+        title: eventForm.title,
+        description: eventForm.description,
+        date: eventForm.date,
+        startTime: eventForm.startTime,
+        endTime: eventForm.endTime,
+        speakerName: eventForm.speaker,
+        format: eventForm.format,
+        topic: eventForm.topic,
+        location: eventForm.location,
+        link: eventForm.link,
+        capacity: eventForm.capacity,
+        published: eventForm.published,
+      };
+      if (eventForm.id > 0) {
+        await academyApi.updateEvent(eventForm.id, payload);
+      } else {
+        await academyApi.createEvent(payload);
+      }
+      setEventDlgOpen(false);
+      await loadEvents();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка сохранения события');
+    } finally {
+      setSaving(false);
     }
-    setEventDlgOpen(false);
   };
-  const deleteEvent = (id: number) => setEvents(prev => prev.filter(e => e.id !== id));
+  const deleteEvent = async (id: number) => {
+    if (!confirm('Удалить событие?')) return;
+    try {
+      await academyApi.removeEvent(id);
+      setEvents(prev => prev.filter(e => e.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    }
+  };
 
-  // Sorted events (upcoming first)
   const sortedEvents = [...events].sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+
+  // ============== LOADERS ==============
+  const loadCourses = async () => {
+    try { setCourses(await academyApi.listCourses()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Ошибка загрузки курсов'); }
+  };
+  const loadWebinars = async () => {
+    try { setWebinars(await academyApi.listWebinars()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Ошибка загрузки вебинаров'); }
+  };
+  const loadEvents = async () => {
+    try { setEvents(await academyApi.listEvents()); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Ошибка загрузки событий'); }
+  };
+
+  useEffect(() => {
+    (async () => {
+      await Promise.all([loadCourses(), loadWebinars(), loadEvents()]);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) {
+    return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>;
+  }
 
   return (
     <Box>
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
       {/* Stats row */}
       <Grid container spacing={2.5} sx={{ mb: 3 }}>
         {[
@@ -226,7 +354,7 @@ export default function Academy() {
                       </Box>
                       <Typography variant="caption" sx={{ color: '#64748B', mb: 1.5 }}>Автор: <b style={{ color: '#94A3B8' }}>{c.author}</b></Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button size="small" variant="outlined" onClick={() => togglePublishCourse(c.id)}
+                        <Button size="small" variant="outlined" onClick={() => togglePublishCourse(c)}
                           sx={{ flex: 1, borderColor: c.published ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)', color: c.published ? '#F59E0B' : '#22C55E', fontSize: 12,
                             '&:hover': { borderColor: c.published ? '#F59E0B' : '#22C55E', background: c.published ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)' } }}>
                           {c.published ? 'Снять' : 'Опубликовать'}
@@ -303,7 +431,7 @@ export default function Academy() {
                         Спикер: <b style={{ color: '#94A3B8' }}>{w.speaker}</b> · {new Date(w.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: '2-digit' })}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button size="small" variant="outlined" onClick={() => togglePublishWebinar(w.id)}
+                        <Button size="small" variant="outlined" onClick={() => togglePublishWebinar(w)}
                           sx={{ flex: 1, borderColor: w.published ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)', color: w.published ? '#F59E0B' : '#22C55E', fontSize: 12,
                             '&:hover': { borderColor: w.published ? '#F59E0B' : '#22C55E', background: w.published ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)' } }}>
                           {w.published ? 'Снять' : 'Опубликовать'}
@@ -413,7 +541,7 @@ export default function Academy() {
       <Dialog open={courseDlgOpen} onClose={() => setCourseDlgOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
-            {courses.find(c => c.id === courseForm.id) ? 'Редактировать курс' : 'Новый курс'}
+            {courseForm.id > 0 ? 'Редактировать курс' : 'Новый курс'}
           </Typography>
           <IconButton size="small" onClick={() => setCourseDlgOpen(false)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
         </DialogTitle>
@@ -480,8 +608,8 @@ export default function Academy() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setCourseDlgOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={saveCourse} disabled={!courseForm.title.trim()}>
+          <Button onClick={() => setCourseDlgOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={saveCourse} disabled={!courseForm.title.trim() || saving}>
             Сохранить курс
           </Button>
         </DialogActions>
@@ -491,7 +619,7 @@ export default function Academy() {
       <Dialog open={webinarDlgOpen} onClose={() => setWebinarDlgOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
-            {webinars.find(w => w.id === webinarForm.id) ? 'Редактировать запись' : 'Новая запись вебинара'}
+            {webinarForm.id > 0 ? 'Редактировать запись' : 'Новая запись вебинара'}
           </Typography>
           <IconButton size="small" onClick={() => setWebinarDlgOpen(false)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
         </DialogTitle>
@@ -520,8 +648,8 @@ export default function Academy() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setWebinarDlgOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={saveWebinar} disabled={!webinarForm.title.trim()}>Сохранить</Button>
+          <Button onClick={() => setWebinarDlgOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={saveWebinar} disabled={!webinarForm.title.trim() || saving}>Сохранить</Button>
         </DialogActions>
       </Dialog>
 
@@ -529,7 +657,7 @@ export default function Academy() {
       <Dialog open={eventDlgOpen} onClose={() => setEventDlgOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
-            {events.find(e => e.id === eventForm.id) ? 'Редактировать событие' : 'Новое событие'}
+            {eventForm.id > 0 ? 'Редактировать событие' : 'Новое событие'}
           </Typography>
           <IconButton size="small" onClick={() => setEventDlgOpen(false)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
         </DialogTitle>
@@ -562,8 +690,8 @@ export default function Academy() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setEventDlgOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={saveEvent} disabled={!eventForm.title.trim()}>Сохранить событие</Button>
+          <Button onClick={() => setEventDlgOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={saveEvent} disabled={!eventForm.title.trim() || saving}>Сохранить событие</Button>
         </DialogActions>
       </Dialog>
     </Box>

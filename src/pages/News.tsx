@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Stack, Divider, Paper, Grid,
-  InputAdornment, Switch, FormControlLabel,
+  InputAdornment, Switch, FormControlLabel, Alert, CircularProgress,
 } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -16,37 +16,7 @@ import ImageRoundedIcon from '@mui/icons-material/ImageRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
-
-interface Article {
-  id: number;
-  title: string;
-  category: string;
-  summary: string;
-  content: string;
-  coverUrl: string;
-  author: string;
-  date: string;
-  published: boolean;
-  pinned: boolean;
-  likes: number;
-}
-
-interface ArticleComment {
-  id: number;
-  articleId: number;
-  author: string;
-  initials: string;
-  text: string;
-  createdAt: string;
-}
-
-const initialComments: ArticleComment[] = [
-  { id: 1, articleId: 1, author: 'Кулаков Степан',    initials: 'КС', text: 'Подтверждаю — у меня на этой неделе 4 показа, все ушли в задаток. Год назад такого темпа не было.', createdAt: '2026-05-22' },
-  { id: 2, articleId: 1, author: 'Радченко Дмитрий', initials: 'РД', text: 'В Краснодаре та же картина. Особенно по 1-2-комнатным до 8 млн.',                                createdAt: '2026-05-23' },
-  { id: 3, articleId: 2, author: 'Мухин Вячеслав',   initials: 'МВ', text: 'Долгожданное изменение! Уже подсчитал, что мой пассивный доход вырастет почти на 15%.',          createdAt: '2026-05-20' },
-  { id: 4, articleId: 4, author: 'Бондарь Светлана', initials: 'БС', text: 'Пункт 5 про follow-up — мой главный инсайт за последний год. Конверсия выросла в 2 раза.',         createdAt: '2026-05-17' },
-  { id: 5, articleId: 4, author: 'Аноним',           initials: '?',  text: 'Спам спам спам — купите наш курс на нашсайт.ру',                                                  createdAt: '2026-05-24' },
-];
+import { newsApi, type Article, type ArticleComment, type ArticlePayload } from '../api/news';
 
 const CATEGORIES = ['Компания', 'Рынок', 'Обучение', 'Итоги', 'Партнёры', 'Объявления'];
 
@@ -59,32 +29,90 @@ const catColor: Record<string, { bg: string; color: string }> = {
   'Объявления': { bg: 'rgba(239,68,68,0.12)', color: '#F87171' },
 };
 
-const initArticles: Article[] = [
-  { id: 1, title: 'Welcome 24 вошли в ТОП-10 агентств Москвы', category: 'Итоги', summary: 'По итогам мая 2026 года агентство Welcome 24 заняло 7-е место в рейтинге московских риелторских компаний.', content: '', coverUrl: '', author: 'Михаил Клименков', date: '2026-05-20', published: true, pinned: true, likes: 87 },
-  { id: 2, title: 'Новые условия ипотеки — что важно знать', category: 'Рынок', summary: 'ЦБ снизил ключевую ставку. Рассказываем, как изменились программы ипотечного кредитования.', content: '', coverUrl: '', author: 'Редакция', date: '2026-05-18', published: true, pinned: false, likes: 142 },
-  { id: 3, title: 'Открытие офиса в Краснодаре', category: 'Компания', summary: 'С 1 июня начинает работу наш новый офис в Краснодаре. Приглашаем агентов присоединиться к команде.', content: '', coverUrl: '', author: 'Михаил Клименков', date: '2026-05-15', published: true, pinned: false, likes: 94 },
-  { id: 4, title: 'Вебинар: Работа с VIP-клиентами', category: 'Обучение', summary: 'Приглашаем на онлайн-вебинар 28 мая. Спикер — Кулаков Степан, топ-агент по загородной недвижимости.', content: '', coverUrl: '', author: 'Академия W24', date: '2026-05-10', published: false, pinned: false, likes: 56 },
-];
+type FormState = Omit<Article, 'id' | 'likes'> & { id: number | null };
 
-const emptyArticle = (): Article => ({
-  id: Date.now(), title: '', category: 'Компания', summary: '', content: '',
-  coverUrl: '', author: 'Администратор', date: new Date().toISOString().slice(0, 10),
-  likes: 0,
-  published: false, pinned: false,
+const emptyForm = (): FormState => ({
+  id: null,
+  title: '',
+  category: 'Компания',
+  summary: '',
+  content: '',
+  coverUrl: '',
+  author: 'Администратор',
+  date: new Date().toISOString().slice(0, 10),
+  readTime: '3 мин',
+  pinned: false,
+  published: false,
 });
 
+function toPayload(f: FormState, override?: { published?: boolean }): ArticlePayload {
+  return {
+    title: f.title.trim(),
+    summary: f.summary,
+    content: f.content,
+    category: f.category,
+    coverUrl: f.coverUrl,
+    authorName: f.author,
+    date: f.date,
+    readTime: f.readTime,
+    isFeatured: f.pinned,
+    published: override?.published ?? f.published,
+  };
+}
+
 export default function News() {
-  const [articles, setArticles] = useState<Article[]>(initArticles);
-  const [comments, setComments] = useState<ArticleComment[]>(initialComments);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const [comments, setComments] = useState<ArticleComment[]>([]);
+  const [commentsCount, setCommentsCount] = useState<Record<number, number>>({});
   const [commentsDlgFor, setCommentsDlgFor] = useState<Article | null>(null);
 
-  const deleteComment = (id: number) => setComments(prev => prev.filter(c => c.id !== id));
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('all');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editArticle, setEditArticle] = useState<Article | null>(null);
-  const [form, setForm] = useState<Article>(emptyArticle());
+  const [form, setForm] = useState<FormState>(emptyForm());
   const [preview, setPreview] = useState(false);
+
+  const loadArticles = async () => {
+    try {
+      setError(null);
+      const rows = await newsApi.list();
+      setArticles(rows);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить статьи');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadArticles(); }, []);
+
+  // Подгружаем счётчики комментариев лениво на каждую статью один раз
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const need = articles.filter(a => commentsCount[a.id] === undefined);
+      if (need.length === 0) return;
+      const results = await Promise.all(need.map(async a => {
+        try {
+          const list = await newsApi.comments(a.id);
+          return [a.id, list.length] as const;
+        } catch {
+          return [a.id, 0] as const;
+        }
+      }));
+      if (cancelled) return;
+      setCommentsCount(prev => {
+        const next = { ...prev };
+        for (const [id, n] of results) next[id] = n;
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [articles, commentsCount]);
 
   const filtered = articles.filter(a => {
     const q = search.toLowerCase();
@@ -93,26 +121,86 @@ export default function News() {
     return matchQ && matchCat;
   });
 
-  const openCreate = () => { setEditArticle(null); setForm(emptyArticle()); setPreview(false); setDialogOpen(true); };
-  const openEdit = (a: Article) => { setEditArticle(a); setForm({ ...a }); setPreview(false); setDialogOpen(true); };
-
-  const handleSave = (publish?: boolean) => {
-    const finalForm = publish !== undefined ? { ...form, published: publish } : form;
-    if (!finalForm.title.trim()) return;
-    if (editArticle) {
-      setArticles(prev => prev.map(a => a.id === editArticle.id ? finalForm : a));
-    } else {
-      setArticles(prev => [finalForm, ...prev]);
-    }
-    setDialogOpen(false);
+  const openCreate = () => { setForm(emptyForm()); setPreview(false); setDialogOpen(true); };
+  const openEdit = (a: Article) => {
+    setForm({
+      id: a.id, title: a.title, category: a.category, summary: a.summary, content: a.content,
+      coverUrl: a.coverUrl, author: a.author, date: a.date, readTime: a.readTime,
+      pinned: a.pinned, published: a.published,
+    });
+    setPreview(false);
+    setDialogOpen(true);
   };
 
-  const deleteArticle = (id: number) => setArticles(prev => prev.filter(a => a.id !== id));
-  const togglePublish = (id: number) => setArticles(prev => prev.map(a => a.id === id ? { ...a, published: !a.published } : a));
-  const togglePin = (id: number) => setArticles(prev => prev.map(a => a.id === id ? { ...a, pinned: !a.pinned } : a));
+  const handleSave = async (publishOverride?: boolean) => {
+    if (!form.title.trim() || saving) return;
+    setSaving(true);
+    try {
+      const payload = toPayload(form, publishOverride !== undefined ? { published: publishOverride } : undefined);
+      if (form.id != null) {
+        await newsApi.update(form.id, payload);
+      } else {
+        await newsApi.create(payload);
+      }
+      setDialogOpen(false);
+      await loadArticles();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка сохранения');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteArticle = async (id: number) => {
+    if (!confirm('Удалить статью?')) return;
+    try {
+      await newsApi.remove(id);
+      setArticles(prev => prev.filter(a => a.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    }
+  };
+
+  const togglePublish = async (a: Article) => {
+    try {
+      await newsApi.update(a.id, { published: !a.published });
+      setArticles(prev => prev.map(x => x.id === a.id ? { ...x, published: !x.published } : x));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка обновления');
+    }
+  };
+
+  const openComments = async (a: Article) => {
+    setCommentsDlgFor(a);
+    try {
+      const list = await newsApi.comments(a.id);
+      setComments(list);
+      setCommentsCount(prev => ({ ...prev, [a.id]: list.length }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки комментариев');
+    }
+  };
+
+  const deleteComment = async (id: number) => {
+    try {
+      await newsApi.deleteComment(id);
+      setComments(prev => prev.filter(c => c.id !== id));
+      if (commentsDlgFor) {
+        setCommentsCount(prev => ({ ...prev, [commentsDlgFor.id]: Math.max(0, (prev[commentsDlgFor.id] || 1) - 1) }));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка удаления комментария');
+    }
+  };
+
+  if (loading) {
+    return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>;
+  }
 
   return (
     <Box>
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
       {/* Stats */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         {[
@@ -159,7 +247,6 @@ export default function News() {
                       <Box sx={{ position: 'absolute', top: 0, right: 0, width: 0, height: 0, borderStyle: 'solid', borderWidth: '0 32px 32px 0', borderColor: `transparent #C9A84C transparent transparent` }} />
                     )}
 
-                    {/* Cover */}
                     <Box sx={{ height: 80, borderRadius: 2, mb: 2, background: `linear-gradient(135deg, ${cc.color}15, ${cc.color}05)`, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${cc.color}15` }}>
                       <ArticleRoundedIcon sx={{ fontSize: 32, color: cc.color, opacity: 0.5 }} />
                     </Box>
@@ -186,19 +273,19 @@ export default function News() {
                         </Box>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
                           <ChatBubbleOutlineRoundedIcon sx={{ fontSize: 13 }} />
-                          <Typography variant="caption" fontSize={11}>{comments.filter(c => c.articleId === article.id).length}</Typography>
+                          <Typography variant="caption" fontSize={11}>{commentsCount[article.id] ?? '…'}</Typography>
                         </Box>
                       </Box>
                     </Box>
 
                     <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Button size="small" variant="outlined" onClick={() => togglePublish(article.id)} sx={{ flex: 1, fontSize: 12,
+                      <Button size="small" variant="outlined" onClick={() => togglePublish(article)} sx={{ flex: 1, fontSize: 12,
                         borderColor: article.published ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)',
                         color: article.published ? '#F59E0B' : '#22C55E',
                         '&:hover': { borderColor: article.published ? '#F59E0B' : '#22C55E', background: article.published ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)' } }}>
                         {article.published ? 'Скрыть' : 'Опубликовать'}
                       </Button>
-                      <IconButton size="small" onClick={() => setCommentsDlgFor(article)} sx={{ color: '#64748B', '&:hover': { color: '#4361EE' } }}>
+                      <IconButton size="small" onClick={() => openComments(article)} sx={{ color: '#64748B', '&:hover': { color: '#4361EE' } }}>
                         <ChatBubbleOutlineRoundedIcon fontSize="small" />
                       </IconButton>
                       <IconButton size="small" onClick={() => openEdit(article)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
@@ -226,7 +313,7 @@ export default function News() {
       {/* Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>{editArticle ? 'Редактировать статью' : 'Новая статья'}</Typography>
+          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>{form.id != null ? 'Редактировать статью' : 'Новая статья'}</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button size="small" startIcon={<VisibilityRoundedIcon />} onClick={() => setPreview(!preview)}
               sx={{ color: preview ? '#C9A84C' : '#64748B', fontSize: 12 }}>
@@ -273,12 +360,12 @@ export default function News() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="outlined" onClick={() => handleSave(false)} sx={{ borderColor: 'rgba(245,158,11,0.3)', color: '#F59E0B' }}>
+          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="outlined" onClick={() => handleSave(false)} disabled={saving} sx={{ borderColor: 'rgba(245,158,11,0.3)', color: '#F59E0B' }}>
             Сохранить черновик
           </Button>
-          <Button variant="contained" onClick={() => handleSave(true)} disabled={!form.title.trim()}>
-            {editArticle ? 'Сохранить' : 'Опубликовать'}
+          <Button variant="contained" onClick={() => handleSave(true)} disabled={!form.title.trim() || saving}>
+            {form.id != null ? 'Сохранить' : 'Опубликовать'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -299,7 +386,7 @@ export default function News() {
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 2 }}>
           {commentsDlgFor && (() => {
-            const list = comments.filter(c => c.articleId === commentsDlgFor.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+            const list = [...comments].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
             if (list.length === 0) {
               return (
                 <Box sx={{ py: 4, textAlign: 'center' }}>
@@ -309,28 +396,31 @@ export default function News() {
             }
             return (
               <Stack spacing={1.5}>
-                {list.map(c => (
-                  <Box key={c.id} sx={{
-                    p: 2, borderRadius: 2,
-                    background: 'rgba(255,255,255,0.025)',
-                    border: '1px solid rgba(255,255,255,0.05)',
-                    display: 'flex', gap: 1.5, alignItems: 'flex-start',
-                  }}>
-                    <Box sx={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(100,116,139,0.4)', color: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-                      {c.initials}
-                    </Box>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{c.author}</Typography>
-                        <Typography variant="caption" sx={{ color: '#64748B' }}>{c.createdAt}</Typography>
+                {list.map(c => {
+                  const initials = c.authorName.split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';
+                  return (
+                    <Box key={c.id} sx={{
+                      p: 2, borderRadius: 2,
+                      background: 'rgba(255,255,255,0.025)',
+                      border: '1px solid rgba(255,255,255,0.05)',
+                      display: 'flex', gap: 1.5, alignItems: 'flex-start',
+                    }}>
+                      <Box sx={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(100,116,139,0.4)', color: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                        {initials}
                       </Box>
-                      <Typography variant="body2" sx={{ color: '#CBD5E1', mb: 1, lineHeight: 1.5 }}>{c.text}</Typography>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{c.authorName}</Typography>
+                          <Typography variant="caption" sx={{ color: '#64748B' }}>{c.createdAt.slice(0, 10)}</Typography>
+                        </Box>
+                        <Typography variant="body2" sx={{ color: '#CBD5E1', mb: 1, lineHeight: 1.5 }}>{c.text}</Typography>
+                      </Box>
+                      <IconButton size="small" onClick={() => deleteComment(c.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                        <DeleteRoundedIcon fontSize="small" />
+                      </IconButton>
                     </Box>
-                    <IconButton size="small" onClick={() => deleteComment(c.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
-                      <DeleteRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                ))}
+                  );
+                })}
               </Stack>
             );
           })()}
