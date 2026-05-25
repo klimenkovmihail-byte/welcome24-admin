@@ -27,6 +27,7 @@ import {
   type AcademyCategoryName, type WebinarTopicName,
 } from '../data/mockData';
 import { academyApi } from '../api/academy';
+import FileUploader from '../components/FileUploader';
 
 const LEVELS = ['Начинающий', 'Средний', 'Продвинутый'] as const;
 const FORMATS: { value: AdminEventFormat; label: string; color: string }[] = [
@@ -568,7 +569,12 @@ export default function Academy() {
               <TextField fullWidth size="small" label="Длительность" value={courseForm.duration} placeholder="4 часа 30 мин" onChange={e => setCourseForm(f => ({ ...f, duration: e.target.value }))} />
               <TextField fullWidth size="small" label="Автор" value={courseForm.author} onChange={e => setCourseForm(f => ({ ...f, author: e.target.value }))} />
             </Box>
-            <TextField fullWidth size="small" label="Обложка (URL)" value={courseForm.coverUrl} onChange={e => setCourseForm(f => ({ ...f, coverUrl: e.target.value }))} />
+            <FileUploader
+              value={courseForm.coverUrl}
+              onChange={(url) => setCourseForm(f => ({ ...f, coverUrl: url }))}
+              type="cover"
+              label="Обложка курса"
+            />
 
             <Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
@@ -639,8 +645,13 @@ export default function Academy() {
               <TextField fullWidth size="small" label="Длительность" placeholder="1ч 24мин" value={webinarForm.duration} onChange={e => setWebinarForm(f => ({ ...f, duration: e.target.value }))} />
             </Box>
             <TextField fullWidth size="small" label="Дата проведения" type="date" value={webinarForm.date} onChange={e => setWebinarForm(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField fullWidth size="small" label="Ссылка на видео" value={webinarForm.videoUrl} onChange={e => setWebinarForm(f => ({ ...f, videoUrl: e.target.value }))} placeholder="https://youtube.com/..." />
-            <TextField fullWidth size="small" label="Обложка (URL)" value={webinarForm.coverUrl} onChange={e => setWebinarForm(f => ({ ...f, coverUrl: e.target.value }))} />
+            <TextField fullWidth size="small" label="Ссылка на видео" value={webinarForm.videoUrl} onChange={e => setWebinarForm(f => ({ ...f, videoUrl: e.target.value }))} placeholder="https://kinescope.io/..." />
+            <FileUploader
+              value={webinarForm.coverUrl}
+              onChange={(url) => setWebinarForm(f => ({ ...f, coverUrl: url }))}
+              type="cover"
+              label="Обложка вебинара"
+            />
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControlLabel control={<Switch checked={webinarForm.published} onChange={e => setWebinarForm(f => ({ ...f, published: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Опубликован</Typography>} />
               <FormControlLabel control={<Switch checked={webinarForm.isNew} onChange={e => setWebinarForm(f => ({ ...f, isNew: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Новая запись (бейдж NEW)</Typography>} />

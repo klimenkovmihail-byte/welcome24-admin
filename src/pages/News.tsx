@@ -12,11 +12,11 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded';
-import ImageRoundedIcon from '@mui/icons-material/ImageRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import { newsApi, type Article, type ArticleComment, type ArticlePayload } from '../api/news';
+import FileUploader from '../components/FileUploader';
 
 const CATEGORIES = ['Компания', 'Рынок', 'Обучение', 'Итоги', 'Партнёры', 'Объявления'];
 
@@ -348,8 +348,12 @@ export default function News() {
                   slotProps={{ inputLabel: { shrink: true } }} />
               </Box>
               <TextField fullWidth label="Краткое описание (анонс)" value={form.summary} onChange={e => setForm(f => ({ ...f, summary: e.target.value }))} size="small" multiline rows={2} />
-              <TextField fullWidth label="Обложка (URL изображения)" value={form.coverUrl} onChange={e => setForm(f => ({ ...f, coverUrl: e.target.value }))} size="small"
-                slotProps={{ input: { startAdornment: <InputAdornment position="start"><ImageRoundedIcon sx={{ color: '#64748B', fontSize: 20 }} /></InputAdornment> } }} />
+              <FileUploader
+                value={form.coverUrl}
+                onChange={(url) => setForm(f => ({ ...f, coverUrl: url }))}
+                type="cover"
+                label="Обложка статьи"
+              />
               <TextField fullWidth label="Текст статьи" value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} multiline rows={8}
                 placeholder="Введите полный текст статьи…" />
               <Box sx={{ display: 'flex', gap: 3 }}>
