@@ -14,6 +14,7 @@ import { Box, Button, TextField, IconButton, Typography, CircularProgress, Alert
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import { API_BASE_URL, getToken, ApiError } from '../api/apiClient';
+import ImageCropper from './ImageCropper';
 
 type UploadType = 'cover' | 'avatar' | 'doc' | 'other';
 
@@ -26,24 +27,31 @@ interface Props {
   label?: string;
   /** Скрыть ручной ввод URL */
   hideUrlField?: boolean;
+  /** Соотношение сторон при обрезке (16/9 для обложек по умолчанию, 1 для аватаров). */
+  aspect?: number;
+  /** Отключить кропер (для не-image файлов, документов и т.п.). */
+  noCrop?: boolean;
 }
 
 export default function FileUploader({
   value, onChange, type = 'cover',
   accept = 'image/*', label = 'Обложка',
   hideUrlField = false,
+  aspect = 16 / 9,
+  noCrop = false,
 }: Props) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
-  // api.post не годится — нужен multipart, используем raw fetch
-  const uploadFile = async (file: File) => {
+  // Загружаем итоговый файл (или Blob после обрезки) на бэк
+  const uploadBlob = async (blob: Blob, filename: string) => {
     setErr(null);
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', blob, filename);
       fd.append('type', type);
       const token = getToken();
       const res = await fetch(`${API_BASE_URL}/api/upload`, {
@@ -64,15 +72,26 @@ export default function FileUploader({
     }
   };
 
+  // Если файл — image и кропер не отключён, открываем модалку обрезки.
+  // Иначе грузим как есть.
+  const handleFile = (f: File) => {
+    setErr(null);
+    if (!noCrop && f.type.startsWith('image/')) {
+      setPendingFile(f);
+    } else {
+      uploadBlob(f, f.name);
+    }
+  };
+
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) uploadFile(f);
+    if (f) handleFile(f);
   };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
-    if (f) uploadFile(f);
+    if (f) handleFile(f);
   };
 
   return (
@@ -164,6 +183,17 @@ export default function FileUploader({
           </Button>
         </Box>
       )}
+
+      <ImageCropper
+        file={pendingFile}
+        aspect={aspect}
+        open={!!pendingFile}
+        onClose={() => { setPendingFile(null); if (fileRef.current) fileRef.current.value = ''; }}
+        onApply={(blob, name) => {
+          setPendingFile(null);
+          uploadBlob(blob, name);
+        }}
+      />
     </Box>
   );
 }
