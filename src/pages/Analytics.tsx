@@ -89,7 +89,7 @@ export default function Analytics() {
           { label: 'Общий ВКД (год)', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, sub: `за ${currentYear} год`, color: '#C9A84C' },
           { label: 'Доход компании', value: `${(totalIncome / 1e6).toFixed(1)} млн ₽`, sub: 'комиссионные', color: '#22C55E' },
           { label: 'Средняя сделка', value: `${(avgDeal / 1000).toFixed(0)} тыс ₽`, sub: 'ВКД на сделку', color: '#3B82F6' },
-          { label: 'Всего агентов', value: String(data.agents.total), sub: `${data.agents.active} активных · ${data.agents.inactive} в архиве`, color: '#8B5CF6' },
+          { label: 'Всего агентов', value: String(data.agents.total), sub: `${data.agents.active} активных · ${data.agents.blocked + data.agents.inactive} заблокированных`, color: '#8B5CF6' },
         ].map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }} style={{ flex: '1 1 180px' }}>
             <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: `1px solid ${s.color}20` }}>

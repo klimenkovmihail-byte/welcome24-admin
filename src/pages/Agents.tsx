@@ -49,7 +49,9 @@ const levelColor = (level: AgentLevel) => ({
 
 const statusConfig = {
   active: { label: 'Активен', color: '#22C55E', bg: 'rgba(34,197,94,0.12)', icon: <CheckCircleRoundedIcon sx={{ fontSize: 13 }} /> },
-  inactive: { label: 'Неактивен', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)', icon: <PauseCircleRoundedIcon sx={{ fontSize: 13 }} /> },
+  // 'inactive' оставлен для обратной совместимости с историческими данными — на UI он
+  // отображается как 'Заблокирован' (миграция БД переводит все inactive → blocked).
+  inactive: { label: 'Заблокирован', color: '#EF4444', bg: 'rgba(239,68,68,0.12)', icon: <BlockRoundedIcon sx={{ fontSize: 13 }} /> },
   blocked: { label: 'Заблокирован', color: '#EF4444', bg: 'rgba(239,68,68,0.12)', icon: <BlockRoundedIcon sx={{ fontSize: 13 }} /> },
 };
 
@@ -257,7 +259,6 @@ export default function Agents() {
           <Select value={filterStatus} label="Статус" onChange={e => setFilterStatus(e.target.value as AgentStatus | 'all')}>
             <MenuItem value="all">Все</MenuItem>
             <MenuItem value="active">Активные</MenuItem>
-            <MenuItem value="inactive">Неактивные</MenuItem>
             <MenuItem value="blocked">Заблокированные</MenuItem>
           </Select>
         </FormControl>
@@ -511,7 +512,6 @@ export default function Agents() {
               <InputLabel>Статус</InputLabel>
               <Select value={form.status} label="Статус" onChange={e => setForm(f => ({ ...f, status: e.target.value as AgentStatus }))}>
                 <MenuItem value="active">Активен</MenuItem>
-                <MenuItem value="inactive">Неактивен</MenuItem>
                 <MenuItem value="blocked">Заблокирован</MenuItem>
               </Select>
             </FormControl>

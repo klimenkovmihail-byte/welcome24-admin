@@ -81,7 +81,7 @@ export default function Dashboard() {
       {/* Stats */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatCard delay={0.05} icon={<PeopleRoundedIcon />} label="Всего агентов" value={agents.total} sub={`${agents.active} активных · ${agents.inactive} в архиве`} color="#4361EE" />
+          <StatCard delay={0.05} icon={<PeopleRoundedIcon />} label="Всего агентов" value={agents.total} sub={`${agents.active} активных · ${agents.blocked + agents.inactive} заблокированных`} color="#4361EE" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard delay={0.1} icon={<HandshakeRoundedIcon />} label={`Сделки ${currentYear}`} value={deals.total} sub={`ВКД: ${fmt(totalVkd)} ₽ · доход: ${fmt(deals.totalIncome)} ₽`} trend={pendingDeals > 0 ? `${pendingDeals} на верификации` : undefined} color="#C9A84C" />
