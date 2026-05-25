@@ -149,7 +149,7 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
           vkd: vkdNum,
           commission: form.commission as 80 | 90 | 95,
           notes: '',
-          status: 'pending',
+          status: 'paid',  // статусы убраны из UI — сделка сразу считается выполненной
           date: form.date,
         });
       }

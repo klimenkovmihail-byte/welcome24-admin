@@ -16,37 +16,29 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import { logout, getCurrentUser } from '../../auth/auth';
 import { agentsApi } from '../../api/agents';
-import { dealsApi } from '../../api/deals';
 import Logo, { LogoIcon } from '../Logo';
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
-  const [pendingDeals, setPendingDeals] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const user = getCurrentUser();
 
-  // Бейджи: количество элементов, требующих модерации / внимания администратора.
-  // Загружаем один раз при монтировании и обновляем при возврате на роуты-источники.
+  // Бейдж только на «Агенты» = отзывы на модерации.
+  // По сделкам бейджей нет (статусы убраны из UI).
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      agentsApi.pendingReviews().catch(() => []),
-      dealsApi.list().catch(() => []),
-    ]).then(([reviews, deals]) => {
-      if (cancelled) return;
-      setPendingReviews(reviews.length);
-      setPendingDeals(deals.filter(d => d.status === 'pending').length);
+    agentsApi.pendingReviews().catch(() => []).then(reviews => {
+      if (!cancelled) setPendingReviews(reviews.length);
     });
     return () => { cancelled = true; };
-    // Перечитываем при смене route — чтобы бейдж снижался после модерации
   }, [location.pathname]);
 
   const navItems = [
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
-    { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon />, badge: pendingDeals || null, tooltip: pendingDeals ? `${pendingDeals} сделок в ожидании` : '' },
+    { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
     { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
     { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
