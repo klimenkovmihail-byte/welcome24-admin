@@ -145,10 +145,10 @@ export default function Deals() {
       } else {
         await dealsApi.create({
           agentId: form.agentId!,
-          clientName, address: form.address, city: form.city,
+          clientName, address: '', city: form.city,
           type: form.type as Deal['type'], vkd: vkdNum,
           commission: form.commission as 80 | 90 | 95,
-          notes: form.notes, status: 'pending', date: form.date,
+          notes: '', status: 'pending', date: form.date,
         });
       }
       await reloadDeals();
@@ -212,8 +212,8 @@ export default function Deals() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map((deal, i) => (
-              <motion.tr key={deal.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }} style={{ display: 'table-row' }}>
+            {filtered.map((deal) => (
+              <TableRow key={deal.id} hover>
                 <TableCell>
                   <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
                   <Typography variant="caption" sx={{ color: '#64748B' }}>{deal.city}</Typography>
@@ -250,7 +250,7 @@ export default function Deals() {
                     </Tooltip>
                   </Box>
                 </TableCell>
-              </motion.tr>
+              </TableRow>
             ))}
           </TableBody>
         </Table>
@@ -291,10 +291,7 @@ export default function Deals() {
               )}
             />
 
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
-              <TextField fullWidth label="Адрес объекта" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} size="small" />
-            </Box>
+            <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
 
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControl size="small" fullWidth>
@@ -363,8 +360,6 @@ export default function Deals() {
                 </Box>
               )}
             </Box>
-
-            <TextField fullWidth label="Примечания" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} size="small" multiline rows={2} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
