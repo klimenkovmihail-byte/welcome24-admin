@@ -20,6 +20,8 @@ import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import type { Deal, DealStatus, Agent } from '../types';
 import { dealsApi } from '../api/deals';
 import { agentsApi } from '../api/agents';
+import { api } from '../api/apiClient';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 
 const statusConfig: Record<DealStatus, { label: string; color: string; bg: string }> = {
   pending: { label: 'Ожидание', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' },
@@ -60,7 +62,34 @@ export default function Deals() {
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
   const [form, setForm] = useState<FormState>({ ...emptyForm });
 
+  // Подсказка процента комиссии от бэка (по накопленному ВКД агента за год)
+  const [suggestion, setSuggestion] = useState<{ ytdVkdBefore: number; suggestedCommission: number; level: number; year: number } | null>(null);
+  const [commissionEdited, setCommissionEdited] = useState(false);  // админ изменил вручную
+
   const income = useMemo(() => Math.round((parseFloat(form.vkd) || 0) * form.commission / 100), [form.vkd, form.commission]);
+
+  // Запрашиваем подсказку при изменении агента или даты.
+  // При редактировании передаём excludeDealId — чтоб сама сделка не учитывалась в sumBefore.
+  useEffect(() => {
+    if (!dialogOpen || !form.agentId || !form.date) { setSuggestion(null); return; }
+    const params = new URLSearchParams({ date: form.date });
+    if (editTarget) params.set('excludeDealId', String(editTarget.id));
+    let cancelled = false;
+    api.get<{ ytdVkdBefore: number; suggestedCommission: number; level: number; year: number }>(
+      `/api/agents/${form.agentId}/commission-suggestion?${params.toString()}`
+    )
+      .then(s => {
+        if (cancelled) return;
+        setSuggestion(s);
+        // Подставляем рекомендованный % если админ не правил вручную
+        if (!commissionEdited) {
+          setForm(f => ({ ...f, commission: s.suggestedCommission }));
+        }
+      })
+      .catch(() => { /* tolerate */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.agentId, form.date, dialogOpen, editTarget]);
 
   const reloadDeals = () => {
     setLoading(true);
@@ -90,6 +119,8 @@ export default function Deals() {
   const openCreate = () => {
     setEditTarget(null);
     setForm({ ...emptyForm });
+    setCommissionEdited(false);
+    setSuggestion(null);
     setDialogOpen(true);
   };
 
@@ -101,25 +132,30 @@ export default function Deals() {
       type: deal.type, vkd: String(deal.vkd), commission: deal.commission,
       notes: deal.notes, status: deal.status, date: deal.date,
     });
+    setCommissionEdited(true); // при редактировании сохраняем существующий процент
+    setSuggestion(null);
     setDialogOpen(true);
   };
 
   const handleAgentChange = (agent: Agent | null) => {
     if (agent) {
-      setForm(f => ({ ...f, agentId: agent.id, agentName: agent.name, commission: agent.commission }));
+      setForm(f => ({ ...f, agentId: agent.id, agentName: agent.name }));
     } else {
-      setForm(f => ({ ...f, agentId: null, agentName: '', commission: 80 }));
+      setForm(f => ({ ...f, agentId: null, agentName: '' }));
     }
+    setCommissionEdited(false); // позволим эффекту подставить процент по новому агенту
   };
 
   const handleSave = async () => {
-    if (!form.agentId || !form.clientName || !form.vkd) return;
+    if (!form.agentId || !form.vkd) return;
     const vkdNum = parseFloat(form.vkd);
     setSaving(true); setError(null);
+    // Поле «Клиент (ФИО)» убрано из формы, но колонка в БД NOT NULL — подставим прочерк.
+    const clientName = form.clientName?.trim() || '—';
     try {
       if (editTarget) {
         await dealsApi.update(editTarget.id, {
-          clientName: form.clientName, address: form.address, city: form.city,
+          clientName, address: form.address, city: form.city,
           type: form.type as Deal['type'], vkd: vkdNum,
           income: Math.round(vkdNum * form.commission / 100),
           commission: form.commission, notes: form.notes, status: form.status, date: form.date,
@@ -127,10 +163,10 @@ export default function Deals() {
       } else {
         await dealsApi.create({
           agentId: form.agentId!,
-          clientName: form.clientName, address: form.address, city: form.city,
+          clientName, address: form.address, city: form.city,
           type: form.type as Deal['type'], vkd: vkdNum,
           commission: form.commission as 80 | 90 | 95,
-          notes: form.notes, status: form.status, date: form.date,
+          notes: form.notes, status: 'pending', date: form.date,
         });
       }
       await reloadDeals();
@@ -328,11 +364,9 @@ export default function Deals() {
             />
 
             <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth label="Клиент (ФИО) *" value={form.clientName} onChange={e => setForm(f => ({ ...f, clientName: e.target.value }))} size="small" />
               <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
+              <TextField fullWidth label="Адрес объекта" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} size="small" />
             </Box>
-
-            <TextField fullWidth label="Адрес объекта" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} size="small" />
 
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControl size="small" fullWidth>
@@ -363,34 +397,51 @@ export default function Deals() {
                 />
                 <TextField
                   fullWidth label="Комиссия %" type="number"
-                  value={form.commission} onChange={e => setForm(f => ({ ...f, commission: Number(e.target.value) }))}
+                  value={form.commission}
+                  onChange={e => { setForm(f => ({ ...f, commission: Number(e.target.value) })); setCommissionEdited(true); }}
                   size="small"
                   slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                  helperText={commissionEdited ? 'Изменено вручную' : 'Рекомендовано системой'}
                 />
               </Box>
+              {suggestion && (
+                <Box sx={{ mt: 1.5, p: 1.2, borderRadius: 1.5, background: 'rgba(67,97,238,0.08)', border: '1px solid rgba(67,97,238,0.2)', display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                  <AutoAwesomeRoundedIcon sx={{ fontSize: 16, color: '#60A5FA', mt: 0.2 }} />
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 600, display: 'block' }}>
+                      Рекомендуется {suggestion.suggestedCommission}% (L{suggestion.level})
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>
+                      ВКД агента в {suggestion.year} г. до этой сделки: <b style={{ color: '#F1F5F9' }}>{fmt(suggestion.ytdVkdBefore)} ₽</b>
+                      {' · '}порог L2 — 2 млн, L3 — 5 млн{' · '}
+                      с 1 января все возвращаются на 80%
+                    </Typography>
+                    {commissionEdited && (
+                      <Button
+                        size="small"
+                        onClick={() => { setForm(f => ({ ...f, commission: suggestion.suggestedCommission })); setCommissionEdited(false); }}
+                        sx={{ mt: 0.5, fontSize: 11, p: 0, minHeight: 0, color: '#60A5FA' }}
+                      >
+                        вернуть {suggestion.suggestedCommission}%
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+              )}
               {income > 0 && (
                 <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="caption" sx={{ color: '#64748B' }}>Доход компании:</Typography>
+                  <Typography variant="caption" sx={{ color: '#64748B' }}>Доход агента:</Typography>
                   <Typography variant="body2" sx={{ fontWeight: 800, color: '#22C55E' }}>{fmt(income)} ₽</Typography>
                 </Box>
               )}
             </Box>
-
-            <FormControl size="small" fullWidth>
-              <InputLabel>Статус</InputLabel>
-              <Select value={form.status} label="Статус" onChange={e => setForm(f => ({ ...f, status: e.target.value as DealStatus }))}>
-                {(Object.entries(statusConfig) as [DealStatus, typeof statusConfig[DealStatus]][]).map(([k, v]) => (
-                  <MenuItem key={k} value={k}>{v.label}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
 
             <TextField fullWidth label="Примечания" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} size="small" multiline rows={2} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving || !form.agentId || !form.clientName || !form.vkd}>
+          <Button variant="contained" onClick={handleSave} disabled={saving || !form.agentId || !form.vkd}>
             {saving ? 'Сохранение…' : editTarget ? 'Сохранить' : 'Создать сделку'}
           </Button>
         </DialogActions>
