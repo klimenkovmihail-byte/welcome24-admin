@@ -9,6 +9,8 @@ import Academy from './pages/Academy';
 import News from './pages/News';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
+import BackofficeTeam from './pages/BackofficeTeam';
+import Support from './pages/Support';
 import Login from './pages/Login';
 import { isAuthenticated, fetchMe } from './auth/auth';
 
@@ -46,6 +48,8 @@ export default function App() {
                 <Route path="/academy" element={<Academy />} />
                 <Route path="/news" element={<News />} />
                 <Route path="/analytics" element={<Analytics />} />
+                <Route path="/backoffice" element={<BackofficeTeam />} />
+                <Route path="/support" element={<Support />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
             </Layout>

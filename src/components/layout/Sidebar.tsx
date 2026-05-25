@@ -14,23 +14,31 @@ import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
+import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
+import ContactSupportRoundedIcon from '@mui/icons-material/ContactSupportRounded';
 import { logout, getCurrentUser } from '../../auth/auth';
 import { agentsApi } from '../../api/agents';
+import { supportApi } from '../../api/support';
 import Logo, { LogoIcon } from '../Logo';
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
+  const [openTickets, setOpenTickets] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const user = getCurrentUser();
 
-  // Бейдж только на «Агенты» = отзывы на модерации.
-  // По сделкам бейджей нет (статусы убраны из UI).
+  // Бейджи: отзывы на модерации + открытые тикеты поддержки.
   useEffect(() => {
     let cancelled = false;
-    agentsApi.pendingReviews().catch(() => []).then(reviews => {
-      if (!cancelled) setPendingReviews(reviews.length);
+    Promise.all([
+      agentsApi.pendingReviews().catch(() => []),
+      supportApi.list().catch(() => []),
+    ]).then(([reviews, tickets]) => {
+      if (cancelled) return;
+      setPendingReviews(reviews.length);
+      setOpenTickets(tickets.filter(t => t.status === 'open').length);
     });
     return () => { cancelled = true; };
   }, [location.pathname]);
@@ -42,6 +50,8 @@ export default function Sidebar() {
     { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
     { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
+    { path: '/backoffice', label: 'Команда', icon: <SupportAgentRoundedIcon /> },
+    { path: '/support', label: 'Поддержка', icon: <ContactSupportRoundedIcon />, badge: openTickets || null, tooltip: openTickets ? `${openTickets} открытых тикетов` : '' },
     { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
     { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
   ];
