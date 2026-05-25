@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Chip, Tooltip, IconButton, Divider } from '@mui/material';
+import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Tooltip, IconButton, Divider } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
@@ -15,24 +15,44 @@ import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import { logout, getCurrentUser } from '../../auth/auth';
+import { agentsApi } from '../../api/agents';
+import { dealsApi } from '../../api/deals';
 import Logo, { LogoIcon } from '../Logo';
-
-const navItems = [
-  { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
-  { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: '127' },
-  { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon />, badge: '3' },
-  { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
-  { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
-  { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
-  { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
-  { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
-];
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [pendingReviews, setPendingReviews] = useState(0);
+  const [pendingDeals, setPendingDeals] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const user = getCurrentUser();
+
+  // Бейджи: количество элементов, требующих модерации / внимания администратора.
+  // Загружаем один раз при монтировании и обновляем при возврате на роуты-источники.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      agentsApi.pendingReviews().catch(() => []),
+      dealsApi.list().catch(() => []),
+    ]).then(([reviews, deals]) => {
+      if (cancelled) return;
+      setPendingReviews(reviews.length);
+      setPendingDeals(deals.filter(d => d.status === 'pending').length);
+    });
+    return () => { cancelled = true; };
+    // Перечитываем при смене route — чтобы бейдж снижался после модерации
+  }, [location.pathname]);
+
+  const navItems = [
+    { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
+    { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
+    { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon />, badge: pendingDeals || null, tooltip: pendingDeals ? `${pendingDeals} сделок в ожидании` : '' },
+    { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
+    { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
+    { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
+    { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
+    { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
+  ];
 
   const handleLogout = () => {
     logout();
@@ -85,11 +105,13 @@ export default function Sidebar() {
                       {!collapsed && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <ListItemText primary={item.label} slotProps={{ primary: { style: { fontSize: 14, fontWeight: active ? 700 : 500 } } }} />
-                          {item.badge && (
-                            <Box sx={{ background: active ? '#C9A84C' : 'rgba(239,68,68,0.85)', color: active ? '#0A0E1A' : '#fff', borderRadius: 10, px: 0.8, py: 0.1, fontSize: 10, fontWeight: 800, minWidth: 20, textAlign: 'center', lineHeight: '18px' }}>
-                              {item.badge}
-                            </Box>
-                          )}
+                          {item.badge ? (
+                            <Tooltip title={('tooltip' in item && item.tooltip) || ''}>
+                              <Box sx={{ background: active ? '#C9A84C' : 'rgba(239,68,68,0.85)', color: active ? '#0A0E1A' : '#fff', borderRadius: 10, px: 0.8, py: 0.1, fontSize: 10, fontWeight: 800, minWidth: 20, textAlign: 'center', lineHeight: '18px' }}>
+                                {item.badge}
+                              </Box>
+                            </Tooltip>
+                          ) : null}
                         </motion.div>
                       )}
                     </AnimatePresence>
