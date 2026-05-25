@@ -11,24 +11,13 @@ import { motion } from 'framer-motion';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
-import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
-import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
-import MonetizationOnRoundedIcon from '@mui/icons-material/MonetizationOnRounded';
-import PendingRoundedIcon from '@mui/icons-material/PendingRounded';
-import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import type { Deal, DealStatus, Agent } from '../types';
 import { dealsApi } from '../api/deals';
 import { agentsApi } from '../api/agents';
 import { api } from '../api/apiClient';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
-
-const statusConfig: Record<DealStatus, { label: string; color: string; bg: string }> = {
-  pending: { label: 'Ожидание', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' },
-  confirmed: { label: 'Подтверждена', color: '#3B82F6', bg: 'rgba(59,130,246,0.12)' },
-  paid: { label: 'Выплачено', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' },
-  cancelled: { label: 'Отменена', color: '#EF4444', bg: 'rgba(239,68,68,0.12)' },
-};
 
 const typeLabels: Record<string, string> = {
   primary: 'Первичка', secondary: 'Вторичка', commercial: 'Коммерция', suburban: 'Загородная', rent: 'Аренда',
@@ -57,7 +46,6 @@ export default function Deals() {
   const [saving, setSaving] = useState(false);
 
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<DealStatus | 'all'>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
   const [form, setForm] = useState<FormState>({ ...emptyForm });
@@ -107,14 +95,8 @@ export default function Deals() {
 
   const filtered = useMemo(() => deals.filter(d => {
     const q = search.toLowerCase();
-    const matchQ = !q || d.agentName.toLowerCase().includes(q) || d.clientName.toLowerCase().includes(q) || d.address.toLowerCase().includes(q);
-    const matchStatus = filterStatus === 'all' || d.status === filterStatus;
-    return matchQ && matchStatus;
-  }), [deals, search, filterStatus]);
-
-  const totalVKD = useMemo(() => filtered.reduce((s, d) => s + d.vkd, 0), [filtered]);
-  const totalIncome = useMemo(() => filtered.reduce((s, d) => s + d.income, 0), [filtered]);
-  const pendingCount = deals.filter(d => d.status === 'pending').length;
+    return !q || d.agentName.toLowerCase().includes(q) || d.clientName.toLowerCase().includes(q) || d.address.toLowerCase().includes(q);
+  }), [deals, search]);
 
   const openCreate = () => {
     setEditTarget(null);
@@ -178,42 +160,18 @@ export default function Deals() {
     }
   };
 
-  const updateStatus = async (id: number, status: DealStatus) => {
+  const handleDelete = async (deal: Deal) => {
+    if (!confirm(`Удалить сделку «${deal.address || deal.clientName || `#${deal.id}`}»?`)) return;
     try {
-      if (status === 'confirmed') await dealsApi.confirm(id);
-      else if (status === 'paid') await dealsApi.pay(id);
-      else if (status === 'cancelled') await dealsApi.cancel(id);
-      else await dealsApi.update(id, { status });
-      setDeals(prev => prev.map(d => d.id === id ? { ...d, status } : d));
+      await dealsApi.remove(deal.id);
+      setDeals(prev => prev.filter(d => d.id !== deal.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось обновить статус');
+      setError(err instanceof Error ? err.message : 'Не удалось удалить сделку');
     }
   };
 
   return (
     <Box>
-      {/* Stats */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        {[
-          { label: 'Сделок найдено', value: filtered.length, icon: <HandshakeRoundedIcon />, color: '#4361EE' },
-          { label: 'Ожидают оплаты', value: pendingCount, icon: <PendingRoundedIcon />, color: '#F59E0B' },
-          { label: 'Общий ВКД', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, icon: <MonetizationOnRoundedIcon />, color: '#C9A84C' },
-          { label: 'Доход компании', value: `${(totalIncome / 1e6).toFixed(1)} млн ₽`, icon: <CheckCircleRoundedIcon />, color: '#22C55E' },
-        ].map((s, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} style={{ flex: '1 1 180px' }}>
-            <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: '1px solid rgba(201,168,76,0.1)', display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Box sx={{ width: 42, height: 42, borderRadius: 2, background: `${s.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: s.color, flexShrink: 0 }}>
-                {s.icon}
-              </Box>
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9', lineHeight: 1 }}>{s.value}</Typography>
-                <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>{s.label}</Typography>
-              </Box>
-            </Box>
-          </motion.div>
-        ))}
-      </Box>
-
       {/* Toolbar */}
       <Box sx={{ display: 'flex', gap: 2, mb: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
         <TextField
@@ -221,15 +179,9 @@ export default function Deals() {
           value={search} onChange={e => setSearch(e.target.value)} size="small" sx={{ flex: '1 1 260px' }}
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ color: '#64748B', fontSize: 20 }} /></InputAdornment> } }}
         />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Статус</InputLabel>
-          <Select value={filterStatus} label="Статус" onChange={e => setFilterStatus(e.target.value as DealStatus | 'all')}>
-            <MenuItem value="all">Все статусы</MenuItem>
-            {(Object.entries(statusConfig) as [DealStatus, typeof statusConfig[DealStatus]][]).map(([k, v]) => (
-              <MenuItem key={k} value={k}>{v.label}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Typography variant="caption" sx={{ color: '#64748B', mr: 1 }}>
+          {filtered.length} {filtered.length % 10 === 1 && filtered.length % 100 !== 11 ? 'сделка' : (filtered.length % 10 >= 2 && filtered.length % 10 <= 4 && (filtered.length % 100 < 12 || filtered.length % 100 > 14) ? 'сделки' : 'сделок')}
+        </Typography>
         <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate} sx={{ ml: 'auto', flexShrink: 0 }}>
           Новая сделка
         </Button>
@@ -250,9 +202,8 @@ export default function Deals() {
           <TableHead>
             <TableRow>
               <TableCell>Агент</TableCell>
-              <TableCell>Клиент / Адрес</TableCell>
+              <TableCell>Адрес</TableCell>
               <TableCell>Тип</TableCell>
-              <TableCell>Статус</TableCell>
               <TableCell align="right">ВКД</TableCell>
               <TableCell align="right">Ком-я</TableCell>
               <TableCell align="right">Доход</TableCell>
@@ -261,69 +212,46 @@ export default function Deals() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map((deal, i) => {
-              const sc = statusConfig[deal.status];
-              return (
-                <motion.tr key={deal.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }} style={{ display: 'table-row' }}>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
-                    <Typography variant="caption" sx={{ color: '#64748B' }}>{deal.city}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 500, color: '#F1F5F9' }}>{deal.clientName}</Typography>
-                    <Typography variant="caption" sx={{ color: '#64748B', maxWidth: 200, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deal.address}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={typeLabels[deal.type] || deal.type} size="small" sx={{ background: 'rgba(67,97,238,0.12)', color: '#60A5FA', fontWeight: 600, fontSize: 11 }} />
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={sc.label} size="small" sx={{ background: sc.bg, color: sc.color, fontWeight: 600, fontSize: 11 }} />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(deal.vkd)} ₽</Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{deal.commission}%</Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#22C55E' }}>{fmt(deal.income)} ₽</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" sx={{ color: '#94A3B8' }}>{deal.date}</Typography>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                      <Tooltip title="Редактировать">
-                        <IconButton size="small" onClick={() => openEdit(deal)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
-                          <EditRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      {deal.status === 'pending' && (
-                        <Tooltip title="Подтвердить">
-                          <IconButton size="small" onClick={() => updateStatus(deal.id, 'confirmed')} sx={{ color: '#64748B', '&:hover': { color: '#3B82F6' } }}>
-                            <CheckCircleRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {deal.status === 'confirmed' && (
-                        <Tooltip title="Выплачено">
-                          <IconButton size="small" onClick={() => updateStatus(deal.id, 'paid')} sx={{ color: '#64748B', '&:hover': { color: '#22C55E' } }}>
-                            <MonetizationOnRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {deal.status !== 'cancelled' && deal.status !== 'paid' && (
-                        <Tooltip title="Отменить">
-                          <IconButton size="small" onClick={() => updateStatus(deal.id, 'cancelled')} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
-                            <CancelRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </TableCell>
-                </motion.tr>
-              );
-            })}
+            {filtered.map((deal, i) => (
+              <motion.tr key={deal.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }} style={{ display: 'table-row' }}>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
+                  <Typography variant="caption" sx={{ color: '#64748B' }}>{deal.city}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" sx={{ color: '#F1F5F9', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deal.address || '—'}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip label={typeLabels[deal.type] || deal.type} size="small" sx={{ background: 'rgba(67,97,238,0.12)', color: '#60A5FA', fontWeight: 600, fontSize: 11 }} />
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(deal.vkd)} ₽</Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{deal.commission}%</Typography>
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#22C55E' }}>{fmt(deal.income)} ₽</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="caption" sx={{ color: '#94A3B8' }}>{deal.date}</Typography>
+                </TableCell>
+                <TableCell align="center">
+                  <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                    <Tooltip title="Редактировать">
+                      <IconButton size="small" onClick={() => openEdit(deal)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+                        <EditRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Удалить">
+                      <IconButton size="small" onClick={() => handleDelete(deal)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                        <DeleteRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </TableCell>
+              </motion.tr>
+            ))}
           </TableBody>
         </Table>
         {filtered.length === 0 && (
