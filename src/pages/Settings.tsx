@@ -17,6 +17,8 @@ import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
+import CloudSyncRoundedIcon from '@mui/icons-material/CloudSyncRounded';
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import {
   companySettings as initialSettings,
   marketingPlan as initialPlan,
@@ -27,8 +29,108 @@ import {
   type AchievementTriggerType,
 } from '../data/mockData';
 import { settingsApi } from '../api/settings';
+import { backupApi, type BackupItem } from '../api/backup';
+import { CircularProgress } from '@mui/material';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
+
+// Bytes → "12.3 МБ"
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} КБ`;
+  return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+}
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function BackupsBlock() {
+  const [items, setItems] = useState<BackupItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      setErr(null);
+      const list = await backupApi.list();
+      setItems(list);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Ошибка загрузки списка');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const runNow = async () => {
+    setRunning(true);
+    setErr(null);
+    setOkMsg(null);
+    try {
+      const r = await backupApi.run();
+      setOkMsg(`Готово: ${r.key.split('/').pop()} · ${fmtBytes(r.sizeCompressed)} (${(r.durationMs / 1000).toFixed(1)}с)${r.prunedOld ? `, удалено старых: ${r.prunedOld}` : ''}`);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Не удалось сделать бэкап');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Stack spacing={2}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+        <Typography variant="caption" sx={{ color: '#94A3B8' }}>
+          Авто-бэкап каждые 6 часов · хранение 30 дней · Yandex Object Storage
+        </Typography>
+        <Button
+          size="small"
+          variant="contained"
+          startIcon={running ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <PlayArrowRoundedIcon />}
+          onClick={runNow}
+          disabled={running}
+        >
+          {running ? 'Создаётся…' : 'Сделать бэкап сейчас'}
+        </Button>
+      </Box>
+
+      {err && <Alert severity="error" onClose={() => setErr(null)}>{err}</Alert>}
+      {okMsg && <Alert severity="success" onClose={() => setOkMsg(null)}>{okMsg}</Alert>}
+
+      {loading ? (
+        <Box sx={{ py: 3, textAlign: 'center' }}><CircularProgress size={24} /></Box>
+      ) : items.length === 0 ? (
+        <Alert severity="info">Бэкапов пока нет. Жми «Сделать бэкап сейчас» либо подожди ближайшего слота cron (00/06/12/18 UTC).</Alert>
+      ) : (
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ color: '#94A3B8', fontWeight: 700, fontSize: 12 }}>Файл</TableCell>
+              <TableCell sx={{ color: '#94A3B8', fontWeight: 700, fontSize: 12 }}>Создан</TableCell>
+              <TableCell align="right" sx={{ color: '#94A3B8', fontWeight: 700, fontSize: 12 }}>Размер</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {items.slice(0, 20).map(b => {
+              const name = b.key.split('/').pop() || b.key;
+              return (
+                <TableRow key={b.key}>
+                  <TableCell sx={{ color: '#F1F5F9', fontFamily: 'monospace', fontSize: 12 }}>{name}</TableCell>
+                  <TableCell sx={{ color: '#94A3B8', fontSize: 12 }}>{fmtDate(b.modified)}</TableCell>
+                  <TableCell align="right" sx={{ color: '#94A3B8', fontSize: 12 }}>{fmtBytes(b.size)}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </Stack>
+  );
+}
 
 interface SectionProps { title: string; subtitle: string; icon: ReactNode; children: ReactNode; delay?: number; }
 function Section({ title, subtitle, icon, children, delay = 0 }: SectionProps) {
@@ -426,6 +528,11 @@ export default function Settings() {
             </Box>
           ))}
         </Stack>
+      </Section>
+
+      {/* Backups */}
+      <Section title="Резервные копии БД" subtitle="История бэкапов и ручной запуск" icon={<CloudSyncRoundedIcon />} delay={0.22}>
+        <BackupsBlock />
       </Section>
 
       {/* Security */}
