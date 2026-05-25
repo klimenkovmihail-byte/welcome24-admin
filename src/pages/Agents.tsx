@@ -66,6 +66,7 @@ const emptyForm = {
   parentId: null as number | null,
   parentName: null as string | null,
   specialization: [] as string[],
+  referralLink: '' as string,
   // Public profile fields
   photo: '' as string,
   bio: '' as string,
@@ -155,6 +156,7 @@ export default function Agents() {
       parentType: agent.parentId ? 'agent' : 'company',
       parentId: agent.parentId, parentName: agent.parentName,
       specialization: agent.specialization,
+      referralLink: (agent as { referralLink?: string }).referralLink || '',
       photo: agent.photo || '',
       bio: agent.bio || '',
       socials: { ...(agent.socials || {}) },
@@ -185,6 +187,7 @@ export default function Agents() {
           name: form.name, email: form.email, phone: form.phone, city: form.city,
           level: form.level, commission: form.commission, status: form.status,
           parentId, specialization: form.specialization,
+          referralLink: form.referralLink,
           photo: form.photo || null, bio: form.bio, socials: form.socials,
         });
       } else {
@@ -193,6 +196,7 @@ export default function Agents() {
           phone: form.phone, city: form.city,
           level: form.level, commission: form.commission, status: form.status,
           parentId, specialization: form.specialization,
+          referralLink: form.referralLink,
           photo: form.photo || null, bio: form.bio, socials: form.socials,
         });
       }
@@ -515,6 +519,15 @@ export default function Agents() {
                 <MenuItem value="blocked">Заблокирован</MenuItem>
               </Select>
             </FormControl>
+
+            {/* Реф-ссылка */}
+            <TextField
+              fullWidth size="small" label="Реферальная ссылка"
+              value={form.referralLink}
+              onChange={e => setForm(f => ({ ...f, referralLink: e.target.value }))}
+              placeholder="https://welcome24.ru/r/..."
+              helperText="Персональная ссылка для приглашения новых агентов"
+            />
 
             {/* Photo + bio */}
             <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)', my: 0.5 }}>

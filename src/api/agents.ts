@@ -31,6 +31,7 @@ type RawAgent = {
   socials: AgentSocials;
   rating: number;
   reviews_count: number;
+  referral_link?: string;
   terminated_at: string | null;
 };
 
@@ -69,8 +70,9 @@ export function normalizeAgent(raw: RawAgent): Agent {
     socials: raw.socials || {},
     rating: raw.rating || 0,
     reviewsCount: raw.reviews_count || 0,
+    referralLink: raw.referral_link || '',
     terminatedAt: raw.terminated_at || null,
-  };
+  } as Agent & { referralLink: string };
 }
 
 export function normalizeReview(raw: RawReview): AgentReview {
@@ -113,6 +115,7 @@ export interface AgentCreatePayload {
   socials?: AgentSocials;
   photo?: string | null;
   bio?: string;
+  referralLink?: string;
 }
 
 export interface AgentUpdatePayload {
@@ -129,6 +132,7 @@ export interface AgentUpdatePayload {
   specialization?: string[];
   socials?: AgentSocials;
   password?: string;
+  referralLink?: string;
 }
 
 export const agentsApi = {
