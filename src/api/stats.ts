@@ -11,6 +11,8 @@ export interface TopAgent    { id: number; name: string; city: string; status: s
 export interface RecentDeal  { id: number; agentId: number; agentName: string; clientName: string; address: string; city: string; type: string; vkd: number; income: number; status: DealStatus; date: string }
 
 export interface TopShareholder { id: number; name: string; city: string; shares: number }
+export interface NewAgentsBucket { m: string; month: string; newAgents: number }
+export interface SharesMonthBucket { m: string; month: string; qty: number; ops: number }
 
 export interface OverviewResponse {
   year: string | null;
@@ -24,6 +26,9 @@ export interface OverviewResponse {
   recentDeals:  RecentDeal[];
   settings:     { sharePrice: number; totalSharesIssued: number; sharesInCirculation: number };
   shareholders: { count: number; top: TopShareholder[] };
+  metrics:      { agentLtvDays: number; dealsPerAgentPerMonth: number; monthsInPeriod: number };
+  monthlyNewAgents: NewAgentsBucket[];
+  monthlyShares:    SharesMonthBucket[];
 }
 
 export const statsApi = {

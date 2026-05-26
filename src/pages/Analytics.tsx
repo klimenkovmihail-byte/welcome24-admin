@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Box, Typography, Paper, CircularProgress, Alert } from '@mui/material';
+import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { motion } from 'framer-motion';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -33,24 +33,32 @@ const card = (content: ReactNode, delay = 0) => (
 const LEVEL_COLORS: Record<number, string> = { 1: '#64748B', 2: '#4361EE', 3: '#C9A84C' };
 const LEVEL_LABEL: Record<number, string> = { 1: 'Уровень 1 (80%)', 2: 'Уровень 2 (90%)', 3: 'Уровень 3 (95%)' };
 
+const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
 export default function Analytics() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [quotes, setQuotes] = useState<ShareQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const currentYear = String(new Date().getFullYear());
+  const [filterYear, setFilterYear] = useState<string>(currentYear);
+  const [filterMonth, setFilterMonth] = useState<string>('all');
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    const opts: { year?: string; month?: string } = {};
+    if (filterYear !== 'all') opts.year = filterYear;
+    if (filterMonth !== 'all' && filterYear !== 'all') opts.month = filterMonth;
     Promise.all([
-      statsApi.overview({ year: currentYear }),
+      statsApi.overview(opts),
       sharesApi.quotes(),
     ])
       .then(([s, q]) => { if (!cancelled) { setData(s); setQuotes(q); } })
       .catch(err => { if (!cancelled) setError(err?.message || 'Ошибка загрузки'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [filterYear, filterMonth]);
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
   if (error)   return <Alert severity="error">{error}</Alert>;
@@ -84,15 +92,47 @@ export default function Analytics() {
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(q => ({ date: q.date, price: q.price }));
 
+  const periodLabel = filterYear === 'all' ? 'за всё время' : (filterMonth === 'all' ? `за ${filterYear} год` : `${MONTHS_RU[Number(filterMonth) - 1]} ${filterYear}`);
+  const ltvYears = (data.metrics?.agentLtvDays || 0) / 365;
+  const dealsPerMonth = data.metrics?.dealsPerAgentPerMonth || 0;
+
+  // Доступные годы для селекта: от 2022 до текущего
+  const availableYears = [];
+  for (let y = new Date().getFullYear(); y >= 2022; y--) availableYears.push(String(y));
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {/* Фильтр периода */}
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Typography variant="body2" sx={{ color: '#94A3B8' }}>Период:</Typography>
+        <FormControl size="small">
+          <InputLabel>Год</InputLabel>
+          <Select value={filterYear} label="Год" onChange={e => { setFilterYear(e.target.value); setFilterMonth('all'); }} sx={{ minWidth: 100 }}>
+            <MenuItem value="all">Всё время</MenuItem>
+            {availableYears.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <FormControl size="small" disabled={filterYear === 'all'}>
+          <InputLabel>Месяц</InputLabel>
+          <Select value={filterMonth} label="Месяц" onChange={e => setFilterMonth(e.target.value)} sx={{ minWidth: 130 }}>
+            <MenuItem value="all">Весь год</MenuItem>
+            {MONTHS_RU.map((m, i) => <MenuItem key={i} value={String(i + 1).padStart(2, '0')}>{m}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <Typography variant="caption" sx={{ color: '#64748B', ml: 'auto' }}>
+          Показано: <b style={{ color: '#C9A84C' }}>{periodLabel}</b>
+        </Typography>
+      </Box>
+
       {/* KPI row */}
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         {[
-          { label: 'Общий ВКД (год)', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, sub: `за ${currentYear} год`, color: '#C9A84C' },
+          { label: 'Общий ВКД', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, sub: periodLabel, color: '#C9A84C' },
           { label: 'Доход агентов', value: `${(totalIncome / 1e6).toFixed(1)} млн ₽`, sub: 'выплачено агентам', color: '#3B82F6' },
           { label: 'Комиссия компании', value: `${(companyIncome / 1e6).toFixed(1)} млн ₽`, sub: 'ВКД − доход агентов', color: '#22C55E' },
           { label: 'Средняя сделка', value: `${(avgDeal / 1000).toFixed(0)} тыс ₽`, sub: 'ВКД на сделку', color: '#7B2FBE' },
+          { label: 'Сделок/агент/мес', value: dealsPerMonth.toFixed(2), sub: 'за выбранный период', color: '#F59E0B' },
+          { label: 'LTV агента', value: ltvYears >= 1 ? `${ltvYears.toFixed(1)} г.` : `${Math.round(data.metrics?.agentLtvDays || 0)} дн.`, sub: 'средний срок жизни', color: '#06B6D4' },
           { label: 'Всего агентов', value: String(data.agents.total), sub: `${data.agents.active} активных · ${data.agents.blocked + data.agents.inactive} заблокированных`, color: '#8B5CF6' },
           { label: 'Акционеров', value: String(data.shareholders?.count || 0), sub: `${(data.settings.sharesInCirculation / 1000).toFixed(1)}К акций в обращении`, color: '#EC4899' },
         ].map((s, i) => (
