@@ -16,6 +16,7 @@ export const ROLE_ACCESS: Record<string, Role[]> = {
   '/backoffice': ['super_admin'],
   '/support':    ['super_admin', 'admin'],
   '/subscription-claims': ['super_admin', 'admin'],
+  '/subscriptions': ['super_admin', 'admin'],
   '/analytics':  ['super_admin'],
   '/settings':   ['super_admin'],
 };

@@ -55,7 +55,8 @@ export default function Sidebar() {
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
     { path: '/backoffice', label: 'Команда', icon: <SupportAgentRoundedIcon /> },
     { path: '/support', label: 'Поддержка', icon: <ContactSupportRoundedIcon />, badge: openTickets || null, tooltip: openTickets ? `${openTickets} открытых тикетов` : '' },
-    { path: '/subscription-claims', label: 'Оплаты АП', icon: <ReceiptLongRoundedIcon />, badge: pendingClaims || null, tooltip: pendingClaims ? `${pendingClaims} заявок на подтверждение` : '' },
+    { path: '/subscriptions', label: 'Абон. плата', icon: <ReceiptLongRoundedIcon /> },
+    { path: '/subscription-claims', label: 'Заявки на оплату', icon: <ReceiptLongRoundedIcon />, badge: pendingClaims || null, tooltip: pendingClaims ? `${pendingClaims} заявок на подтверждение` : '' },
     { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
     { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
   ];
