@@ -86,6 +86,9 @@ export default function Agents() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<AgentStatus | 'all'>('all');
   const [filterLevel, setFilterLevel] = useState<AgentLevel | 0>(0);
+  // 'all' — все, 'staff' — только сотрудники (super_admin/admin/manager),
+  // или конкретная роль.
+  const [filterRole, setFilterRole] = useState<'all' | 'staff' | Role>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Agent | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
@@ -143,8 +146,20 @@ export default function Agents() {
     const matchQ = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q) || a.city.toLowerCase().includes(q);
     const matchStatus = filterStatus === 'all' || a.status === filterStatus;
     const matchLevel = filterLevel === 0 || a.level === filterLevel;
-    return matchQ && matchStatus && matchLevel;
-  }), [agents, search, filterStatus, filterLevel]);
+    const aRole = ((a as AgentWithRole).role || 'agent') as Role;
+    const matchRole =
+      filterRole === 'all'   ? true
+    : filterRole === 'staff' ? (aRole === 'super_admin' || aRole === 'admin' || aRole === 'manager')
+                             : aRole === filterRole;
+    return matchQ && matchStatus && matchLevel && matchRole;
+  }), [agents, search, filterStatus, filterLevel, filterRole]);
+
+  const staffCount = useMemo(() =>
+    agents.filter(a => {
+      const r = ((a as AgentWithRole).role || 'agent') as Role;
+      return r === 'super_admin' || r === 'admin' || r === 'manager';
+    }).length,
+  [agents]);
 
   const openCreate = () => {
     setEditTarget(null);
@@ -291,6 +306,19 @@ export default function Agents() {
             <MenuItem value={1}>Уровень 1 (80%)</MenuItem>
             <MenuItem value={2}>Уровень 2 (90%)</MenuItem>
             <MenuItem value={3}>Уровень 3 (95%)</MenuItem>
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 170 }}>
+          <InputLabel>Роль</InputLabel>
+          <Select value={filterRole} label="Роль" onChange={e => setFilterRole(e.target.value as 'all' | 'staff' | Role)}>
+            <MenuItem value="all">Все</MenuItem>
+            <MenuItem value="staff" sx={{ color: '#C9A84C', fontWeight: 700 }}>
+              Только сотрудники ({staffCount})
+            </MenuItem>
+            <MenuItem value="super_admin" sx={{ color: ROLE_COLOR.super_admin, fontWeight: 600 }}>{ROLE_LABEL.super_admin}</MenuItem>
+            <MenuItem value="admin"       sx={{ color: ROLE_COLOR.admin,       fontWeight: 600 }}>{ROLE_LABEL.admin}</MenuItem>
+            <MenuItem value="manager"     sx={{ color: ROLE_COLOR.manager,     fontWeight: 600 }}>{ROLE_LABEL.manager}</MenuItem>
+            <MenuItem value="agent"       sx={{ color: ROLE_COLOR.agent,       fontWeight: 600 }}>{ROLE_LABEL.agent}</MenuItem>
           </Select>
         </FormControl>
         <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate} sx={{ ml: 'auto', flexShrink: 0 }}>
