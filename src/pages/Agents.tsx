@@ -32,6 +32,7 @@ import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded';
 import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded';
+import MergeRoundedIcon from '@mui/icons-material/MergeRounded';
 import { Rating } from '@mui/material';
 import { companySettings } from '../data/mockData';
 import type { AgentReview, ReviewModeration, AgentSocials } from '../types';
@@ -189,6 +190,26 @@ export default function Agents() {
       setAgents(prev => enrichAgents(prev.map(a => a.id === id ? { ...a, ...updated } : a)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось сменить роль');
+    }
+  };
+
+  // Объединение дубликатов (смена фамилии и т.п.)
+  const [mergeSource, setMergeSource] = useState<Agent | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<Agent | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  const handleMerge = async () => {
+    if (!mergeSource || !mergeTarget) return;
+    if (!confirm(`Перенести все сделки/акции/команду от «${mergeSource.name}» к «${mergeTarget.name}» и удалить «${mergeSource.name}»? Действие необратимо.`)) return;
+    setMerging(true); setError(null);
+    try {
+      await agentsApi.mergeInto(mergeTarget.id, mergeSource.id);
+      setMergeSource(null); setMergeTarget(null);
+      await reloadAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось объединить');
+    } finally {
+      setMerging(false);
     }
   };
 
@@ -456,6 +477,13 @@ export default function Agents() {
                           <EditRoundedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      {canManageRoles && (
+                        <Tooltip title="Объединить с другой карточкой (смена фамилии и т.п.)">
+                          <IconButton size="small" onClick={() => { setMergeSource(agent); setMergeTarget(null); }} sx={{ color: '#64748B', '&:hover': { color: '#8B5CF6' } }}>
+                            <MergeRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {agent.status !== 'active' && (
                         <Tooltip title="Активировать">
                           <IconButton size="small" onClick={() => toggleStatus(agent.id, 'active')} sx={{ color: '#64748B', '&:hover': { color: '#22C55E' } }}>
@@ -494,6 +522,68 @@ export default function Agents() {
         defaultKind={isStaffView ? 'staff' : 'agent'}
         onSaved={() => { reloadAgents(); }}
       />
+
+      {/* Merge dialog */}
+      <Dialog open={!!mergeSource} onClose={() => { if (!merging) { setMergeSource(null); setMergeTarget(null); } }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Объединить дубликат</Typography>
+          <Typography variant="caption" sx={{ color: '#64748B' }}>
+            Сделки/акции/команда дубля перенесутся к основной карточке. Дубль будет удалён.
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Stack spacing={2}>
+            <Alert severity="warning" icon={false}>
+              <Typography variant="caption" sx={{ display: 'block' }}>
+                <b>Дубликат (будет удалён):</b>
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>
+                {mergeSource?.name}
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#94A3B8' }}>
+                {mergeSource?.email} · {mergeSource?.vkdYear?.toLocaleString('ru-RU') || 0} ₽ ВКД год · {mergeSource?.shares || 0} акций · {mergeSource?.teamSize || 0} в команде
+              </Typography>
+            </Alert>
+            <Autocomplete
+              options={agents.filter(a => a.id !== mergeSource?.id)}
+              getOptionLabel={a => a.name}
+              value={mergeTarget}
+              onChange={(_, v) => setMergeTarget(v)}
+              renderInput={params => <TextField {...params} label="Основная карточка (target) *" size="small" />}
+              renderOption={(props, a) => (
+                <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1 }}>
+                  <Avatar sx={{ width: 28, height: 28, fontSize: 11, background: 'rgba(139,92,246,0.2)', color: '#8B5CF6' }}>
+                    {a.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                  </Avatar>
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{a.name}</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{a.email} · ВКД {(a.vkdYear || 0).toLocaleString('ru-RU')} ₽</Typography>
+                  </Box>
+                </Box>
+              )}
+            />
+            {mergeTarget && (
+              <Alert severity="info" icon={false}>
+                <Typography variant="caption" sx={{ display: 'block' }}>
+                  <b>Куда переносим:</b>
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>
+                  {mergeTarget.name}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>
+                  {mergeTarget.email} · {(mergeTarget.vkdYear || 0).toLocaleString('ru-RU')} ₽ ВКД год · {mergeTarget.shares || 0} акций
+                </Typography>
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => { setMergeSource(null); setMergeTarget(null); }} disabled={merging}>Отмена</Button>
+          <Button variant="contained" color="warning" onClick={handleMerge} disabled={!mergeTarget || merging}>
+            {merging ? 'Объединяю…' : 'Объединить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ===== Reviews moderation dialog ===== */}
       <Dialog open={!!reviewsDlgFor} onClose={() => setReviewsDlgFor(null)} maxWidth="md" fullWidth>

@@ -163,6 +163,12 @@ export const agentsApi = {
   remove:  (id: number) => api.del<{ ok: true }>(`/api/agents/${id}`),
   setRole: (id: number, role: Role) =>
     api.patch<RawAgent>(`/api/agents/${id}/role`, { role }).then(normalizeAgent),
+  // Объединить дубликат (sourceId) с основной карточкой (targetId).
+  // Все сделки/акции/etc переносятся к targetId, sourceId удаляется.
+  mergeInto: (targetId: number, sourceId: number) =>
+    api.post<{ ok: true; target: string; source: string; moved: Record<string, number> }>(
+      `/api/agents/${targetId}/merge-from/${sourceId}`,
+    ),
 
   reviews: (id: number, opts?: { all?: boolean }) =>
     api.get<RawReview[]>(`/api/agents/${id}/reviews${opts?.all ? '?all=1' : ''}`).then(rows => rows.map(normalizeReview)),
