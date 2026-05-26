@@ -118,6 +118,7 @@ export interface AgentCreatePayload {
   photo?: string | null;
   bio?: string;
   referralLink?: string;
+  role?: Role; // если указана — бэк проставит роль сразу при создании
 }
 
 export interface AgentUpdatePayload {

@@ -39,6 +39,7 @@ import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
 import type { Agent, AgentLevel, AgentStatus } from '../types';
 import { agentsApi, enrichAgents } from '../api/agents';
 import { CircularProgress } from '@mui/material';
+import AgentFormDialog from './AgentFormDialog';
 
 // Расширяем тип Agent (role приходит из бэка, добавлен в normalizeAgent).
 type AgentWithRole = Agent & { role?: Role };
@@ -61,37 +62,19 @@ const statusConfig = {
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
-const emptyForm = {
-  name: '', email: '', phone: '', city: '',
-  password: '' as string, // только при создании
-  level: 1 as AgentLevel, commission: 80 as 80 | 90 | 95,
-  status: 'active' as AgentStatus,
-  parentType: 'company' as 'company' | 'agent',
-  parentId: null as number | null,
-  parentName: null as string | null,
-  specialization: [] as string[],
-  referralLink: '' as string,
-  // Public profile fields
-  photo: '' as string,
-  bio: '' as string,
-  socials: {} as AgentSocials,
-};
-
 export default function Agents() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<AgentStatus | 'all'>('all');
   const [filterLevel, setFilterLevel] = useState<AgentLevel | 0>(0);
-  // 'all' — все, 'staff' — только сотрудники (super_admin/admin/manager),
-  // или конкретная роль.
-  const [filterRole, setFilterRole] = useState<'all' | 'staff' | Role>('all');
+  // По умолчанию показываем только обычных агентов — сотрудники не «загрязняют» базу.
+  // Чтобы увидеть сотрудников, нужно явно переключить фильтр.
+  const [filterRole, setFilterRole] = useState<'all' | 'staff' | Role>('agent');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Agent | null>(null);
-  const [form, setForm] = useState({ ...emptyForm });
   // Reviews
   const [reviews, setReviews] = useState<AgentReview[]>([]);     // отзывы открытого в модалке агента
   const [pendingCount, setPendingCount] = useState(0);
@@ -163,69 +146,12 @@ export default function Agents() {
 
   const openCreate = () => {
     setEditTarget(null);
-    setForm({ ...emptyForm });
     setDialogOpen(true);
   };
 
   const openEdit = (agent: Agent) => {
     setEditTarget(agent);
-    setForm({
-      name: agent.name, email: agent.email, phone: agent.phone, city: agent.city,
-      level: agent.level, commission: agent.commission, status: agent.status,
-      parentType: agent.parentId ? 'agent' : 'company',
-      parentId: agent.parentId, parentName: agent.parentName,
-      specialization: agent.specialization,
-      referralLink: (agent as { referralLink?: string }).referralLink || '',
-      photo: agent.photo || '',
-      bio: agent.bio || '',
-      socials: { ...(agent.socials || {}) },
-    });
     setDialogOpen(true);
-  };
-
-  const handleLevelChange = (level: AgentLevel) => {
-    const commMap: Record<AgentLevel, 80 | 90 | 95> = { 1: 80, 2: 90, 3: 95 };
-    setForm(f => ({ ...f, level, commission: commMap[level] }));
-  };
-
-  const handleParentAgentChange = (agent: Agent | null) => {
-    setForm(f => ({ ...f, parentId: agent ? agent.id : null, parentName: agent ? agent.name : null }));
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim() || !form.email.trim()) return;
-    if (!editTarget && !form.password.trim()) {
-      setError('Введите пароль для нового агента');
-      return;
-    }
-    const parentId = form.parentType === 'company' ? null : form.parentId;
-    setSaving(true); setError(null);
-    try {
-      if (editTarget) {
-        await agentsApi.update(editTarget.id, {
-          name: form.name, email: form.email, phone: form.phone, city: form.city,
-          level: form.level, commission: form.commission, status: form.status,
-          parentId, specialization: form.specialization,
-          referralLink: form.referralLink,
-          photo: form.photo || null, bio: form.bio, socials: form.socials,
-        });
-      } else {
-        await agentsApi.create({
-          name: form.name, email: form.email, password: form.password,
-          phone: form.phone, city: form.city,
-          level: form.level, commission: form.commission, status: form.status,
-          parentId, specialization: form.specialization,
-          referralLink: form.referralLink,
-          photo: form.photo || null, bio: form.bio, socials: form.socials,
-        });
-      }
-      await reloadAgents();
-      setDialogOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось сохранить агента');
-    } finally {
-      setSaving(false);
-    }
   };
 
   const toggleStatus = async (id: number, status: AgentStatus) => {
@@ -487,184 +413,15 @@ export default function Agents() {
         )}
       </TableContainer>
 
-      {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
-            {editTarget ? 'Редактировать агента' : 'Добавить агента'}
-          </Typography>
-          <IconButton size="small" onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}>
-            <CloseRoundedIcon />
-          </IconButton>
-        </DialogTitle>
-        <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
-        <DialogContent sx={{ pt: 3 }}>
-          <Stack spacing={2.5}>
-            <TextField fullWidth label="ФИО агента" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} size="small" />
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} size="small" />
-              <TextField fullWidth label="Телефон" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} size="small" />
-            </Box>
-            {!editTarget && (
-              <TextField
-                fullWidth size="small" type="password"
-                label="Пароль (минимум 6 символов)"
-                value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                helperText="Агент сможет сменить позже в личном кабинете"
-              />
-            )}
-            <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
-
-            {/* MLM binding */}
-            <Box sx={{ p: 2, borderRadius: 2.5, border: '1px solid rgba(201,168,76,0.15)', background: 'rgba(201,168,76,0.04)' }}>
-              <FormLabel sx={{ color: '#94A3B8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
-                Источник агента (MLM)
-              </FormLabel>
-              <RadioGroup row value={form.parentType} onChange={e => setForm(f => ({ ...f, parentType: e.target.value as 'company' | 'agent', parentId: null, parentName: null }))}>
-                <FormControlLabel value="company" control={<Radio size="small" sx={{ color: '#C9A84C', '&.Mui-checked': { color: '#C9A84C' } }} />}
-                  label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><BusinessRoundedIcon sx={{ fontSize: 16, color: '#C9A84C' }} /><Typography variant="body2" sx={{ fontWeight: 600 }}>Welcome 24</Typography></Box>} />
-                <FormControlLabel value="agent" control={<Radio size="small" sx={{ color: '#4361EE', '&.Mui-checked': { color: '#4361EE' } }} />}
-                  label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><AccountTreeRoundedIcon sx={{ fontSize: 16, color: '#4361EE' }} /><Typography variant="body2" sx={{ fontWeight: 600 }}>От агента</Typography></Box>} />
-              </RadioGroup>
-              {form.parentType === 'agent' && (
-                <Autocomplete
-                  sx={{ mt: 1.5 }}
-                  options={agents.filter(a => !editTarget || a.id !== editTarget.id)}
-                  getOptionLabel={a => a.name}
-                  value={agents.find(a => a.id === form.parentId) || null}
-                  onChange={(_, v) => handleParentAgentChange(v)}
-                  renderInput={params => <TextField {...params} label="Выберите ментора" size="small" />}
-                  renderOption={(props, a) => (
-                    <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1 }}>
-                      <Avatar sx={{ width: 28, height: 28, fontSize: 11, background: `${levelColor(a.level).color}30`, color: levelColor(a.level).color }}>
-                        {a.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{a.name}</Typography>
-                        <Typography variant="caption" sx={{ color: '#64748B' }}>{a.city} · {a.commission}%</Typography>
-                      </Box>
-                    </Box>
-                  )}
-                />
-              )}
-            </Box>
-
-            {/* Level */}
-            <Box>
-              <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1 }}>
-                Уровень комиссии
-              </Typography>
-              <ToggleButtonGroup exclusive value={form.level} onChange={(_, v) => v && handleLevelChange(v as AgentLevel)} size="small" sx={{ width: '100%' }}>
-                {([1, 2, 3] as AgentLevel[]).map(l => {
-                  const lc = levelColor(l);
-                  const commMap: Record<AgentLevel, 80 | 90 | 95> = { 1: 80, 2: 90, 3: 95 };
-                  return (
-                    <ToggleButton key={l} value={l} sx={{ flex: 1, borderColor: 'rgba(201,168,76,0.15)', '&.Mui-selected': { background: lc.bg, color: lc.color, borderColor: `${lc.color}40` } }}>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>L{l} · {commMap[l]}%</Typography>
-                    </ToggleButton>
-                  );
-                })}
-              </ToggleButtonGroup>
-              <Box sx={{ mt: 1, p: 1.5, borderRadius: 2, background: 'rgba(201,168,76,0.05)', border: '1px solid rgba(201,168,76,0.1)' }}>
-                <Typography variant="caption" sx={{ color: '#64748B' }}>
-                  L2 порог: {fmt(companySettings.level1Threshold)} ₽ ВКД · L3 порог: {fmt(companySettings.level2Threshold)} ₽ ВКД
-                </Typography>
-              </Box>
-            </Box>
-
-            {/* Specialization */}
-            <Autocomplete
-              multiple
-              options={SPECIALIZATIONS}
-              value={form.specialization}
-              onChange={(_, v) => setForm(f => ({ ...f, specialization: v }))}
-              renderInput={params => <TextField {...params} label="Специализация" size="small" />}
-              renderTags={(val, getTagProps) => val.map((opt, i) => (
-                <Chip label={opt} size="small" {...getTagProps({ index: i })} sx={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C' }} />
-              ))}
-            />
-
-            {/* Status */}
-            <FormControl size="small" fullWidth>
-              <InputLabel>Статус</InputLabel>
-              <Select value={form.status} label="Статус" onChange={e => setForm(f => ({ ...f, status: e.target.value as AgentStatus }))}>
-                <MenuItem value="active">Активен</MenuItem>
-                <MenuItem value="blocked">Заблокирован</MenuItem>
-              </Select>
-            </FormControl>
-
-            {/* Реф-ссылка */}
-            <TextField
-              fullWidth size="small" label="Реферальная ссылка"
-              value={form.referralLink}
-              onChange={e => setForm(f => ({ ...f, referralLink: e.target.value }))}
-              placeholder="https://welcome24.ru/r/..."
-              helperText="Персональная ссылка для приглашения новых агентов"
-            />
-
-            {/* Photo + bio */}
-            <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)', my: 0.5 }}>
-              <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, letterSpacing: '0.05em' }}>ПУБЛИЧНЫЙ ПРОФИЛЬ</Typography>
-            </Divider>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar
-                src={form.photo || undefined}
-                sx={{ width: 64, height: 64, fontSize: 18, fontWeight: 800, background: 'rgba(201,168,76,0.18)', color: '#C9A84C', border: '2px solid rgba(201,168,76,0.3)' }}
-              >
-                {form.name.split(' ').map(n => n[0]).slice(0, 2).join('') || '—'}
-              </Avatar>
-              <TextField
-                fullWidth size="small" label="Фото (URL)"
-                value={form.photo} onChange={e => setForm(f => ({ ...f, photo: e.target.value }))}
-                placeholder="https://… или оставьте пустым"
-                slotProps={{ input: { startAdornment: <InputAdornment position="start"><PhotoCameraRoundedIcon sx={{ color: '#64748B', fontSize: 18 }} /></InputAdornment> } }}
-              />
-            </Box>
-            <TextField
-              fullWidth size="small" label="Биография" multiline rows={2}
-              value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))}
-              placeholder="Короткое описание для публичной карточки — что делаете, в чём сильны"
-            />
-
-            {/* Socials */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-              <TextField size="small" label="Telegram" value={form.socials.telegram || ''}
-                onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, telegram: e.target.value.replace(/^@/, '') } }))}
-                placeholder="username"
-                slotProps={{ input: { startAdornment: <InputAdornment position="start"><TelegramIcon sx={{ color: '#229ED9', fontSize: 18 }} /></InputAdornment> } }}
-              />
-              <TextField size="small" label="TG-канал" value={form.socials.telegramChannel || ''}
-                onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, telegramChannel: e.target.value } }))}
-                placeholder="@channel"
-                slotProps={{ input: { startAdornment: <InputAdornment position="start"><CampaignRoundedIcon sx={{ color: '#229ED9', fontSize: 18 }} /></InputAdornment> } }}
-              />
-              <TextField size="small" label="Instagram" value={form.socials.instagram || ''}
-                onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, instagram: e.target.value.replace(/^@/, '') } }))}
-                placeholder="username"
-                slotProps={{ input: { startAdornment: <InputAdornment position="start"><InstagramIcon sx={{ color: '#E4405F', fontSize: 18 }} /></InputAdornment> } }}
-              />
-              <TextField size="small" label="ВКонтакте" value={form.socials.vk || ''}
-                onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, vk: e.target.value } }))}
-                placeholder="username или id"
-              />
-              <TextField size="small" label="MAX мессенджер" value={form.socials.max || ''}
-                onChange={e => setForm(f => ({ ...f, socials: { ...f.socials, max: e.target.value.replace(/^@/, '') } }))}
-                placeholder="username"
-                slotProps={{ input: { startAdornment: <InputAdornment position="start"><ChatRoundedIcon sx={{ color: '#7C3AED', fontSize: 18 }} /></InputAdornment> } }}
-              />
-            </Box>
-
-            {!form.name.trim() && <Alert severity="warning" sx={{ py: 0.5 }}>Введите имя агента</Alert>}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving || !form.name.trim() || !form.email.trim() || (!editTarget && !form.password.trim())}>
-            {saving ? 'Сохранение…' : editTarget ? 'Сохранить' : 'Создать агента'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Create / Edit Dialog — вынесен в AgentFormDialog (свой state → таблица не ре-рендерится на каждом keystroke) */}
+      <AgentFormDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        agents={agents}
+        editTarget={editTarget}
+        canManageRoles={canManageRoles}
+        onSaved={() => { reloadAgents(); }}
+      />
 
       {/* ===== Reviews moderation dialog ===== */}
       <Dialog open={!!reviewsDlgFor} onClose={() => setReviewsDlgFor(null)} maxWidth="md" fullWidth>
