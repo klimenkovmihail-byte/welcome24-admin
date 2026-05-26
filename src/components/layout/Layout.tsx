@@ -67,6 +67,7 @@ const notifConfig: Record<string, { icon: React.ReactNode; color: string }> = {
   news:    { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
   team:    { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
   support: { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#4361EE' },
+  payment: { icon: <DiamondRoundedIcon sx={{ fontSize: 18 }} />, color: '#F59E0B' },
   system:  { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#64748B' },
 };
 const defaultNotifCfg = notifConfig.system;

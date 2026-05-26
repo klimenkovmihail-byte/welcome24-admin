@@ -11,6 +11,7 @@ import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
 import BackofficeTeam from './pages/BackofficeTeam';
 import Support from './pages/Support';
+import SubscriptionClaims from './pages/SubscriptionClaims';
 import Login from './pages/Login';
 import { isAuthenticated, fetchMe, getCurrentUser } from './auth/auth';
 import { canAccess, firstAccessiblePath, type Role } from './auth/roles';
@@ -67,6 +68,7 @@ export default function App() {
                 <Route path="/analytics" element={<RoleRoute path="/analytics"><Analytics /></RoleRoute>} />
                 <Route path="/backoffice" element={<RoleRoute path="/backoffice"><BackofficeTeam /></RoleRoute>} />
                 <Route path="/support" element={<RoleRoute path="/support"><Support /></RoleRoute>} />
+                <Route path="/subscription-claims" element={<RoleRoute path="/subscription-claims"><SubscriptionClaims /></RoleRoute>} />
                 <Route path="/settings" element={<RoleRoute path="/settings"><Settings /></RoleRoute>} />
               </Routes>
             </Layout>

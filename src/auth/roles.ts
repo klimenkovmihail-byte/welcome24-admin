@@ -15,6 +15,7 @@ export const ROLE_ACCESS: Record<string, Role[]> = {
   '/news':       ['super_admin', 'admin', 'manager'],
   '/backoffice': ['super_admin'],
   '/support':    ['super_admin', 'admin'],
+  '/subscription-claims': ['super_admin', 'admin'],
   '/analytics':  ['super_admin'],
   '/settings':   ['super_admin'],
 };
@@ -28,7 +29,7 @@ export function canAccess(role: Role | string | undefined, path: string): boolea
 
 // Первая доступная страница для редиректа после логина.
 export function firstAccessiblePath(role: Role | string | undefined): string {
-  const order = ['/dashboard', '/agents', '/academy', '/news', '/support', '/analytics', '/settings'];
+  const order = ['/dashboard', '/agents', '/academy', '/news', '/support', '/subscription-claims', '/analytics', '/settings'];
   for (const p of order) if (canAccess(role, p)) return p;
   return '/login';
 }

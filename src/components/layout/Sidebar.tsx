@@ -20,12 +20,15 @@ import { logout, getCurrentUser } from '../../auth/auth';
 import { canAccess, ROLE_LABEL, ROLE_COLOR, type Role } from '../../auth/roles';
 import { agentsApi } from '../../api/agents';
 import { supportApi } from '../../api/support';
+import { subscriptionAdminApi } from '../../api/subscription';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import Logo, { LogoIcon } from '../Logo';
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
   const [openTickets, setOpenTickets] = useState(0);
+  const [pendingClaims, setPendingClaims] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const user = getCurrentUser();
@@ -38,6 +41,7 @@ export default function Sidebar() {
     const tasks: Promise<unknown>[] = [];
     if (canAccess(role, '/agents'))  tasks.push(agentsApi.pendingReviews().catch(() => []).then(r => { if (!cancelled) setPendingReviews((r as unknown[]).length); }));
     if (canAccess(role, '/support')) tasks.push(supportApi.list().catch(() => []).then(t => { if (!cancelled) setOpenTickets((t as { status: string }[]).filter(x => x.status === 'open').length); }));
+    if (canAccess(role, '/subscription-claims')) tasks.push(subscriptionAdminApi.pending().catch(() => []).then(p => { if (!cancelled) setPendingClaims((p as unknown[]).length); }));
     Promise.all(tasks);
     return () => { cancelled = true; };
   }, [location.pathname, role]);
@@ -51,6 +55,7 @@ export default function Sidebar() {
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
     { path: '/backoffice', label: 'Команда', icon: <SupportAgentRoundedIcon /> },
     { path: '/support', label: 'Поддержка', icon: <ContactSupportRoundedIcon />, badge: openTickets || null, tooltip: openTickets ? `${openTickets} открытых тикетов` : '' },
+    { path: '/subscription-claims', label: 'Оплаты АП', icon: <ReceiptLongRoundedIcon />, badge: pendingClaims || null, tooltip: pendingClaims ? `${pendingClaims} заявок на подтверждение` : '' },
     { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
     { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
   ];
