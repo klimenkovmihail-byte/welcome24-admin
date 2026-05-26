@@ -34,6 +34,13 @@ type RawAgent = {
   reviews_count: number;
   referral_link?: string;
   terminated_at: string | null;
+  // Поля приходят из агрегаций /api/agents (SUM по deals + share_packets).
+  year_vkd?: number;
+  year_deals?: number;
+  year_income?: number;
+  total_deals?: number;
+  total_vkd?: number;
+  total_income?: number;
 };
 
 type RawReview = {
@@ -61,10 +68,10 @@ export function normalizeAgent(raw: RawAgent): Agent {
     parentName: null, // обогащается на странице из списка по parentId
     joinDate: raw.join_date,
     specialization: raw.specialization || [],
-    vkdYear: 0,      // подключим вместе с Deals
-    incomeYear: 0,
-    dealsYear: 0,
-    shares: 0,       // подключим вместе с Shares
+    vkdYear: raw.year_vkd || 0,
+    incomeYear: raw.year_income || 0,
+    dealsYear: raw.year_deals || 0,
+    shares: 0,       // обогатим отдельным запросом /api/shares/holders
     teamSize: 0,     // считается на странице из списка
     photo: raw.photo,
     bio: raw.bio || '',
@@ -89,7 +96,8 @@ export function normalizeReview(raw: RawReview): AgentReview {
   };
 }
 
-/** Дополняет parentName и teamSize по списку. Вызывать после загрузки. */
+/** Дополняет parentName и teamSize по списку. Вызывать после загрузки.
+ *  shares можно докинуть отдельно через enrichSharesFromHolders. */
 export function enrichAgents(list: Agent[]): Agent[] {
   const byId = new Map(list.map(a => [a.id, a]));
   const teamCounts = new Map<number, number>();
@@ -101,6 +109,13 @@ export function enrichAgents(list: Agent[]): Agent[] {
     parentName: a.parentId != null ? (byId.get(a.parentId)?.name ?? null) : null,
     teamSize: teamCounts.get(a.id) || 0,
   }));
+}
+
+/** Заполняет поле shares у каждого агента из ответа /api/shares/holders. */
+export function enrichSharesFromHolders(list: Agent[], holders: { id: number; shares: number }[]): Agent[] {
+  const sharesById = new Map<number, number>();
+  for (const h of holders) sharesById.set(h.id, h.shares);
+  return list.map(a => ({ ...a, shares: sharesById.get(a.id) || 0 }));
 }
 
 export interface AgentCreatePayload {

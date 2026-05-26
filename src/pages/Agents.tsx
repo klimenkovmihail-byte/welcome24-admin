@@ -38,7 +38,8 @@ import type { AgentReview, ReviewModeration, AgentSocials } from '../types';
 import { impersonate, getCurrentUser } from '../auth/auth';
 import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
 import type { Agent, AgentLevel, AgentStatus } from '../types';
-import { agentsApi, enrichAgents } from '../api/agents';
+import { agentsApi, enrichAgents, enrichSharesFromHolders } from '../api/agents';
+import { sharesApi } from '../api/shares';
 import { CircularProgress } from '@mui/material';
 import AgentFormDialog from './AgentFormDialog';
 
@@ -85,8 +86,11 @@ export default function Agents() {
 
   const reloadAgents = () => {
     setLoading(true);
-    return agentsApi.list()
-      .then(list => setAgents(list))
+    return Promise.all([
+      agentsApi.list(),
+      sharesApi.holders().catch(() => []),
+    ])
+      .then(([list, holders]) => setAgents(enrichSharesFromHolders(list, holders)))
       .catch(err => setError(err?.message || 'Ошибка загрузки агентов'))
       .finally(() => setLoading(false));
   };
