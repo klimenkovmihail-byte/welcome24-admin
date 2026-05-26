@@ -10,17 +10,20 @@ export interface CityBucket  { city: string; agents: number }
 export interface TopAgent    { id: number; name: string; city: string; status: string; deals: number; vkd: number; income: number }
 export interface RecentDeal  { id: number; agentId: number; agentName: string; clientName: string; address: string; city: string; type: string; vkd: number; income: number; status: DealStatus; date: string }
 
+export interface TopShareholder { id: number; name: string; city: string; shares: number }
+
 export interface OverviewResponse {
   year: string | null;
   month: string | null;
   agents: { total: number; active: number; inactive: number; blocked: number };
-  deals:  { total: number; pending: number; confirmed: number; paid: number; cancelled: number; totalVkd: number; totalIncome: number };
+  deals:  { total: number; pending: number; confirmed: number; paid: number; cancelled: number; totalVkd: number; totalIncome: number; companyIncome: number };
   monthlyDeals: MonthBucket[];
   agentsByLevel: { level: number; count: number }[];
   agentsByCity: CityBucket[];
   topAgents:    TopAgent[];
   recentDeals:  RecentDeal[];
   settings:     { sharePrice: number; totalSharesIssued: number; sharesInCirculation: number };
+  shareholders: { count: number; top: TopShareholder[] };
 }
 
 export const statsApi = {

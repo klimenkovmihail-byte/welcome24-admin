@@ -58,6 +58,7 @@ export default function Analytics() {
 
   const totalVKD = data.deals.totalVkd;
   const totalIncome = data.deals.totalIncome;
+  const companyIncome = data.deals.companyIncome ?? (totalVKD - totalIncome);
   const avgDeal = data.deals.total > 0 ? totalVKD / data.deals.total : 0;
 
   // Преобразуем для графиков
@@ -73,8 +74,10 @@ export default function Analytics() {
     color: LEVEL_COLORS[d.level] || '#94A3B8',
   }));
   const cityData = data.agentsByCity.map(c => ({ city: c.city, count: c.agents }));
-  const topAgents = data.topAgents.slice(0, 5);
+  const topAgents = data.topAgents.slice(0, 10);
   const maxTop = topAgents[0]?.vkd || 1;
+  const topShareholders = data.shareholders?.top || [];
+  const maxShares = topShareholders[0]?.shares || 1;
 
   const shareHistory = quotes
     .slice()
@@ -87,9 +90,11 @@ export default function Analytics() {
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         {[
           { label: 'Общий ВКД (год)', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, sub: `за ${currentYear} год`, color: '#C9A84C' },
-          { label: 'Доход компании', value: `${(totalIncome / 1e6).toFixed(1)} млн ₽`, sub: 'комиссионные', color: '#22C55E' },
-          { label: 'Средняя сделка', value: `${(avgDeal / 1000).toFixed(0)} тыс ₽`, sub: 'ВКД на сделку', color: '#3B82F6' },
+          { label: 'Доход агентов', value: `${(totalIncome / 1e6).toFixed(1)} млн ₽`, sub: 'выплачено агентам', color: '#3B82F6' },
+          { label: 'Комиссия компании', value: `${(companyIncome / 1e6).toFixed(1)} млн ₽`, sub: 'ВКД − доход агентов', color: '#22C55E' },
+          { label: 'Средняя сделка', value: `${(avgDeal / 1000).toFixed(0)} тыс ₽`, sub: 'ВКД на сделку', color: '#7B2FBE' },
           { label: 'Всего агентов', value: String(data.agents.total), sub: `${data.agents.active} активных · ${data.agents.blocked + data.agents.inactive} заблокированных`, color: '#8B5CF6' },
+          { label: 'Акционеров', value: String(data.shareholders?.count || 0), sub: `${(data.settings.sharesInCirculation / 1000).toFixed(1)}К акций в обращении`, color: '#EC4899' },
         ].map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }} style={{ flex: '1 1 180px' }}>
             <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: `1px solid ${s.color}20` }}>
@@ -175,8 +180,8 @@ export default function Analytics() {
 
         {card(
           <>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9', mb: 2 }}>Топ-5 агентов по ВКД</Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9', mb: 2 }}>Топ-10 агентов по ВКД</Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.2 }}>
               {topAgents.map((a, i) => (
                 <Box key={a.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                   <Typography variant="body2" sx={{ fontWeight: 900, color: i === 0 ? '#C9A84C' : '#475569', width: 20, textAlign: 'center' }}>
@@ -197,6 +202,39 @@ export default function Analytics() {
           </>, 0.25
         )}
       </Box>
+
+      {/* Топ акционеров */}
+      {topShareholders.length > 0 && card(
+        <>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9', mb: 2 }}>Топ-10 акционеров</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.2 }}>
+            {topShareholders.map((s, i) => (
+              <Box key={s.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Typography variant="body2" sx={{ fontWeight: 900, color: i === 0 ? '#EC4899' : '#475569', width: 20, textAlign: 'center' }}>
+                  {i + 1}
+                </Typography>
+                <Box sx={{ flex: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9', fontSize: 13 }}>
+                      {s.name.split(' ').slice(0, 2).join(' ')}
+                      {s.city && <Typography component="span" variant="caption" sx={{ color: '#64748B', ml: 1 }}>· {s.city}</Typography>}
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#EC4899', fontSize: 13 }}>
+                      {s.shares.toLocaleString('ru-RU')} акц.
+                      <Typography component="span" variant="caption" sx={{ color: '#94A3B8', ml: 1 }}>
+                        {((s.shares * data.settings.sharePrice) / 1e6).toFixed(2)} млн ₽
+                      </Typography>
+                    </Typography>
+                  </Box>
+                  <Box sx={{ height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.06)' }}>
+                    <Box sx={{ height: '100%', borderRadius: 99, background: i === 0 ? 'linear-gradient(90deg,#EC4899,#F472B6)' : '#7B2FBE', width: `${(s.shares / maxShares) * 100}%`, transition: 'width 0.8s ease' }} />
+                  </Box>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </>, 0.27
+      )}
 
       {/* Share price */}
       {shareHistory.length > 0 && card(
