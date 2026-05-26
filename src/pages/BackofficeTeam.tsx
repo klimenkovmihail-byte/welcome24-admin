@@ -10,7 +10,11 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { backofficeApi, type BackOfficeMember, type BackOfficePayload } from '../api/backoffice';
+import { settingsApi } from '../api/settings';
 import FileUploader from '../components/FileUploader';
+import EditRoundedIcon2 from '@mui/icons-material/EditNoteRounded';
+
+const DEFAULT_INTRO = 'К этим людям ты можешь обращаться по специальным вопросам — бухгалтерия, юристы, HR, маркетинг, IT.';
 
 const emptyForm: BackOfficePayload & { active: boolean } = {
   name: '', role: '', description: '',
@@ -28,14 +32,42 @@ export default function BackofficeTeam() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
 
+  // Вступительный текст над карточками (хранится в settings.backoffice_intro)
+  const [intro, setIntro] = useState(DEFAULT_INTRO);
+  const [introDraft, setIntroDraft] = useState(DEFAULT_INTRO);
+  const [introSaving, setIntroSaving] = useState(false);
+  const [introSaved, setIntroSaved] = useState(false);
+
   const load = () => {
     setLoading(true);
-    backofficeApi.list()
-      .then(setList)
+    Promise.all([
+      backofficeApi.list(),
+      settingsApi.getRaw().catch(() => ({} as Record<string, string | number>)),
+    ])
+      .then(([items, settings]) => {
+        setList(items);
+        const v = (settings.backoffice_intro as string) || DEFAULT_INTRO;
+        setIntro(v);
+        setIntroDraft(v);
+      })
       .catch(e => setError(e?.message || 'Ошибка загрузки'))
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  const saveIntro = async () => {
+    setIntroSaving(true);
+    try {
+      await settingsApi.update({ backoffice_intro: introDraft });
+      setIntro(introDraft);
+      setIntroSaved(true);
+      setTimeout(() => setIntroSaved(false), 2200);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить текст');
+    } finally {
+      setIntroSaving(false);
+    }
+  };
 
   const openCreate = () => { setEditId(null); setForm({ ...emptyForm }); setDialogOpen(true); };
   const openEdit = (m: BackOfficeMember) => {
@@ -77,6 +109,37 @@ export default function BackofficeTeam() {
 
   return (
     <Box>
+      {/* Вступительный текст над карточками — редактируется здесь */}
+      <Box sx={{ mb: 2.5, p: 2, borderRadius: 2.5, border: '1px solid rgba(67,97,238,0.2)', background: 'rgba(67,97,238,0.04)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+          <EditRoundedIcon2 sx={{ color: '#60A5FA', fontSize: 18 }} />
+          <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Вступительный текст для агентов
+          </Typography>
+        </Box>
+        <TextField
+          fullWidth multiline rows={2} size="small"
+          value={introDraft}
+          onChange={e => setIntroDraft(e.target.value)}
+          placeholder={DEFAULT_INTRO}
+        />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.2 }}>
+          <Typography variant="caption" sx={{ color: '#64748B' }}>
+            Этот текст агенты увидят над карточками сотрудников
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            {introSaved && <Typography variant="caption" sx={{ color: '#22C55E', fontWeight: 700 }}>✓ Сохранено</Typography>}
+            <Button
+              size="small" variant="contained"
+              disabled={introSaving || introDraft.trim() === intro.trim()}
+              onClick={saveIntro}
+            >
+              {introSaving ? 'Сохранение…' : 'Сохранить текст'}
+            </Button>
+          </Box>
+        </Box>
+      </Box>
+
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5 }}>
         <Typography variant="caption" sx={{ color: '#94A3B8' }}>
           Сотрудники бэк-офиса (HR, юристы, бухгалтеры и т.п.) — будут видны агентам в разделе «Команда» на платформе

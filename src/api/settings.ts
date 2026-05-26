@@ -80,6 +80,8 @@ function normalizeAch(r: RawAch): AchievementDef {
 
 export const settingsApi = {
   get:           () => api.get<RawSettings>('/api/settings').then(normalizeSettings),
+  // Raw map с ВСЕМИ ключами — для текстовых настроек (backoffice_intro и т.п.)
+  getRaw:        () => api.get<RawSettings>('/api/settings'),
   update:        (patch: Record<string, string | number>) =>
     api.patch<{ ok: true }>('/api/settings', patch as unknown as Record<string, unknown>),
 
