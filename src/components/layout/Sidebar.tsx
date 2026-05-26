@@ -17,6 +17,7 @@ import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSetting
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import ContactSupportRoundedIcon from '@mui/icons-material/ContactSupportRounded';
 import { logout, getCurrentUser } from '../../auth/auth';
+import { canAccess, ROLE_LABEL, ROLE_COLOR, type Role } from '../../auth/roles';
 import { agentsApi } from '../../api/agents';
 import { supportApi } from '../../api/support';
 import Logo, { LogoIcon } from '../Logo';
@@ -28,22 +29,20 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const user = getCurrentUser();
+  const role = (user?.role || 'agent') as Role;
 
   // Бейджи: отзывы на модерации + открытые тикеты поддержки.
+  // Дёргаем только если у роли есть доступ к этим разделам (иначе 403 в консоли).
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      agentsApi.pendingReviews().catch(() => []),
-      supportApi.list().catch(() => []),
-    ]).then(([reviews, tickets]) => {
-      if (cancelled) return;
-      setPendingReviews(reviews.length);
-      setOpenTickets(tickets.filter(t => t.status === 'open').length);
-    });
+    const tasks: Promise<unknown>[] = [];
+    if (canAccess(role, '/agents'))  tasks.push(agentsApi.pendingReviews().catch(() => []).then(r => { if (!cancelled) setPendingReviews((r as unknown[]).length); }));
+    if (canAccess(role, '/support')) tasks.push(supportApi.list().catch(() => []).then(t => { if (!cancelled) setOpenTickets((t as { status: string }[]).filter(x => x.status === 'open').length); }));
+    Promise.all(tasks);
     return () => { cancelled = true; };
-  }, [location.pathname]);
+  }, [location.pathname, role]);
 
-  const navItems = [
+  const allNavItems = [
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
     { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
@@ -55,6 +54,7 @@ export default function Sidebar() {
     { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
     { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
   ];
+  const navItems = allNavItems.filter(i => canAccess(role, i.path));
 
   const handleLogout = () => {
     logout();
@@ -128,9 +128,12 @@ export default function Sidebar() {
 
         <Box sx={{ p: 1.5, pb: 2.5 }}>
           {!collapsed && (
-            <Box sx={{ p: 1.5, borderRadius: 2.5, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', mb: 1 }}>
+            <Box sx={{ p: 1.5, borderRadius: 2.5, background: `${ROLE_COLOR[role] || '#EF4444'}14`, border: `1px solid ${ROLE_COLOR[role] || '#EF4444'}26`, mb: 1 }}>
               <Typography variant="caption" sx={{ fontWeight: 700, color: '#F1F5F9', display: 'block', fontSize: 12 }}>{user?.name || 'Администратор'}</Typography>
-              <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>{user?.email || 'admin@w24.agency'}</Typography>
+              <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11, display: 'block' }}>{user?.email || 'admin@w24.agency'}</Typography>
+              <Typography variant="caption" sx={{ color: ROLE_COLOR[role] || '#EF4444', fontWeight: 800, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', mt: 0.3, display: 'block' }}>
+                {ROLE_LABEL[role] || role}
+              </Typography>
             </Box>
           )}
           <Box sx={{ display: 'flex', justifyContent: collapsed ? 'center' : 'space-between', alignItems: 'center' }}>

@@ -2,12 +2,17 @@
 // Не-админы перенаправляются на портал агента.
 
 import { api, setToken, getToken, ApiError } from '../api/apiClient';
+import type { Role } from './roles';
+
+// Какие роли вообще могут войти в админку (всё, кроме обычного agent).
+const ADMIN_ROLES: Role[] = ['super_admin', 'admin', 'manager'];
+const isStaffRole = (r: string | undefined) => !!r && (ADMIN_ROLES as string[]).includes(r);
 
 export interface AdminUser {
   id?: number;
   email: string;
   name: string;
-  role: 'admin' | 'agent';
+  role: Role;
   loginAt: string;
   [key: string]: unknown;
 }
@@ -45,7 +50,7 @@ export const ADMIN_URL = detectAdminUrl();
 
 interface LoginResponse {
   token: string;
-  user: Record<string, unknown> & { id: number; email: string; name: string; role: 'admin' | 'agent' };
+  user: Record<string, unknown> & { id: number; email: string; name: string; role: Role };
 }
 
 export async function login(
@@ -59,12 +64,12 @@ export async function login(
   try {
     const data = await api.post<LoginResponse>('/api/auth/login', { email: e, password });
 
-    if (data.user.role !== 'admin') {
-      // Не админ — обратно стираем токен, отправляем на портал агента.
+    if (!isStaffRole(data.user.role)) {
+      // Не сотрудник — стираем токен, отправляем на портал агента.
       setToken(null);
       return {
         ok: false,
-        error: 'У этого аккаунта нет прав администратора. Перенаправляем на портал агента…',
+        error: 'У этого аккаунта нет прав на админ-панель. Перенаправляем на портал агента…',
         redirectTo: `${PORTAL_URL}/login?ssoEmail=${encodeURIComponent(e)}`,
       };
     }
@@ -106,8 +111,8 @@ export function isAuthenticated(): boolean {
 export async function fetchMe(): Promise<AdminUser | null> {
   if (!getToken()) return null;
   try {
-    const fresh = await api.get<Record<string, unknown> & { id: number; email: string; name: string; role: 'admin' | 'agent' }>('/api/auth/me');
-    if (fresh.role !== 'admin') {
+    const fresh = await api.get<Record<string, unknown> & { id: number; email: string; name: string; role: Role }>('/api/auth/me');
+    if (!isStaffRole(fresh.role)) {
       // Кто-то подсунул токен агента в админку — гонимся.
       logout();
       return null;

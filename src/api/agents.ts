@@ -10,6 +10,7 @@
 
 import { api } from './apiClient';
 import type { Agent, AgentReview, AgentSocials, AgentLevel, AgentStatus, ReviewModeration } from '../types';
+import type { Role } from '../auth/roles';
 
 type RawAgent = {
   id: number;
@@ -19,7 +20,7 @@ type RawAgent = {
   city: string;
   photo: string | null;
   bio: string;
-  role: 'admin' | 'agent';
+  role: Role;
   status: AgentStatus;
   level: number;
   commission: number;
@@ -72,7 +73,8 @@ export function normalizeAgent(raw: RawAgent): Agent {
     reviewsCount: raw.reviews_count || 0,
     referralLink: raw.referral_link || '',
     terminatedAt: raw.terminated_at || null,
-  } as Agent & { referralLink: string };
+    role: raw.role || 'agent',
+  } as Agent & { referralLink: string; role: Role };
 }
 
 export function normalizeReview(raw: RawReview): AgentReview {
@@ -143,6 +145,8 @@ export const agentsApi = {
   update:  (id: number, payload: AgentUpdatePayload) =>
     api.patch<RawAgent>(`/api/agents/${id}`, payload as unknown as Record<string, unknown>).then(normalizeAgent),
   remove:  (id: number) => api.del<{ ok: true }>(`/api/agents/${id}`),
+  setRole: (id: number, role: Role) =>
+    api.patch<RawAgent>(`/api/agents/${id}/role`, { role }).then(normalizeAgent),
 
   reviews: (id: number, opts?: { all?: boolean }) =>
     api.get<RawReview[]>(`/api/agents/${id}/reviews${opts?.all ? '?all=1' : ''}`).then(rows => rows.map(normalizeReview)),

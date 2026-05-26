@@ -34,10 +34,14 @@ import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded
 import { Rating } from '@mui/material';
 import { companySettings } from '../data/mockData';
 import type { AgentReview, ReviewModeration, AgentSocials } from '../types';
-import { impersonate } from '../auth/auth';
+import { impersonate, getCurrentUser } from '../auth/auth';
+import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
 import type { Agent, AgentLevel, AgentStatus } from '../types';
 import { agentsApi, enrichAgents } from '../api/agents';
 import { CircularProgress } from '@mui/material';
+
+// Расширяем тип Agent (role приходит из бэка, добавлен в normalizeAgent).
+type AgentWithRole = Agent & { role?: Role };
 
 const SPECIALIZATIONS = ['Жилая', 'Вторичная', 'Коммерческая', 'Загородная', 'Новостройки', 'Аренда'];
 
@@ -218,6 +222,20 @@ export default function Agents() {
     }
   };
 
+  // Смена роли (только super_admin видит этот UI).
+  const currentUser = getCurrentUser();
+  const currentRole = (currentUser?.role || 'agent') as Role;
+  const canManageRoles = currentRole === 'super_admin';
+
+  const changeRole = async (id: number, role: Role) => {
+    try {
+      const updated = await agentsApi.setRole(id, role);
+      setAgents(prev => enrichAgents(prev.map(a => a.id === id ? { ...a, ...updated } : a)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сменить роль');
+    }
+  };
+
   const stats = useMemo(() => ({
     total: agents.length,
     active: agents.filter(a => a.status === 'active').length,
@@ -298,6 +316,7 @@ export default function Agents() {
               <TableCell>Уровень</TableCell>
               <TableCell>Источник / Ментор</TableCell>
               <TableCell>Статус</TableCell>
+              <TableCell>Роль</TableCell>
               <TableCell align="right">ВКД (год)</TableCell>
               <TableCell align="right">Комиссия</TableCell>
               <TableCell align="right">Акции</TableCell>
@@ -352,6 +371,33 @@ export default function Agents() {
                       size="small"
                       sx={{ background: sc.bg, color: sc.color, fontWeight: 600, fontSize: 11, '& .MuiChip-icon': { color: sc.color } }}
                     />
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const r = ((agent as AgentWithRole).role || 'agent') as Role;
+                      const c = ROLE_COLOR[r] || '#94A3B8';
+                      if (canManageRoles) {
+                        return (
+                          <Select
+                            value={r}
+                            size="small"
+                            variant="standard"
+                            disableUnderline
+                            onChange={e => changeRole(agent.id, e.target.value as Role)}
+                            sx={{ fontSize: 11, fontWeight: 700, color: c, '& .MuiSelect-select': { p: 0, pr: '20px !important' }, '& .MuiSvgIcon-root': { color: c, fontSize: 16 } }}
+                          >
+                            {(['super_admin', 'admin', 'manager', 'agent'] as Role[]).map(opt => (
+                              <MenuItem key={opt} value={opt} sx={{ fontSize: 12, color: ROLE_COLOR[opt], fontWeight: 600 }}>
+                                {ROLE_LABEL[opt]}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        );
+                      }
+                      return (
+                        <Chip label={ROLE_LABEL[r] || r} size="small" sx={{ background: `${c}22`, color: c, fontWeight: 700, fontSize: 11 }} />
+                      );
+                    })()}
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{fmt(agent.vkdYear)} ₽</Typography>
