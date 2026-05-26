@@ -33,6 +33,8 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/academy': { title: 'Академия', subtitle: 'Управление курсами и уроками' },
   '/news': { title: 'Новости', subtitle: 'Публикации и редактор контента' },
   '/analytics': { title: 'Аналитика', subtitle: 'BI-дашборд и отчёты' },
+  '/backoffice': { title: 'Команда бэк-офиса', subtitle: 'Сотрудники к которым обращаются агенты' },
+  '/support': { title: 'Поддержка', subtitle: 'Запросы агентов в техподдержку' },
   '/settings': { title: 'Настройки', subtitle: 'Комиссии, интеграции, параметры системы' },
 };
 
