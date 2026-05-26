@@ -60,14 +60,16 @@ function relativeTime(iso: string): string {
 }
 
 const notifConfig: Record<string, { icon: React.ReactNode; color: string }> = {
-  deal:   { icon: <HandshakeRoundedIcon sx={{ fontSize: 18 }} />, color: '#22C55E' },
-  agent:  { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#3B82F6' },
-  shares: { icon: <DiamondRoundedIcon sx={{ fontSize: 18 }} />, color: '#C9A84C' },
-  alert:  { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#F59E0B' },
-  news:   { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
-  team:   { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
-  system: { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#64748B' },
+  deal:    { icon: <HandshakeRoundedIcon sx={{ fontSize: 18 }} />, color: '#22C55E' },
+  agent:   { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#3B82F6' },
+  shares:  { icon: <DiamondRoundedIcon sx={{ fontSize: 18 }} />, color: '#C9A84C' },
+  alert:   { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#F59E0B' },
+  news:    { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
+  team:    { icon: <PersonAddRoundedIcon sx={{ fontSize: 18 }} />, color: '#8B5CF6' },
+  support: { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#4361EE' },
+  system:  { icon: <WarningAmberRoundedIcon sx={{ fontSize: 18 }} />, color: '#64748B' },
 };
+const defaultNotifCfg = notifConfig.system;
 
 interface SearchResult {
   type: 'agent' | 'deal' | 'page';
@@ -277,7 +279,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </Box>
             <List sx={{ p: 0, maxHeight: 420, overflow: 'auto' }}>
               {notifs.map((n) => {
-                const cfg = notifConfig[n.type];
+                const cfg = notifConfig[n.type] || defaultNotifCfg;
                 return (
                   <ListItem
                     key={n.id}
