@@ -126,6 +126,12 @@ export default function Docs() {
     if (!file) return;
     e.target.value = '';
     setError(null);
+    const sizeMb = file.size / (1024 * 1024);
+    const MAX_MB = 50;
+    if (sizeMb > MAX_MB) {
+      setError(`Файл «${file.name}» весит ${sizeMb.toFixed(1)} МБ — лимит ${MAX_MB} МБ. Сожми PDF (например через ilovepdf.com) или разбей на части.`);
+      return;
+    }
     setUploading(true);
     try {
       // Загружаем в S3 через /api/upload
@@ -139,7 +145,12 @@ export default function Docs() {
         body: fd,
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new ApiError(data?.error || `HTTP ${res.status}`, res.status, data);
+      if (!res.ok) {
+        if (res.status === 413) {
+          throw new ApiError(`Файл слишком большой (лимит сервера ${MAX_MB} МБ)`, 413, data);
+        }
+        throw new ApiError(data?.error || `Ошибка загрузки (HTTP ${res.status})`, res.status, data);
+      }
       // Регистрируем в БД
       await docsApi.createFile({
         parentId: currentFolderId,
@@ -151,7 +162,13 @@ export default function Docs() {
       });
       reloadCurrent();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить файл');
+      // «Failed to fetch» — обычно сеть/тайм-аут на больших файлах.
+      const msg = err instanceof Error ? err.message : 'Не удалось загрузить файл';
+      if (/failed to fetch|network/i.test(msg)) {
+        setError(`Не удалось отправить файл на сервер. Возможные причины: файл больше ${MAX_MB} МБ, медленный интернет, или сервер сейчас перезапускается. Попробуй через минуту.`);
+      } else {
+        setError(msg);
+      }
     } finally {
       setUploading(false);
     }
