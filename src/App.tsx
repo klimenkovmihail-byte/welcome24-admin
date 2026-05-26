@@ -13,6 +13,7 @@ import BackofficeTeam from './pages/BackofficeTeam';
 import Support from './pages/Support';
 import SubscriptionClaims from './pages/SubscriptionClaims';
 import Subscriptions from './pages/Subscriptions';
+import Docs from './pages/Docs';
 import Login from './pages/Login';
 import { isAuthenticated, fetchMe, getCurrentUser } from './auth/auth';
 import { canAccess, firstAccessiblePath, type Role } from './auth/roles';
@@ -71,6 +72,7 @@ export default function App() {
                 <Route path="/support" element={<RoleRoute path="/support"><Support /></RoleRoute>} />
                 <Route path="/subscription-claims" element={<RoleRoute path="/subscription-claims"><SubscriptionClaims /></RoleRoute>} />
                 <Route path="/subscriptions" element={<RoleRoute path="/subscriptions"><Subscriptions /></RoleRoute>} />
+                <Route path="/docs" element={<RoleRoute path="/docs"><Docs /></RoleRoute>} />
                 <Route path="/settings" element={<RoleRoute path="/settings"><Settings /></RoleRoute>} />
               </Routes>
             </Layout>
