@@ -7,7 +7,27 @@ import {
 } from '@mui/material';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
+import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import { useRef } from 'react';
 import { supportApi, type SupportTicketSummary, type SupportTicketFull } from '../api/support';
+import { API_BASE_URL, getToken } from '../api/apiClient';
+
+async function uploadAttachment(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('type', 'doc');
+  const token = getToken();
+  const res = await fetch(`${API_BASE_URL}/api/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return data.url;
+}
+const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(url);
 
 const STATUS_CFG: Record<SupportTicketSummary['status'], { label: string; color: string; bg: string }> = {
   open:    { label: 'Открыт',    color: '#F59E0B', bg: 'rgba(245,158,11,0.15)' },
@@ -24,7 +44,25 @@ export default function Support() {
   const [open, setOpen] = useState<SupportTicketFull | null>(null);
   const [openLoading, setOpenLoading] = useState(false);
   const [reply, setReply] = useState('');
+  const [replyAtts, setReplyAtts] = useState<string[]>([]);
+  const [uploadingAtt, setUploadingAtt] = useState(false);
   const [sending, setSending] = useState(false);
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleAttachPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingAtt(true);
+    try {
+      const url = await uploadAttachment(file);
+      setReplyAtts(prev => [...prev, url]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить файл');
+    } finally {
+      setUploadingAtt(false);
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -43,12 +81,14 @@ export default function Support() {
   };
 
   const send = async () => {
-    if (!open || !reply.trim()) return;
+    if (!open) return;
+    if (!reply.trim() && replyAtts.length === 0) return;
     setSending(true);
     try {
-      const updated = await supportApi.reply(open.id, reply.trim());
+      const updated = await supportApi.reply(open.id, reply.trim(), replyAtts);
       setOpen(updated);
       setReply('');
+      setReplyAtts([]);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка отправки');
@@ -154,7 +194,26 @@ export default function Support() {
                         {isAdmin && <Chip label="Админ" size="small" sx={{ height: 16, fontSize: 9, background: 'rgba(201,168,76,0.2)', color: '#C9A84C', fontWeight: 700 }} />}
                         <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>{fmtDate(m.created_at)}</Typography>
                       </Box>
-                      <Typography variant="body2" sx={{ color: '#CBD5E1', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{m.text}</Typography>
+                      {m.text && <Typography variant="body2" sx={{ color: '#CBD5E1', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{m.text}</Typography>}
+                      {m.attachments && m.attachments.length > 0 && (
+                        <Box sx={{ mt: m.text ? 1 : 0, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {m.attachments.map((url, i) => (
+                            isImage(url) ? (
+                              <Box key={i} component="a" href={url} target="_blank" rel="noopener">
+                                <Box component="img" src={url}
+                                  sx={{ maxWidth: 160, maxHeight: 120, borderRadius: 1.5, border: '1px solid rgba(201,168,76,0.2)', cursor: 'zoom-in', '&:hover': { border: '1px solid #C9A84C' } }}
+                                />
+                              </Box>
+                            ) : (
+                              <Box key={i} component="a" href={url} target="_blank" rel="noopener"
+                                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderRadius: 1, background: 'rgba(67,97,238,0.12)', color: '#60A5FA', textDecoration: 'none', fontSize: 12 }}>
+                                <AttachFileRoundedIcon sx={{ fontSize: 14 }} />
+                                Файл {i + 1}
+                              </Box>
+                            )
+                          ))}
+                        </Box>
+                      )}
                     </Box>
                   </Box>
                 );
@@ -164,15 +223,39 @@ export default function Support() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3, flexDirection: 'column', gap: 1.5, alignItems: 'stretch' }}>
           {open && open.status !== 'closed' && (
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', width: '100%' }}>
-              <TextField
-                fullWidth size="small" multiline maxRows={6} placeholder="Ответить…"
-                value={reply} onChange={e => setReply(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } }}
-              />
-              <Button variant="contained" onClick={send} disabled={!reply.trim() || sending} sx={{ minWidth: 0, px: 1.5 }}>
-                <SendRoundedIcon fontSize="small" />
-              </Button>
+            <Box sx={{ width: '100%' }}>
+              {replyAtts.length > 0 && (
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                  {replyAtts.map((url, i) => (
+                    <Box key={i} sx={{ position: 'relative', display: 'inline-block' }}>
+                      {isImage(url)
+                        ? <Box component="img" src={url} sx={{ maxWidth: 80, maxHeight: 80, borderRadius: 1, border: '1px solid rgba(201,168,76,0.3)' }} />
+                        : <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, background: 'rgba(67,97,238,0.12)', color: '#60A5FA', fontSize: 11 }}>Файл {i + 1}</Box>
+                      }
+                      <IconButton size="small" onClick={() => setReplyAtts(prev => prev.filter((_, idx) => idx !== i))}
+                        sx={{ position: 'absolute', top: -8, right: -8, background: 'rgba(0,0,0,0.7)', color: '#fff', width: 18, height: 18, '&:hover': { background: '#EF4444' } }}>
+                        <DeleteOutlineRoundedIcon sx={{ fontSize: 12 }} />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                <input ref={attachInputRef} type="file" accept="image/*,.pdf"
+                  onChange={handleAttachPick} style={{ display: 'none' }} />
+                <IconButton onClick={() => attachInputRef.current?.click()} disabled={uploadingAtt}
+                  sx={{ color: '#94A3B8', '&:hover': { color: '#C9A84C' } }}>
+                  <AttachFileRoundedIcon />
+                </IconButton>
+                <TextField
+                  fullWidth size="small" multiline maxRows={6} placeholder="Ответить…"
+                  value={reply} onChange={e => setReply(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } }}
+                />
+                <Button variant="contained" onClick={send} disabled={(!reply.trim() && replyAtts.length === 0) || sending} sx={{ minWidth: 0, px: 1.5 }}>
+                  <SendRoundedIcon fontSize="small" />
+                </Button>
+              </Box>
             </Box>
           )}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>

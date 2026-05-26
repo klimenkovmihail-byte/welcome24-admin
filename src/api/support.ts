@@ -19,6 +19,7 @@ export interface SupportMessage {
   author_role: 'agent' | 'admin';
   author_name: string;
   text: string;
+  attachments: string[];
   created_at: string;
 }
 
@@ -29,8 +30,8 @@ export interface SupportTicketFull extends SupportTicketSummary {
 export const supportApi = {
   list: () => api.get<SupportTicketSummary[]>('/api/support'),
   get: (id: number) => api.get<SupportTicketFull>(`/api/support/${id}`),
-  reply: (id: number, text: string) =>
-    api.post<SupportTicketFull>(`/api/support/${id}/messages`, { text }),
+  reply: (id: number, text: string, attachments: string[] = []) =>
+    api.post<SupportTicketFull>(`/api/support/${id}/messages`, { text, attachments }),
   setStatus: (id: number, status: 'open' | 'replied' | 'closed') =>
     api.patch<{ ok: true }>(`/api/support/${id}/status`, { status }),
 };
