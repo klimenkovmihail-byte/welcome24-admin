@@ -14,7 +14,7 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?:
     <Box sx={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 2, p: 1.5 }}>
       <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mb: 0.5 }}>{label}</Typography>
       {payload.map(p => (
-        <Typography key={p.name} variant="body2" sx={{ color: p.color, fontWeight: 600 }}>
+        <Typography key={p.name} variant="body2" sx={{ color: p.color || '#94A3B8', fontWeight: 600 }}>
           {p.name}: {typeof p.value === 'number' ? (p.name.includes('Сделок') ? p.value : `${p.value.toFixed(1)} млн ₽`) : p.value}
         </Typography>
       ))}
@@ -136,7 +136,7 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height={180}>
               <PieChart>
                 <Pie data={levelData} cx="50%" cy="50%" innerRadius={52} outerRadius={78} paddingAngle={3} dataKey="value">
-                  {levelData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  {levelData.map((entry, i) => <Cell key={i} fill={entry.color || '#94A3B8'} />)}
                 </Pie>
                 <Tooltip contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }} />
               </PieChart>

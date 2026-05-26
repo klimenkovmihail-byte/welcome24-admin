@@ -14,7 +14,7 @@ const fmtFull = (n: number) => n.toLocaleString('ru-RU');
 const CustomTip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => active && payload?.length ? (
   <Box sx={{ background: '#1A2340', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 2, p: 1.5 }}>
     <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block' }}>{label}</Typography>
-    {payload.map(p => <Typography key={p.name} variant="caption" sx={{ color: p.color, display: 'block', fontWeight: 700 }}>{p.name}: {fmtFull(p.value)}</Typography>)}
+    {payload.map(p => <Typography key={p.name} variant="caption" sx={{ color: p.color || p.stroke || '#94A3B8', display: 'block', fontWeight: 700 }}>{p.name}: {fmtFull(p.value)}</Typography>)}
   </Box>
 ) : null;
 
@@ -134,7 +134,7 @@ export default function Dashboard() {
                 <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                   <PieChart width={180} height={180}>
                     <Pie data={cityChart} cx={85} cy={85} innerRadius={50} outerRadius={80} dataKey="agents" paddingAngle={3}>
-                      {cityChart.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      {cityChart.map((entry, i) => <Cell key={i} fill={entry.color || CITY_COLORS[i % CITY_COLORS.length]} />)}
                     </Pie>
                   </PieChart>
                 </Box>
