@@ -73,10 +73,11 @@ interface Props {
   agents: Agent[];
   editTarget: Agent | null;
   canManageRoles: boolean; // только super_admin видит выбор «Агент / Сотрудник»
+  defaultKind?: 'agent' | 'staff'; // дефолт при создании — зависит от текущей вкладки
   onSaved: () => void;
 }
 
-export default function AgentFormDialog({ open, onClose, agents, editTarget, canManageRoles, onSaved }: Props) {
+export default function AgentFormDialog({ open, onClose, agents, editTarget, canManageRoles, defaultKind = 'agent', onSaved }: Props) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,10 +103,10 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
         socials: { ...(editTarget.socials || {}) },
       });
     } else {
-      setForm({ ...emptyForm });
+      setForm({ ...emptyForm, kind: defaultKind });
     }
     setError(null);
-  }, [open, editTarget]);
+  }, [open, editTarget, defaultKind]);
 
   const handleLevelChange = (level: AgentLevel) => {
     const commMap: Record<AgentLevel, 80 | 90 | 95> = { 1: 80, 2: 90, 3: 95 };

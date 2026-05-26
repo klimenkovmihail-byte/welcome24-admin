@@ -31,6 +31,7 @@ import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded';
+import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded';
 import { Rating } from '@mui/material';
 import { companySettings } from '../data/mockData';
 import type { AgentReview, ReviewModeration, AgentSocials } from '../types';
@@ -124,19 +125,29 @@ export default function Agents() {
     reloadAgents();
   };
 
+  // Верхняя вкладка: «Агенты» (role==='agent') или «Сотрудники» (admin/manager/super_admin).
+  // Это главный визуальный переключатель — пользователь сразу видит где сейчас.
+  const [view, setView] = useState<'agents' | 'staff'>('agents');
+
   const filtered = useMemo(() => agents.filter(a => {
     const q = search.toLowerCase();
     const matchQ = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q) || a.city.toLowerCase().includes(q);
     const matchStatus = filterStatus === 'all' || a.status === filterStatus;
     const matchLevel = filterLevel === 0 || a.level === filterLevel;
     const aRole = ((a as AgentWithRole).role || 'agent') as Role;
-    const matchRole =
-      filterRole === 'all'   ? true
-    : filterRole === 'staff' ? (aRole === 'super_admin' || aRole === 'admin' || aRole === 'manager')
-                             : aRole === filterRole;
-    return matchQ && matchStatus && matchLevel && matchRole;
-  }), [agents, search, filterStatus, filterLevel, filterRole]);
+    // Сначала отсекаем по верхней вкладке.
+    const matchView = view === 'agents' ? aRole === 'agent'
+                                        : (aRole === 'super_admin' || aRole === 'admin' || aRole === 'manager');
+    // Затем (только для вкладки «Сотрудники») фильтр по конкретной роли.
+    const matchRole = view === 'agents'
+      ? true
+      : (filterRole === 'all' || filterRole === 'staff' ? true : aRole === filterRole);
+    return matchQ && matchStatus && matchLevel && matchView && matchRole;
+  }), [agents, search, filterStatus, filterLevel, filterRole, view]);
 
+  const agentCount = useMemo(() =>
+    agents.filter(a => ((a as AgentWithRole).role || 'agent') === 'agent').length,
+  [agents]);
   const staffCount = useMemo(() =>
     agents.filter(a => {
       const r = ((a as AgentWithRole).role || 'agent') as Role;
@@ -185,16 +196,72 @@ export default function Agents() {
     pendingReviews: pendingReviewsCount,
   }), [agents, pendingReviewsCount]);
 
+  // Кнопки stats зависят от текущей вкладки.
+  const isStaffView = view === 'staff';
+  const statCards = isStaffView
+    ? [
+        { label: 'Всего сотрудников', value: staffCount,
+          icon: <PeopleRoundedIcon />, color: '#C9A84C' },
+        { label: 'Супер-админов',
+          value: agents.filter(a => ((a as AgentWithRole).role) === 'super_admin').length,
+          icon: <CheckCircleRoundedIcon />, color: ROLE_COLOR.super_admin },
+        { label: 'Админов',
+          value: agents.filter(a => ((a as AgentWithRole).role) === 'admin').length,
+          icon: <DiamondRoundedIcon />, color: ROLE_COLOR.admin },
+        { label: 'Менеджеров',
+          value: agents.filter(a => ((a as AgentWithRole).role) === 'manager').length,
+          icon: <RateReviewRoundedIcon />, color: ROLE_COLOR.manager },
+      ]
+    : [
+        { label: 'Всего агентов',       value: agentCount,           icon: <PeopleRoundedIcon />,        color: '#4361EE' },
+        { label: 'Активных',            value: stats.active,         icon: <CheckCircleRoundedIcon />,    color: '#22C55E' },
+        { label: 'Уровень 3 (95%)',     value: stats.level3,         icon: <DiamondRoundedIcon />,        color: '#C9A84C' },
+        { label: 'Отзывы на модерации', value: stats.pendingReviews, icon: <RateReviewRoundedIcon />,     color: '#F59E0B' },
+      ];
+
   return (
     <Box>
+      {/* Top tabs: Агенты / Сотрудники */}
+      <Box sx={{ mb: 3, display: 'flex', gap: 1, p: 0.5, borderRadius: 3, background: 'rgba(15,22,41,0.6)', border: '1px solid rgba(201,168,76,0.1)', maxWidth: 520 }}>
+        <Box
+          onClick={() => setView('agents')}
+          sx={{
+            flex: 1, px: 2.5, py: 1.2, borderRadius: 2.5, cursor: 'pointer',
+            background: view === 'agents' ? 'linear-gradient(135deg, rgba(201,168,76,0.18), rgba(201,168,76,0.08))' : 'transparent',
+            border: view === 'agents' ? '1px solid rgba(201,168,76,0.3)' : '1px solid transparent',
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            transition: 'all 0.2s',
+            '&:hover': { background: view !== 'agents' ? 'rgba(201,168,76,0.06)' : undefined },
+          }}
+        >
+          <PeopleRoundedIcon sx={{ color: view === 'agents' ? '#C9A84C' : '#64748B' }} />
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: view === 'agents' ? '#C9A84C' : '#94A3B8' }}>Агенты</Typography>
+            <Typography variant="caption" sx={{ color: '#64748B' }}>{agentCount} в базе</Typography>
+          </Box>
+        </Box>
+        <Box
+          onClick={() => setView('staff')}
+          sx={{
+            flex: 1, px: 2.5, py: 1.2, borderRadius: 2.5, cursor: 'pointer',
+            background: view === 'staff' ? `linear-gradient(135deg, ${ROLE_COLOR.admin}30, ${ROLE_COLOR.admin}10)` : 'transparent',
+            border: view === 'staff' ? `1px solid ${ROLE_COLOR.admin}50` : '1px solid transparent',
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            transition: 'all 0.2s',
+            '&:hover': { background: view !== 'staff' ? `${ROLE_COLOR.admin}10` : undefined },
+          }}
+        >
+          <BadgeRoundedIcon sx={{ color: view === 'staff' ? ROLE_COLOR.admin : '#64748B' }} />
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: view === 'staff' ? ROLE_COLOR.admin : '#94A3B8' }}>Сотрудники</Typography>
+            <Typography variant="caption" sx={{ color: '#64748B' }}>{staffCount} в команде</Typography>
+          </Box>
+        </Box>
+      </Box>
+
       {/* Stats row */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        {[
-          { label: 'Всего агентов', value: stats.total, icon: <PeopleRoundedIcon />, color: '#4361EE' },
-          { label: 'Активных', value: stats.active, icon: <CheckCircleRoundedIcon />, color: '#22C55E' },
-          { label: 'Уровень 3 (95%)', value: stats.level3, icon: <DiamondRoundedIcon />, color: '#C9A84C' },
-          { label: 'Отзывы на модерации', value: stats.pendingReviews, icon: <RateReviewRoundedIcon />, color: '#F59E0B' },
-        ].map((s, i) => (
+        {statCards.map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} style={{ flex: '1 1 160px' }}>
             <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: '1px solid rgba(201,168,76,0.1)', display: 'flex', alignItems: 'center', gap: 2 }}>
               <Box sx={{ width: 42, height: 42, borderRadius: 2, background: `${s.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: s.color, flexShrink: 0 }}>
@@ -248,7 +315,7 @@ export default function Agents() {
           </Select>
         </FormControl>
         <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate} sx={{ ml: 'auto', flexShrink: 0 }}>
-          Добавить агента
+          {isStaffView ? 'Добавить сотрудника' : 'Добавить агента'}
         </Button>
       </Box>
 
@@ -420,6 +487,7 @@ export default function Agents() {
         agents={agents}
         editTarget={editTarget}
         canManageRoles={canManageRoles}
+        defaultKind={isStaffView ? 'staff' : 'agent'}
         onSaved={() => { reloadAgents(); }}
       />
 
