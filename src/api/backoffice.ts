@@ -9,6 +9,7 @@ export interface BackOfficeMember {
   phone: string;
   email: string;
   telegram: string;
+  color: string | null;
   orderIdx: number;
   active: boolean;
 }
@@ -16,12 +17,14 @@ export interface BackOfficeMember {
 type Raw = {
   id: number; name: string; role: string; description: string;
   photo: string; phone: string; email: string; telegram: string;
+  color: string | null;
   order_idx: number; active: number;
 };
 
 const norm = (r: Raw): BackOfficeMember => ({
   id: r.id, name: r.name, role: r.role, description: r.description || '',
   photo: r.photo || '', phone: r.phone || '', email: r.email || '', telegram: r.telegram || '',
+  color: r.color || null,
   orderIdx: r.order_idx || 0, active: !!r.active,
 });
 
@@ -33,6 +36,7 @@ export interface BackOfficePayload {
   phone?: string;
   email?: string;
   telegram?: string;
+  color?: string | null;
   orderIdx?: number;
   active?: boolean;
 }

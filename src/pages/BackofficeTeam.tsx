@@ -19,8 +19,24 @@ const DEFAULT_INTRO = 'К этим людям ты можешь обращать
 const emptyForm: BackOfficePayload & { active: boolean } = {
   name: '', role: '', description: '',
   photo: '', phone: '', email: '', telegram: '',
+  color: null,
   orderIdx: 0, active: true,
 };
+
+// Палитра предустановленных цветов для карточек.
+const COLOR_PRESETS: { value: string; label: string }[] = [
+  { value: '#C9A84C', label: 'Золотой' },
+  { value: '#EF4444', label: 'Красный' },
+  { value: '#F59E0B', label: 'Оранжевый' },
+  { value: '#22C55E', label: 'Зелёный' },
+  { value: '#06B6D4', label: 'Бирюзовый' },
+  { value: '#4361EE', label: 'Синий' },
+  { value: '#7B2FBE', label: 'Фиолетовый' },
+  { value: '#EC4899', label: 'Розовый' },
+  { value: '#A855F7', label: 'Сиреневый' },
+  { value: '#14B8A6', label: 'Морской' },
+  { value: '#64748B', label: 'Графит' },
+];
 
 export default function BackofficeTeam() {
   const [list, setList] = useState<BackOfficeMember[]>([]);
@@ -75,6 +91,7 @@ export default function BackofficeTeam() {
     setForm({
       name: m.name, role: m.role, description: m.description,
       photo: m.photo, phone: m.phone, email: m.email, telegram: m.telegram,
+      color: m.color,
       orderIdx: m.orderIdx, active: m.active,
     });
     setDialogOpen(true);
@@ -167,12 +184,21 @@ export default function BackofficeTeam() {
             {list.map(m => (
               <TableRow key={m.id} hover>
                 <TableCell>
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{m.name}</Typography>
-                  {m.description && (
-                    <Typography variant="caption" sx={{ color: '#64748B', display: 'block', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {m.description}
-                    </Typography>
-                  )}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{
+                      width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                      background: m.color || 'rgba(255,255,255,0.10)',
+                      border: m.color ? 'none' : '1px dashed rgba(255,255,255,0.25)',
+                    }} title={m.color ? `Цвет: ${m.color}` : 'Авто-цвет по должности'} />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{m.name}</Typography>
+                      {m.description && (
+                        <Typography variant="caption" sx={{ color: '#64748B', display: 'block', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {m.description}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
                 </TableCell>
                 <TableCell>
                   <Chip label={m.role} size="small" sx={{ background: 'rgba(201,168,76,0.15)', color: '#C9A84C', fontWeight: 700 }} />
@@ -229,6 +255,61 @@ export default function BackofficeTeam() {
             <TextField fullWidth size="small" label="Телефон" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
             <TextField fullWidth size="small" label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             <TextField fullWidth size="small" label="Telegram (без @)" value={form.telegram} onChange={e => setForm(f => ({ ...f, telegram: e.target.value.replace(/^@/, '') }))} />
+
+            {/* Color picker */}
+            <Box>
+              <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1 }}>
+                Цвет карточки
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+                <Box
+                  onClick={() => setForm(f => ({ ...f, color: null }))}
+                  sx={{
+                    width: 32, height: 32, borderRadius: '50%', cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.06)',
+                    border: `2px solid ${!form.color ? '#F1F5F9' : 'rgba(255,255,255,0.15)'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#94A3B8', fontSize: 16,
+                    transition: 'all 0.15s',
+                    '&:hover': { borderColor: '#F1F5F9' },
+                  }}
+                  title="Авто (по должности)"
+                >
+                  ⌀
+                </Box>
+                {COLOR_PRESETS.map(p => (
+                  <Box
+                    key={p.value}
+                    onClick={() => setForm(f => ({ ...f, color: p.value }))}
+                    sx={{
+                      width: 32, height: 32, borderRadius: '50%', cursor: 'pointer',
+                      background: p.value,
+                      border: `2px solid ${form.color === p.value ? '#F1F5F9' : 'transparent'}`,
+                      transform: form.color === p.value ? 'scale(1.1)' : 'scale(1)',
+                      transition: 'all 0.15s',
+                      '&:hover': { transform: 'scale(1.1)' },
+                    }}
+                    title={p.label}
+                  />
+                ))}
+              </Box>
+              <TextField
+                size="small" fullWidth
+                label="Свой HEX (опционально)"
+                placeholder="#A855F7"
+                value={form.color && !COLOR_PRESETS.some(p => p.value === form.color) ? form.color : ''}
+                onChange={e => {
+                  const v = e.target.value.trim();
+                  if (!v) { setForm(f => ({ ...f, color: null })); return; }
+                  // Принимаем только валидный hex (3 или 6 символов)
+                  if (/^#?[0-9a-f]{3,6}$/i.test(v)) {
+                    setForm(f => ({ ...f, color: v.startsWith('#') ? v : `#${v}` }));
+                  }
+                }}
+                helperText="Если оставить пусто и не выбрать пресет — цвет подставится автоматически по должности"
+              />
+            </Box>
+
             <TextField fullWidth size="small" label="Порядок отображения" type="number"
               value={form.orderIdx} onChange={e => setForm(f => ({ ...f, orderIdx: Number(e.target.value) }))}
               helperText="Чем меньше число, тем выше карточка" />
