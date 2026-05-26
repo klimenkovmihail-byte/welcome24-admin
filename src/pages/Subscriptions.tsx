@@ -24,6 +24,9 @@ import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { subscriptionAdminApi, type AgentSubOverview, type AgentSubFull } from '../api/subscription';
+import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
+import BlockRoundedIcon from '@mui/icons-material/BlockRounded';
+import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 const RU_MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
@@ -313,10 +316,34 @@ export default function Subscriptions() {
                   Общий ВКД {fmt(drillData.lifetimeVkd)} ₽ ≥ 1 млн — АП отменена навсегда.
                 </Alert>
               )}
+              {drillData.exempt === 'manual_forever' && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  АП отключена админом навсегда{drillData.override?.note ? ` · «${drillData.override.note}»` : ''}.
+                </Alert>
+              )}
+              {drillData.exempt === 'paused' && drillData.override?.until && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  АП на паузе до {new Date(drillData.override.until).toLocaleDateString('ru-RU')}{drillData.override.note ? ` · «${drillData.override.note}»` : ''}.
+                </Alert>
+              )}
+              {drillData.exempt === 'inactive' && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Агент не активен (уволен / заблокирован) — АП не начисляется.
+                </Alert>
+              )}
               {drillData.blocked && (
                 <Alert severity="error" sx={{ mb: 2 }} icon={<LockRoundedIcon />}>
                   Портал агента заблокирован: {drillData.overdueCount} просроченных периода, к оплате {fmt(drillData.totalDue)} ₽.
                 </Alert>
+              )}
+
+              {/* Управление АП — только для активных агентов */}
+              {drillData.exempt !== 'inactive' && drillFor && (
+                <OverrideControls
+                  agentId={drillFor.id}
+                  current={drillData}
+                  onChange={(updated) => setDrillData(updated)}
+                />
               )}
               {drillData.periods.length === 0 ? (
                 <Alert severity="info">
@@ -362,6 +389,118 @@ export default function Subscriptions() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={() => setDrillFor(null)}>Закрыть</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+}
+
+// ---- Override controls (admin) ----
+
+function OverrideControls({
+  agentId, current, onChange,
+}: { agentId: number; current: AgentSubFull; onChange: (next: AgentSubFull) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [pauseMonths, setPauseMonths] = useState<1 | 2 | 3>(1);
+  const [note, setNote] = useState('');
+  const [forceOpen, setForceOpen] = useState(false);
+
+  const apply = async (payload: { type: 'force_exempt' | 'pause' | null; months?: 1 | 2 | 3; note?: string }) => {
+    setBusy(true);
+    try {
+      const updated = await subscriptionAdminApi.setOverride(agentId, payload);
+      onChange(updated);
+      setPauseOpen(false); setForceOpen(false); setNote('');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось применить');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const hasOverride = current.exempt === 'manual_forever' || current.exempt === 'paused';
+
+  return (
+    <Box sx={{ mt: 2, mb: 3, p: 2, borderRadius: 2, border: '1px solid rgba(201,168,76,0.15)', background: 'rgba(201,168,76,0.04)' }}>
+      <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
+        Управление АП
+      </Typography>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Button size="small" variant="outlined" startIcon={<BlockRoundedIcon />}
+          disabled={busy || current.exempt === 'manual_forever'}
+          onClick={() => setForceOpen(true)}
+        >
+          Отменить навсегда
+        </Button>
+        <Button size="small" variant="outlined" startIcon={<PauseRoundedIcon />}
+          disabled={busy}
+          onClick={() => { setPauseMonths(1); setNote(''); setPauseOpen(true); }}
+        >
+          Поставить на паузу
+        </Button>
+        {hasOverride && (
+          <Button size="small" variant="outlined" color="warning" startIcon={<RestartAltRoundedIcon />}
+            disabled={busy}
+            onClick={() => apply({ type: null })}
+          >
+            Сбросить override
+          </Button>
+        )}
+      </Stack>
+
+      {/* Pause dialog */}
+      <Dialog open={pauseOpen} onClose={() => setPauseOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Поставить АП на паузу</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel>На сколько</InputLabel>
+              <Select value={pauseMonths} label="На сколько" onChange={e => setPauseMonths(Number(e.target.value) as 1 | 2 | 3)}>
+                <MenuItem value={1}>1 месяц</MenuItem>
+                <MenuItem value={2}>2 месяца</MenuItem>
+                <MenuItem value={3}>3 месяца</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth size="small" multiline rows={2}
+              label="Причина (видна в карточке)"
+              value={note} onChange={e => setNote(e.target.value)}
+              placeholder="например: декрет / отпуск / спецпредложение"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPauseOpen(false)} disabled={busy}>Отмена</Button>
+          <Button variant="contained" disabled={busy}
+            onClick={() => apply({ type: 'pause', months: pauseMonths, note })}
+          >
+            Поставить на паузу
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Force exempt dialog */}
+      <Dialog open={forceOpen} onClose={() => setForceOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Отключить АП навсегда</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="info">Используй когда нужно освободить агента от АП по индивидуальному решению, минуя автоматическое правило 1 млн ВКД.</Alert>
+            <TextField
+              fullWidth size="small" multiline rows={2}
+              label="Причина"
+              value={note} onChange={e => setNote(e.target.value)}
+              placeholder="например: основатель / партнёр / спецсоглашение"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setForceOpen(false)} disabled={busy}>Отмена</Button>
+          <Button variant="contained" color="warning" disabled={busy}
+            onClick={() => apply({ type: 'force_exempt', note })}
+          >
+            Отключить навсегда
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

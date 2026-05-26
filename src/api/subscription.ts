@@ -37,7 +37,7 @@ export interface AgentSubOverview {
 
 export interface AgentSubFull {
   fee: number;
-  exempt: 'lifetime' | 'staff' | null;
+  exempt: 'lifetime' | 'staff' | 'inactive' | 'manual_forever' | 'paused' | null;
   lifetimeVkd: number;
   lifetimeThreshold: number;
   quarterThreshold: number;
@@ -56,6 +56,13 @@ export interface AgentSubFull {
   overdueCount: number;
   totalDue: number;
   blocked: boolean;
+  override?: { type: 'force_exempt' | 'pause'; until?: string; note?: string };
+}
+
+export interface OverridePayload {
+  type: 'force_exempt' | 'pause' | null;
+  months?: 1 | 2 | 3;
+  note?: string;
 }
 
 export const subscriptionAdminApi = {
@@ -64,6 +71,9 @@ export const subscriptionAdminApi = {
     api.post(`/api/subscription/${id}/confirm`, paymentRef ? { payment_ref: paymentRef } : {}),
   reject:  (id: number, reason: string) =>
     api.post(`/api/subscription/${id}/reject`, { reason }),
-  overview: () => api.get<AgentSubOverview[]>('/api/subscription/admin/overview'),
+  overview: (includeInactive = false) =>
+    api.get<AgentSubOverview[]>(`/api/subscription/admin/overview${includeInactive ? '?includeInactive=1' : ''}`),
   agent:    (id: number) => api.get<AgentSubFull>(`/api/subscription/agent/${id}`),
+  setOverride: (agentId: number, payload: OverridePayload) =>
+    api.patch<AgentSubFull>(`/api/subscription/agent/${agentId}/override`, payload as unknown as Record<string, unknown>),
 };

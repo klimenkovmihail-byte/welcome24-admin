@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useDeferredValue } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
@@ -134,8 +134,12 @@ export default function Agents() {
   // Это главный визуальный переключатель — пользователь сразу видит где сейчас.
   const [view, setView] = useState<'agents' | 'staff'>('agents');
 
+  // useDeferredValue откладывает дорогой пересчёт filtered (793 строки → тормозит
+  // при наборе). Каждый keystroke обновляет инпут моментально, а фильтрация
+  // происходит на следующем idle-кадре.
+  const deferredSearch = useDeferredValue(search);
   const filtered = useMemo(() => agents.filter(a => {
-    const q = search.toLowerCase();
+    const q = deferredSearch.toLowerCase();
     const matchQ = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q) || a.city.toLowerCase().includes(q);
     const matchStatus = filterStatus === 'all' || a.status === filterStatus;
     const matchLevel = filterLevel === 0 || a.level === filterLevel;
@@ -148,7 +152,7 @@ export default function Agents() {
       ? true
       : (filterRole === 'all' || filterRole === 'staff' ? true : aRole === filterRole);
     return matchQ && matchStatus && matchLevel && matchView && matchRole;
-  }), [agents, search, filterStatus, filterLevel, filterRole, view]);
+  }), [agents, deferredSearch, filterStatus, filterLevel, filterRole, view]);
 
   const agentCount = useMemo(() =>
     agents.filter(a => ((a as AgentWithRole).role || 'agent') === 'agent').length,
