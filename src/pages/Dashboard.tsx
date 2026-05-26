@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Box, Card, CardContent, Typography, Grid, Chip, alpha, CircularProgress, Alert } from '@mui/material';
+import { Box, Card, CardContent, Typography, Grid, Chip, alpha, CircularProgress, Alert, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { motion } from 'framer-motion';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
 import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
@@ -11,7 +11,7 @@ import { statsApi, type OverviewResponse } from '../api/stats';
 const fmt = (n: number) => n >= 1000000 ? `${(n / 1000000).toFixed(1)} млн` : n >= 1000 ? `${(n / 1000).toFixed(0)} тыс` : String(n);
 const fmtFull = (n: number) => n.toLocaleString('ru-RU');
 
-const CustomTip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => active && payload?.length ? (
+const CustomTip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string; stroke?: string }>; label?: string }) => active && payload?.length ? (
   <Box sx={{ background: '#1A2340', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 2, p: 1.5 }}>
     <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block' }}>{label}</Typography>
     {payload.map(p => <Typography key={p.name} variant="caption" sx={{ color: p.color || p.stroke || '#94A3B8', display: 'block', fontWeight: 700 }}>{p.name}: {fmtFull(p.value)}</Typography>)}
@@ -46,27 +46,52 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const currentYear = String(new Date().getFullYear());
+  const [filterYear, setFilterYear] = useState<string>(currentYear);
+
+  const availableYears: string[] = [];
+  for (let y = new Date().getFullYear(); y >= 2022; y--) availableYears.push(String(y));
 
   useEffect(() => {
     let cancelled = false;
-    statsApi.overview({ year: currentYear })
+    setLoading(true);
+    const opts: { year?: string } = {};
+    if (filterYear !== 'all') opts.year = filterYear;
+    statsApi.overview(opts)
       .then(r => { if (!cancelled) setData(r); })
       .catch(err => { if (!cancelled) setError(err?.message || 'Ошибка загрузки'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [filterYear]);
 
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
+  if (loading && !data) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
   if (error)   return <Alert severity="error">{error}</Alert>;
   if (!data)   return null;
 
-  const { agents, deals, monthlyDeals, agentsByCity, recentDeals, settings } = data;
+  const { agents, deals, monthlyDeals, agentsByCity, settings, monthlyNewAgents, monthlyShares } = data;
   const totalVkd = deals.totalVkd;
   const pendingDeals = deals.pending;
-  const cityChart = agentsByCity.slice(0, 4).map((c, i) => ({ ...c, color: CITY_COLORS[i] }));
+  const cityChart = agentsByCity.slice(0, 6).map((c, i) => ({ ...c, color: CITY_COLORS[i] }));
+  const periodLabel = filterYear === 'all' ? 'за всё время' : `${filterYear} год`;
+  const totalNewAgents = monthlyNewAgents.reduce((s, m) => s + m.newAgents, 0);
+  const totalSharesOps = monthlyShares.reduce((s, m) => s + m.qty, 0);
 
   return (
     <Box>
+      {/* Header — title + year filter */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>Обзор</Typography>
+          <Typography variant="caption" sx={{ color: '#64748B' }}>Ключевые показатели {periodLabel}</Typography>
+        </Box>
+        <FormControl size="small">
+          <InputLabel>Год</InputLabel>
+          <Select value={filterYear} label="Год" onChange={e => setFilterYear(e.target.value)} sx={{ minWidth: 120 }}>
+            <MenuItem value="all">Всё время</MenuItem>
+            {availableYears.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+          </Select>
+        </FormControl>
+      </Box>
+
       {pendingDeals > 0 && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
           <Box sx={{ mb: 3, p: 2, borderRadius: 3, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -84,7 +109,7 @@ export default function Dashboard() {
           <StatCard delay={0.05} icon={<PeopleRoundedIcon />} label="Всего агентов" value={agents.total} sub={`${agents.active} активных · ${agents.blocked + agents.inactive} заблокированных`} color="#4361EE" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatCard delay={0.1} icon={<HandshakeRoundedIcon />} label={`Сделки ${currentYear}`} value={deals.total} sub={`ВКД: ${fmt(totalVkd)} ₽ · доход: ${fmt(deals.totalIncome)} ₽`} trend={pendingDeals > 0 ? `${pendingDeals} на верификации` : undefined} color="#C9A84C" />
+          <StatCard delay={0.1} icon={<HandshakeRoundedIcon />} label={`Сделки ${periodLabel}`} value={deals.total} sub={`ВКД: ${fmt(totalVkd)} ₽ · доход: ${fmt(deals.totalIncome)} ₽`} trend={pendingDeals > 0 ? `${pendingDeals} на верификации` : undefined} color="#C9A84C" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard delay={0.15} icon={<DiamondRoundedIcon />} label="Акции выпущено" value={fmtFull(settings.totalSharesIssued)} sub={`В обращении: ${fmtFull(settings.sharesInCirculation)} шт`} color="#7B2FBE" />
@@ -95,14 +120,15 @@ export default function Dashboard() {
       </Grid>
 
       <Grid container spacing={3}>
+        {/* ВКД по месяцам */}
         <Grid size={{ xs: 12, lg: 8 }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
             <Card>
               <CardContent sx={{ p: 3 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                   <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#F1F5F9' }}>ВКД по месяцам</Typography>
-                    <Typography variant="caption" sx={{ color: '#64748B' }}>{currentYear} год — объём сделок платформы</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Сделки по месяцам</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{periodLabel} — ВКД</Typography>
                   </Box>
                   <Chip label={`Всего: ${fmt(totalVkd)} ₽`} size="small" sx={{ background: 'rgba(201,168,76,0.12)', color: '#C9A84C', fontWeight: 700 }} />
                 </Box>
@@ -118,7 +144,7 @@ export default function Dashboard() {
                     <XAxis dataKey="m" tick={{ fill: '#64748B', fontSize: 12 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => fmt(v)} />
                     <Tooltip content={<CustomTip />} />
-                    <Area type="monotone" dataKey="vkd" name="ВКД" stroke="#C9A84C" strokeWidth={2.5} fill="url(#vkdGrad)" />
+                    <Area type="monotone" dataKey="vkd" name="ВКД ₽" stroke="#C9A84C" strokeWidth={2.5} fill="url(#vkdGrad)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -126,6 +152,7 @@ export default function Dashboard() {
           </motion.div>
         </Grid>
 
+        {/* Агенты по городам */}
         <Grid size={{ xs: 12, lg: 4 }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
             <Card sx={{ height: '100%' }}>
@@ -154,34 +181,53 @@ export default function Dashboard() {
           </motion.div>
         </Grid>
 
-        <Grid size={{ xs: 12 }}>
+        {/* Покупка акций по месяцам */}
+        <Grid size={{ xs: 12, lg: 6 }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
             <Card>
               <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Последние сделки</Typography>
-                  <Chip label="Все сделки →" size="small" onClick={() => {}} sx={{ background: 'rgba(201,168,76,0.1)', color: '#C9A84C', cursor: 'pointer', fontWeight: 700 }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Покупка акций по месяцам</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{periodLabel} — операции с акциями</Typography>
+                  </Box>
+                  <Chip label={`Всего: ${fmtFull(totalSharesOps)} шт.`} size="small" sx={{ background: 'rgba(123,47,190,0.12)', color: '#A855F7', fontWeight: 700 }} />
                 </Box>
-                {recentDeals.slice(0, 5).map((deal, i) => {
-                  const statusMap = { pending: { label: 'На верификации', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' }, confirmed: { label: 'Подтверждена', color: '#4361EE', bg: 'rgba(67,97,238,0.12)' }, paid: { label: 'Выплачено', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' }, cancelled: { label: 'Отменена', color: '#EF4444', bg: 'rgba(239,68,68,0.12)' } } as const;
-                  const s = statusMap[deal.status];
-                  return (
-                    <Box key={deal.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1.5, borderBottom: i < 4 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                      <Box sx={{ width: 36, height: 36, borderRadius: 2, background: 'rgba(201,168,76,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <HandshakeRoundedIcon sx={{ color: '#C9A84C', fontSize: 18 }} />
-                      </Box>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
-                        <Typography variant="caption" sx={{ color: '#64748B' }}>{deal.clientName}{deal.city ? ` · ${deal.city}` : ''}</Typography>
-                      </Box>
-                      <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#22C55E' }}>{fmt(deal.vkd)} ₽</Typography>
-                        <Typography variant="caption" sx={{ color: '#64748B' }}>{deal.date}</Typography>
-                      </Box>
-                      <Chip label={s.label} size="small" sx={{ background: s.bg, color: s.color, fontWeight: 700, minWidth: 120, '& .MuiChip-label': { fontSize: 11 } }} />
-                    </Box>
-                  );
-                })}
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={monthlyShares}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="m" tick={{ fill: '#64748B', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => fmt(v)} />
+                    <Tooltip content={<CustomTip />} cursor={{ fill: 'rgba(168,85,247,0.06)' }} />
+                    <Bar dataKey="qty" name="Акций (шт)" fill="#A855F7" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </Grid>
+
+        {/* Новые агенты по месяцам */}
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+            <Card>
+              <CardContent sx={{ p: 3 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Присоединение агентов по месяцам</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{periodLabel} — новые подключения</Typography>
+                  </Box>
+                  <Chip label={`Всего: ${totalNewAgents}`} size="small" sx={{ background: 'rgba(67,97,238,0.12)', color: '#4361EE', fontWeight: 700 }} />
+                </Box>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={monthlyNewAgents}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="m" tick={{ fill: '#64748B', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip content={<CustomTip />} cursor={{ fill: 'rgba(67,97,238,0.06)' }} />
+                    <Bar dataKey="newAgents" name="Новых агентов" fill="#4361EE" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </CardContent>
             </Card>
           </motion.div>

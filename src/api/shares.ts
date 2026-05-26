@@ -74,7 +74,18 @@ export interface OperationCreatePayload {
   notes?: string;
 }
 
+export interface ShareHolder {
+  id: number;
+  name: string;
+  city: string;
+  email: string;
+  status: string;
+  shares: number;
+  invested: number;
+}
+
 export const sharesApi = {
+  holders:      () => api.get<ShareHolder[]>('/api/shares/holders'),
   quotes:       () => api.get<RawQuote[]>('/api/shares/quotes').then(rows => rows.map(normalizeQuote)),
   addQuote:     (p: QuoteCreatePayload) =>
     api.post<RawQuote>('/api/shares/quotes', p as unknown as Record<string, unknown>).then(normalizeQuote),

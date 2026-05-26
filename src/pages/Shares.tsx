@@ -20,7 +20,8 @@ import ShowChartRoundedIcon from '@mui/icons-material/ShowChartRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import { companySettings as initialSettings } from '../data/mockData';
 import type { ShareOperationType, Agent } from '../types';
-import { sharesApi, type ShareOperation, type ShareQuote } from '../api/shares';
+import { sharesApi, type ShareOperation, type ShareQuote, type ShareHolder } from '../api/shares';
+import TablePagination from '@mui/material/TablePagination';
 import { agentsApi } from '../api/agents';
 import { settingsApi } from '../api/settings';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -49,8 +50,11 @@ const emptyForm: FormState = {
 
 export default function Shares() {
   const [ops, setOps] = useState<ShareOperation[]>([]);
+  const [holders, setHolders] = useState<ShareHolder[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [quotes, setQuotes] = useState<ShareQuote[]>([]);
+  const [opsPage, setOpsPage] = useState(0);
+  const [opsRowsPerPage, setOpsRowsPerPage] = useState(20);
   const [settings, setSettings] = useState(initialSettings);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,6 +71,7 @@ export default function Shares() {
 
   const reloadAll = () => Promise.all([
     sharesApi.operations().then(setOps).catch(() => { /* tolerate */ }),
+    sharesApi.holders().then(setHolders).catch(() => { /* tolerate */ }),
     sharesApi.quotes().then(qs => {
       setQuotes(qs);
       if (qs.length) setSettings(s => ({ ...s, sharePrice: qs[qs.length - 1].price }));
@@ -200,22 +205,29 @@ export default function Shares() {
         </Box>
       </motion.div>
 
-      {/* Operation type stats */}
+      {/* Operation type stats — скрываем типы без операций */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         {(Object.entries(opConfig) as [ShareOperationType, typeof opConfig[ShareOperationType]][]).map(([type, cfg], i) => {
           const typeOps = ops.filter(o => o.type === type);
+          if (typeOps.length === 0) return null;  // не показываем пустые типы (например Выкуп если 0)
           const totalQty = typeOps.reduce((s, o) => s + o.quantity, 0);
           const totalVal = typeOps.reduce((s, o) => s + o.totalAmount, 0);
+          // Подсказка для понимания: для transfer объясняем что это «между агентами»
+          const explain = type === 'issue' ? 'Эмиссия от компании к основателям'
+                       : type === 'transfer' ? 'Передача между агентами (вне компании)'
+                       : 'Выкуп компанией обратно';
           return (
-            <motion.div key={type} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }} style={{ flex: '1 1 200px' }}>
-              <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: `1px solid ${cfg.color}20` }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                  <Chip label={cfg.label} size="small" sx={{ background: cfg.bg, color: cfg.color, fontWeight: 700, fontSize: 11 }} />
-                  <Typography variant="caption" sx={{ color: '#64748B' }}>{typeOps.length} оп.</Typography>
+            <motion.div key={type} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }} style={{ flex: '1 1 240px' }}>
+              <Tooltip title={explain}>
+                <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: `1px solid ${cfg.color}20` }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                    <Chip label={cfg.label} size="small" sx={{ background: cfg.bg, color: cfg.color, fontWeight: 700, fontSize: 11 }} />
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{typeOps.length} {typeOps.length === 1 ? 'операция' : typeOps.length < 5 ? 'операции' : 'операций'}</Typography>
+                  </Box>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{fmt(totalQty)} акц.</Typography>
+                  <Typography variant="caption" sx={{ color: cfg.color, fontWeight: 600 }}>{(totalVal / 1e6).toFixed(1)} млн ₽</Typography>
                 </Box>
-                <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{fmt(totalQty)} акц.</Typography>
-                <Typography variant="caption" sx={{ color: cfg.color, fontWeight: 600 }}>{(totalVal / 1e6).toFixed(1)} млн ₽</Typography>
-              </Box>
+              </Tooltip>
             </motion.div>
           );
         })}
@@ -307,10 +319,76 @@ export default function Shares() {
         </TableContainer>
       </Paper>
 
+      {/* Акционеры */}
+      <Paper sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <DiamondRoundedIcon sx={{ color: '#C9A84C' }} />
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Акционеры</Typography>
+              <Typography variant="caption" sx={{ color: '#64748B' }}>
+                {holders.length} {holders.length === 1 ? 'акционер' : holders.length < 5 ? 'акционера' : 'акционеров'} ·
+                всего {fmt(holders.reduce((s, h) => s + h.shares, 0))} акций
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+        <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.06)', maxHeight: 480 }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell>ФИО</TableCell>
+                <TableCell>Город</TableCell>
+                <TableCell align="right">Акций</TableCell>
+                <TableCell align="right">По текущему курсу</TableCell>
+                <TableCell align="right">Доля</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {[...holders].sort((a, b) => b.shares - a.shares).map(h => {
+                const value = h.shares * settings.sharePrice;
+                const totalAll = holders.reduce((s, x) => s + x.shares, 0);
+                const sharePct = totalAll ? (h.shares / totalAll) * 100 : 0;
+                return (
+                  <TableRow key={h.id} hover>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ color: '#F1F5F9', fontWeight: 600 }}>{h.name}</Typography>
+                      <Typography variant="caption" sx={{ color: '#64748B' }}>{h.email}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ color: '#94A3B8' }}>{h.city || '—'}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{fmt(h.shares)}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#22C55E' }}>{(value / 1e6).toFixed(2)} млн ₽</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Chip label={`${sharePct.toFixed(2)}%`} size="small"
+                        sx={{ background: 'rgba(201,168,76,0.12)', color: '#C9A84C', fontWeight: 700, fontSize: 11 }} />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {holders.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} sx={{ textAlign: 'center', color: '#64748B', py: 3 }}>
+                    Пока нет акционеров с положительным балансом
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
+
       {/* Filter + table */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9' }}>История операций</Typography>
-        <ToggleButtonGroup exclusive value={filterType} onChange={(_, v) => v && setFilterType(v)} size="small">
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9' }}>
+          История операций <Typography component="span" variant="caption" sx={{ color: '#64748B', ml: 1 }}>· {filtered.length} всего</Typography>
+        </Typography>
+        <ToggleButtonGroup exclusive value={filterType} onChange={(_, v) => { if (v) { setFilterType(v); setOpsPage(0); } }} size="small">
           {(['all', 'issue', 'transfer', 'buyback'] as const).map(t => (
             <ToggleButton key={t} value={t} sx={{ px: 2, borderColor: 'rgba(201,168,76,0.15)', fontSize: 12, '&.Mui-selected': { background: 'rgba(201,168,76,0.1)', color: '#C9A84C', borderColor: 'rgba(201,168,76,0.3)' } }}>
               {t === 'all' ? 'Все' : opConfig[t].label}
@@ -334,10 +412,10 @@ export default function Shares() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map((op, i) => {
+            {filtered.slice(opsPage * opsRowsPerPage, (opsPage + 1) * opsRowsPerPage).map(op => {
               const cfg = opConfig[op.type];
               return (
-                <motion.tr key={op.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }} style={{ display: 'table-row' }}>
+                <TableRow key={op.id} hover>
                   <TableCell>
                     <Chip label={cfg.label} size="small" sx={{ background: cfg.bg, color: cfg.color, fontWeight: 700, fontSize: 11 }} />
                   </TableCell>
@@ -392,11 +470,22 @@ export default function Shares() {
                       </IconButton>
                     </Tooltip>
                   </TableCell>
-                </motion.tr>
+                </TableRow>
               );
             })}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={filtered.length}
+          page={opsPage}
+          onPageChange={(_, p) => setOpsPage(p)}
+          rowsPerPage={opsRowsPerPage}
+          onRowsPerPageChange={e => { setOpsRowsPerPage(parseInt(e.target.value, 10)); setOpsPage(0); }}
+          rowsPerPageOptions={[20, 50, 100]}
+          labelRowsPerPage="Строк на странице:"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
+        />
       </TableContainer>
 
       {/* New operation dialog */}
