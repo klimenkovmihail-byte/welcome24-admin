@@ -129,13 +129,18 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
     setSaving(true); setError(null);
     try {
       if (editTarget) {
-        await agentsApi.update(editTarget.id, {
+        const updatePayload: Record<string, unknown> = {
           name: form.name, email: form.email, phone: form.phone, city: form.city,
           level: form.level, commission: form.commission, status: form.status,
           parentId: finalParentId, specialization: form.specialization,
           referralLink: form.referralLink,
           photo: form.photo || null, bio: form.bio, socials: form.socials,
-        });
+        };
+        // Передаём пароль только если super_admin его установил при редактировании
+        if (canManageRoles && form.password.trim()) {
+          updatePayload.password = form.password.trim();
+        }
+        await agentsApi.update(editTarget.id, updatePayload);
         // Если super_admin поменял тип через форму — отдельным запросом обновим роль.
         if (canManageRoles) {
           const targetRole: Role = form.kind === 'staff' ? form.staffRole : 'agent';
@@ -232,6 +237,46 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
               helperText="Пользователь сможет сменить позже в личном кабинете"
             />
+          )}
+          {editTarget && canManageRoles && (
+            <Box sx={{
+              p: 2, borderRadius: 2, background: 'rgba(67,97,238,0.04)',
+              border: '1px solid rgba(67,97,238,0.15)',
+            }}>
+              <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
+                Сброс пароля
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  fullWidth size="small" type="text"
+                  label="Новый пароль (или сгенерируй)"
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  placeholder="оставь пусто — пароль не изменится"
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => {
+                    // Генерация 10-символьного пароля (буквы + цифры, без неоднозначных символов)
+                    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+                    const pwd = Array.from({ length: 10 },
+                      () => chars[Math.floor(Math.random() * chars.length)]
+                    ).join('');
+                    setForm(f => ({ ...f, password: pwd }));
+                  }}
+                  sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                >
+                  Сгенерировать
+                </Button>
+              </Stack>
+              {form.password && (
+                <Alert severity="warning" sx={{ mt: 1.5, py: 0.5 }}>
+                  Скопируй пароль и отправь агенту вручную (через Telegram/WhatsApp).
+                  После «Сохранить» пароль будет применён.
+                </Alert>
+              )}
+            </Box>
           )}
           <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
 
