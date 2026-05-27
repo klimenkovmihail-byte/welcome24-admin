@@ -44,18 +44,29 @@ interface FormDialogProps {
   onSaved: () => void;
 }
 
+type Category = 'primary' | 'secondary' | 'rent';
+
 type FormState = {
   agentId: number | null;
   city: string;
+  category: Category;
   type: string;
   vkd: string;
   commission: number;
   date: string;
 };
 
+// Если категория уже сохранена — используем её; иначе выводим из type.
+function categoryFromType(type: string): Category {
+  if (type === 'primary') return 'primary';
+  if (type === 'rent')    return 'rent';
+  return 'secondary';
+}
+
 const emptyForm: FormState = {
   agentId: null,
   city: '',
+  category: 'secondary',
   type: 'secondary',
   vkd: '',
   commission: 80,
@@ -76,6 +87,7 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
       setForm({
         agentId: editTarget.agentId,
         city: editTarget.city || '',
+        category: (editTarget.category as Category) || categoryFromType(editTarget.type),
         type: editTarget.type,
         vkd: String(editTarget.vkd),
         commission: editTarget.commission,
@@ -132,6 +144,7 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
           address: editTarget.address || '',
           city: form.city,
           type: form.type as Deal['type'],
+          category: form.category,
           vkd: vkdNum,
           income: Math.round(vkdNum * form.commission / 100),
           commission: form.commission,
@@ -146,6 +159,7 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
           address: '',
           city: form.city,
           type: form.type as Deal['type'],
+          category: form.category,
           vkd: vkdNum,
           commission: form.commission as 80 | 90 | 95,
           notes: '',
@@ -202,25 +216,37 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
 
           <Box sx={{ display: 'flex', gap: 2 }}>
             <FormControl size="small" fullWidth>
-              <InputLabel>Тип сделки</InputLabel>
-              <Select value={form.type} label="Тип сделки" onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+              <InputLabel>Категория</InputLabel>
+              <Select
+                value={form.category}
+                label="Категория"
+                onChange={e => setForm(f => ({ ...f, category: e.target.value as Category }))}
+              >
                 <MenuItem value="primary">Первичка</MenuItem>
                 <MenuItem value="secondary">Вторичка</MenuItem>
+                <MenuItem value="rent">Аренда</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Подтип</InputLabel>
+              <Select value={form.type} label="Подтип" onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                <MenuItem value="primary">Жилая (первичка)</MenuItem>
+                <MenuItem value="secondary">Жилая (вторичка)</MenuItem>
                 <MenuItem value="commercial">Коммерция</MenuItem>
                 <MenuItem value="suburban">Загородная</MenuItem>
                 <MenuItem value="rent">Аренда</MenuItem>
               </Select>
             </FormControl>
-            <TextField
-              fullWidth
-              label="Дата"
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              size="small"
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
           </Box>
+          <TextField
+            fullWidth
+            label="Дата"
+            type="date"
+            value={form.date}
+            onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+            size="small"
+            slotProps={{ inputLabel: { shrink: true } }}
+          />
 
           <Box sx={{ p: 2, borderRadius: 2.5, border: '1px solid rgba(201,168,76,0.15)', background: 'rgba(201,168,76,0.04)' }}>
             <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>

@@ -20,6 +20,7 @@ export const ROLE_ACCESS: Record<string, Role[]> = {
   '/subscription-claims': ['super_admin', 'admin'],
   '/subscriptions': ['super_admin', 'admin'],
   '/analytics':  ['super_admin'],
+  '/reports':    ['super_admin', 'admin'],
   '/settings':   ['super_admin'],
 };
 

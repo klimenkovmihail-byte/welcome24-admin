@@ -24,6 +24,7 @@ import { subscriptionAdminApi } from '../../api/subscription';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
 import Logo, { LogoIcon } from '../Logo';
 
 export default function Sidebar() {
@@ -62,6 +63,7 @@ export default function Sidebar() {
     { path: '/subscriptions', label: 'Абон. плата', icon: <ReceiptLongRoundedIcon /> },
     { path: '/subscription-claims', label: 'Заявки на оплату', icon: <ReceiptLongRoundedIcon />, badge: pendingClaims || null, tooltip: pendingClaims ? `${pendingClaims} заявок на подтверждение` : '' },
     { path: '/analytics', label: 'Аналитика', icon: <BarChartRoundedIcon /> },
+    { path: '/reports', label: 'Отчёты', icon: <AssessmentRoundedIcon /> },
     { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
   ];
   const navItems = allNavItems.filter(i => canAccess(role, i.path));

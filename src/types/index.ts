@@ -62,6 +62,7 @@ export interface Deal {
   date: string;
   city: string;
   type: 'primary' | 'secondary' | 'commercial' | 'suburban' | 'rent';
+  category?: 'primary' | 'secondary' | 'rent';
   notes: string;
 }
 

@@ -15,6 +15,7 @@ import SubscriptionClaims from './pages/SubscriptionClaims';
 import Subscriptions from './pages/Subscriptions';
 import Docs from './pages/Docs';
 import AIPrompts from './pages/AIPrompts';
+import Reports from './pages/Reports';
 import Login from './pages/Login';
 import { isAuthenticated, fetchMe, getCurrentUser } from './auth/auth';
 import { canAccess, firstAccessiblePath, type Role } from './auth/roles';
@@ -69,6 +70,7 @@ export default function App() {
                 <Route path="/academy" element={<RoleRoute path="/academy"><Academy /></RoleRoute>} />
                 <Route path="/news" element={<RoleRoute path="/news"><News /></RoleRoute>} />
                 <Route path="/analytics" element={<RoleRoute path="/analytics"><Analytics /></RoleRoute>} />
+                <Route path="/reports" element={<RoleRoute path="/reports"><Reports /></RoleRoute>} />
                 <Route path="/backoffice" element={<RoleRoute path="/backoffice"><BackofficeTeam /></RoleRoute>} />
                 <Route path="/support" element={<RoleRoute path="/support"><Support /></RoleRoute>} />
                 <Route path="/subscription-claims" element={<RoleRoute path="/subscription-claims"><SubscriptionClaims /></RoleRoute>} />

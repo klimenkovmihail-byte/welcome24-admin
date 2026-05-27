@@ -14,6 +14,7 @@ type RawDeal = {
   address: string;
   city: string;
   type: Deal['type'];
+  category?: Deal['category'];
   vkd: number;
   income: number;
   commission: number;
@@ -32,6 +33,7 @@ export function normalizeDeal(raw: RawDeal): Deal {
     address: raw.address || '',
     city: raw.city || '',
     type: raw.type,
+    category: raw.category,
     vkd: raw.vkd,
     income: raw.income,
     commission: raw.commission,
@@ -47,6 +49,7 @@ export interface DealCreatePayload {
   address?: string;
   city?: string;
   type: Deal['type'];
+  category?: Deal['category'];
   vkd: number;
   commission: 80 | 90 | 95;
   income?: number; // если не передавать — бэк посчитает vkd * commission / 100
@@ -60,6 +63,7 @@ export interface DealUpdatePayload {
   address?: string;
   city?: string;
   type?: Deal['type'];
+  category?: Deal['category'];
   vkd?: number;
   income?: number;
   commission?: number;

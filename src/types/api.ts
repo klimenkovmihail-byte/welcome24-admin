@@ -85,6 +85,7 @@ export interface AgentReview {
 // ============================================================
 export type DealStatus = 'pending' | 'confirmed' | 'paid' | 'cancelled';
 export type DealType = 'primary' | 'secondary' | 'commercial' | 'suburban' | 'rent';
+export type DealCategory = 'primary' | 'secondary' | 'rent';
 
 export interface Deal {
   id: number;
@@ -93,6 +94,7 @@ export interface Deal {
   address: string;
   city: string;
   type: DealType;
+  category?: DealCategory;
   vkd: number;                      // выручка комиссии в ₽
   income: number;                   // % от ВКД для агента
   commission: number;               // эффективный % (80/90/95)
