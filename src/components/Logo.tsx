@@ -2,23 +2,27 @@ import { Box } from '@mui/material';
 
 interface LogoProps {
   variant?: 'full' | 'icon';
-  /** Height in px. For icon: side of the square. For full: height of the lockup. */
   size?: number;
-  /** Any CSS color. The logo will be tinted to this color via CSS mask. */
   color?: string;
+  /** Премиальная золотая заливка с градиентом. */
+  premium?: boolean;
 }
 
+const FULL_SRC = '/logo.svg';
 const ICON_SRC = '/logo-icon.png';
-const FULL_SRC = '/logo-full.png';
 
-/** Renders the sokraschyonny (icon-only) mark — diamond + 3 towers. */
-export function LogoIcon({ size = 40, color = '#C9A84C' }: { size?: number; color?: string }) {
+const FULL_ASPECT = 3760 / 1280; // ≈ 2.94
+
+const PREMIUM_GOLD_GRADIENT =
+  'linear-gradient(135deg, #F4DA8E 0%, #E2C97E 25%, #C9A84C 50%, #A88634 75%, #8B6F1F 100%)';
+
+export function LogoIcon({ size = 40, color = '#C9A84C', premium = false }: { size?: number; color?: string; premium?: boolean }) {
   return (
     <Box
       sx={{
         width: size,
         height: size,
-        backgroundColor: color,
+        background: premium ? PREMIUM_GOLD_GRADIENT : color,
         WebkitMaskImage: `url(${ICON_SRC})`,
         maskImage: `url(${ICON_SRC})`,
         WebkitMaskSize: 'contain',
@@ -28,6 +32,7 @@ export function LogoIcon({ size = 40, color = '#C9A84C' }: { size?: number; colo
         WebkitMaskPosition: 'center',
         maskPosition: 'center',
         flexShrink: 0,
+        filter: premium ? 'drop-shadow(0 2px 8px rgba(201,168,76,0.35))' : undefined,
       }}
       aria-label="Welcome 24"
       role="img"
@@ -35,28 +40,26 @@ export function LogoIcon({ size = 40, color = '#C9A84C' }: { size?: number; colo
   );
 }
 
-/** Renders the full lockup (icon + WELCOME 24 text). */
-export default function Logo({ variant = 'full', size = 40, color = '#C9A84C' }: LogoProps) {
-  const src = variant === 'full' ? FULL_SRC : ICON_SRC;
-  // Original asset aspect ratios:
-  //  - icon  ≈ 1:1 (square-ish)
-  //  - full  ≈ 4:1 (wider than tall)
-  const width = variant === 'full' ? size * 4 : size;
+export default function Logo({ variant = 'full', size = 40, color = '#C9A84C', premium = false }: LogoProps) {
+  if (variant === 'icon') {
+    return <LogoIcon size={size} color={color} premium={premium} />;
+  }
   return (
     <Box
       sx={{
-        width,
         height: size,
-        backgroundColor: color,
-        WebkitMaskImage: `url(${src})`,
-        maskImage: `url(${src})`,
+        width: size * FULL_ASPECT,
+        background: premium ? PREMIUM_GOLD_GRADIENT : color,
+        WebkitMaskImage: `url(${FULL_SRC})`,
+        maskImage: `url(${FULL_SRC})`,
         WebkitMaskSize: 'contain',
         maskSize: 'contain',
         WebkitMaskRepeat: 'no-repeat',
         maskRepeat: 'no-repeat',
-        WebkitMaskPosition: 'left center',
-        maskPosition: 'left center',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
         flexShrink: 0,
+        filter: premium ? 'drop-shadow(0 2px 8px rgba(201,168,76,0.35))' : undefined,
       }}
       aria-label="Welcome 24"
       role="img"
