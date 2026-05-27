@@ -29,6 +29,7 @@ import {
   type AchievementTriggerType,
 } from '../data/mockData';
 import { settingsApi } from '../api/settings';
+import { statsApi } from '../api/stats';
 import { backupApi, type BackupItem } from '../api/backup';
 import { CircularProgress } from '@mui/material';
 
@@ -156,8 +157,8 @@ export default function Settings() {
   const [settings, setSettings] = useState(initialSettings);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notifs, setNotifs] = useState({ newAgent: true, newDeal: true, paidDeal: false, shareOp: true });
-  const [integrations, setIntegrations] = useState({ telegram: false, crm: false, email: true });
+  // Кол-во акций в обращении — для live-расчёта «Доступно к продаже».
+  const [sharesInCirculation, setSharesInCirculation] = useState<number>(0);
   const [plan, setPlan] = useState<MarketingPlanRow[]>(initialPlan);
   const [achievements, setAchievements] = useState<AchievementDef[]>(initialAchievements);
   const [editAch, setEditAch] = useState<AchievementDef | null>(null);
@@ -169,10 +170,12 @@ export default function Settings() {
       settingsApi.get(),
       settingsApi.marketingPlan(),
       settingsApi.achievements(),
+      statsApi.overview({}).catch(() => null),
     ])
-      .then(([s, p, a]) => {
+      .then(([s, p, a, stats]) => {
         if (cancelled) return;
         setSettings(prev => ({ ...prev, sharePrice: s.sharePrice || prev.sharePrice, totalSharesIssued: s.totalSharesIssued || prev.totalSharesIssued, totalSharesAvailable: s.totalSharesAvailable || prev.totalSharesAvailable }));
+        if (stats?.settings?.sharesInCirculation != null) setSharesInCirculation(stats.settings.sharesInCirculation);
         setPlan(p.map(r => ({
           level: r.level,
           protected: r.protectedPct,
@@ -201,7 +204,7 @@ export default function Settings() {
       await settingsApi.update({
         share_price: settings.sharePrice,
         total_shares: settings.totalSharesIssued,
-        available_shares: settings.totalSharesAvailable,
+        // available_shares больше не хранится в settings — считается live из stats.
         level1_threshold: settings.level1Threshold,
         level2_threshold: settings.level2Threshold,
       });
@@ -456,22 +459,35 @@ export default function Settings() {
             <Box>
               <Typography variant="caption" sx={{ color: '#64748B' }}>Капитализация</Typography>
               <Typography variant="h6" sx={{ fontWeight: 800, color: '#22C55E' }}>
-                {((settings.sharePrice * settings.totalSharesIssued) / 1e9).toFixed(2)} млрд ₽
+                {((settings.sharePrice * settings.totalSharesIssued) / 1e6).toFixed(0)} млн ₽
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" sx={{ color: '#64748B' }}>В обращении</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9' }}>
+                {fmt(sharesInCirculation)} акций
               </Typography>
             </Box>
             <Box>
               <Typography variant="caption" sx={{ color: '#64748B' }}>Доступно к продаже</Typography>
               <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9' }}>
-                {fmt(settings.totalSharesAvailable)} акций
+                {fmt(Math.max(0, settings.totalSharesIssued - sharesInCirculation))} акций
               </Typography>
             </Box>
           </Box>
         </Stack>
       </Section>
 
-      {/* Notifications */}
+      {/* Notifications — раздел в разработке, тоглы заблокированы */}
       <Section title="Уведомления" subtitle="Настройка push-уведомлений администратора" icon={<NotificationsRoundedIcon />} delay={0.15}>
-        <Stack spacing={1.5}>
+        <Box sx={{ mb: 2 }}>
+          <Chip
+            label="В разработке"
+            size="small"
+            sx={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontWeight: 700, border: '1px solid rgba(245,158,11,0.25)' }}
+          />
+        </Box>
+        <Stack spacing={1.5} sx={{ opacity: 0.5, pointerEvents: 'none' }}>
           {[
             { key: 'newAgent', label: 'Новый агент зарегистрирован', desc: 'При добавлении нового агента в систему' },
             { key: 'newDeal', label: 'Новая сделка добавлена', desc: 'При создании сделки агентом' },
@@ -483,26 +499,28 @@ export default function Settings() {
                 <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{n.label}</Typography>
                 <Typography variant="caption" sx={{ color: '#64748B' }}>{n.desc}</Typography>
               </Box>
-              <Switch
-                checked={notifs[n.key as keyof typeof notifs]}
-                onChange={e => setNotifs(prev => ({ ...prev, [n.key]: e.target.checked }))}
-                size="small"
-                sx={{ '& .MuiSwitch-thumb': { background: '#C9A84C' }, '& .Mui-checked + .MuiSwitch-track': { background: '#C9A84C50' } }}
-              />
+              <Switch checked={false} disabled size="small" />
             </Box>
           ))}
         </Stack>
       </Section>
 
-      {/* Integrations */}
+      {/* Integrations — раздел в разработке */}
       <Section title="Интеграции" subtitle="Подключение внешних сервисов" icon={<IntegrationInstructionsRoundedIcon />} delay={0.2}>
-        <Stack spacing={2}>
+        <Box sx={{ mb: 2 }}>
+          <Chip
+            label="В разработке"
+            size="small"
+            sx={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontWeight: 700, border: '1px solid rgba(245,158,11,0.25)' }}
+          />
+        </Box>
+        <Stack spacing={2} sx={{ opacity: 0.5, pointerEvents: 'none' }}>
           {[
             { key: 'telegram', label: 'Telegram Bot', desc: 'Уведомления в Telegram-канал администратора', color: '#2AABEE' },
             { key: 'crm', label: 'CRM Система', desc: 'Синхронизация сделок с внешней CRM', color: '#4361EE' },
             { key: 'email', label: 'Email рассылки', desc: 'Автоматические email-уведомления агентам', color: '#22C55E' },
           ].map(int => (
-            <Box key={int.key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderRadius: 2.5, border: `1px solid ${integrations[int.key as keyof typeof integrations] ? `${int.color}30` : 'rgba(255,255,255,0.06)'}`, background: integrations[int.key as keyof typeof integrations] ? `${int.color}08` : 'transparent', transition: 'all 0.2s' }}>
+            <Box key={int.key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderRadius: 2.5, border: '1px solid rgba(255,255,255,0.06)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Box sx={{ width: 36, height: 36, borderRadius: 2, background: `${int.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Box sx={{ width: 10, height: 10, borderRadius: '50%', background: int.color }} />
@@ -513,17 +531,8 @@ export default function Settings() {
                 </Box>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Chip
-                  label={integrations[int.key as keyof typeof integrations] ? 'Подключено' : 'Отключено'}
-                  size="small"
-                  sx={{ background: integrations[int.key as keyof typeof integrations] ? `${int.color}20` : 'rgba(100,116,139,0.12)', color: integrations[int.key as keyof typeof integrations] ? int.color : '#64748B', fontWeight: 600, fontSize: 11 }}
-                />
-                <Switch
-                  checked={integrations[int.key as keyof typeof integrations]}
-                  onChange={e => setIntegrations(prev => ({ ...prev, [int.key]: e.target.checked }))}
-                  size="small"
-                  sx={{ '& .MuiSwitch-thumb': { background: int.color }, '& .Mui-checked + .MuiSwitch-track': { background: `${int.color}50` } }}
-                />
+                <Chip label="Скоро" size="small" sx={{ background: 'rgba(100,116,139,0.12)', color: '#64748B', fontWeight: 600, fontSize: 11 }} />
+                <Switch checked={false} disabled size="small" />
               </Box>
             </Box>
           ))}

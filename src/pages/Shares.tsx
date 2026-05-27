@@ -190,7 +190,7 @@ export default function Shares() {
             </Box>
             <Box sx={{ textAlign: 'right' }}>
               <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>Капитализация</Typography>
-              <Typography variant="h6" sx={{ fontWeight: 800, color: '#22C55E' }}>{(totalMarketCap / 1e9).toFixed(2)} млрд ₽</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800, color: '#22C55E' }}>{(totalMarketCap / 1e6).toFixed(0)} млн ₽</Typography>
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1.5 }}>
