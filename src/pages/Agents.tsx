@@ -33,13 +33,14 @@ import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded';
 import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded';
 import MergeRoundedIcon from '@mui/icons-material/MergeRounded';
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import { Rating } from '@mui/material';
 import { companySettings } from '../data/mockData';
 import type { AgentReview, ReviewModeration, AgentSocials } from '../types';
 import { impersonate, getCurrentUser } from '../auth/auth';
 import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
 import type { Agent, AgentLevel, AgentStatus } from '../types';
-import { agentsApi, enrichAgents, enrichSharesFromHolders } from '../api/agents';
+import { agentsApi, enrichAgents, enrichSharesFromHolders, type MentorHistoryEntry } from '../api/agents';
 import { sharesApi } from '../api/shares';
 import { CircularProgress } from '@mui/material';
 import AgentFormDialog from './AgentFormDialog';
@@ -201,6 +202,22 @@ export default function Agents() {
   const [mergeSource, setMergeSource] = useState<Agent | null>(null);
   const [mergeTarget, setMergeTarget] = useState<Agent | null>(null);
   const [merging, setMerging] = useState(false);
+
+  // История менторов
+  const [mentorHistoryFor, setMentorHistoryFor] = useState<Agent | null>(null);
+  const [mentorHistory, setMentorHistory] = useState<MentorHistoryEntry[]>([]);
+  const [mentorHistoryLoading, setMentorHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!mentorHistoryFor) { setMentorHistory([]); return; }
+    let cancelled = false;
+    setMentorHistoryLoading(true);
+    agentsApi.mentorHistory(mentorHistoryFor.id)
+      .then(h => { if (!cancelled) setMentorHistory(h); })
+      .catch(() => { if (!cancelled) setMentorHistory([]); })
+      .finally(() => { if (!cancelled) setMentorHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [mentorHistoryFor]);
 
   const handleMerge = async () => {
     if (!mergeSource || !mergeTarget) return;
@@ -481,6 +498,11 @@ export default function Agents() {
                           <EditRoundedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="История смены менторов">
+                        <IconButton size="small" onClick={() => setMentorHistoryFor(agent)} sx={{ color: '#64748B', '&:hover': { color: '#06B6D4' } }}>
+                          <HistoryRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       {canManageRoles && (
                         <Tooltip title="Объединить с другой карточкой (смена фамилии и т.п.)">
                           <IconButton size="small" onClick={() => { setMergeSource(agent); setMergeTarget(null); }} sx={{ color: '#64748B', '&:hover': { color: '#8B5CF6' } }}>
@@ -526,6 +548,91 @@ export default function Agents() {
         defaultKind={isStaffView ? 'staff' : 'agent'}
         onSaved={() => { reloadAgents(); }}
       />
+
+      {/* Mentor history dialog */}
+      <Dialog open={!!mentorHistoryFor} onClose={() => setMentorHistoryFor(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', pb: 1 }}>
+          <Box>
+            <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>История менторов</Typography>
+            <Typography variant="caption" sx={{ color: '#64748B' }}>
+              {mentorHistoryFor?.name} · вступил {mentorHistoryFor?.joinDate}
+            </Typography>
+          </Box>
+          <IconButton size="small" onClick={() => setMentorHistoryFor(null)} sx={{ color: '#64748B' }}>
+            <CloseRoundedIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {mentorHistoryLoading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: '#06B6D4' }} />
+            </Box>
+          )}
+          {!mentorHistoryLoading && mentorHistory.length === 0 && (
+            <Alert severity="info">У агента ещё не было записей в истории менторов.</Alert>
+          )}
+          {!mentorHistoryLoading && mentorHistory.length > 0 && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {mentorHistory.map((h, i) => {
+                const isCurrent = h.effectiveUntil === null;
+                const days = isCurrent
+                  ? Math.floor((Date.now() - new Date(h.effectiveFrom).getTime()) / 86_400_000)
+                  : Math.floor((new Date(h.effectiveUntil!).getTime() - new Date(h.effectiveFrom).getTime()) / 86_400_000);
+                return (
+                  <Box key={h.id} sx={{
+                    p: 2, borderRadius: 2.5,
+                    background: isCurrent ? 'rgba(34,197,94,0.06)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${isCurrent ? 'rgba(34,197,94,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                  }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>
+                          {h.parentName || 'Welcome 24 (без ментора)'}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#94A3B8' }}>
+                          {new Date(h.effectiveFrom).toLocaleDateString('ru-RU')} →{' '}
+                          {h.effectiveUntil
+                            ? new Date(h.effectiveUntil).toLocaleDateString('ru-RU')
+                            : 'сейчас'}
+                          {' · '}<b style={{ color: '#F1F5F9' }}>{days} дн.</b>
+                        </Typography>
+                      </Box>
+                      {isCurrent && (
+                        <Chip label="Сейчас" size="small" sx={{ background: 'rgba(34,197,94,0.15)', color: '#22C55E', fontWeight: 700 }} />
+                      )}
+                      {!isCurrent && i === 0 && (
+                        <Chip label="Изменён недавно" size="small" sx={{ background: 'rgba(67,97,238,0.15)', color: '#4361EE', fontWeight: 700 }} />
+                      )}
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 1 }}>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: '#64748B' }}>Сделок агента</Typography>
+                        <Typography variant="body2" sx={{ color: '#F1F5F9', fontWeight: 700 }}>{h.periodDeals}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: '#64748B' }}>ВКД за период</Typography>
+                        <Typography variant="body2" sx={{ color: '#C9A84C', fontWeight: 700 }}>{fmt(h.periodVkd)} ₽</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: '#64748B' }}>Доход агента</Typography>
+                        <Typography variant="body2" sx={{ color: '#22C55E', fontWeight: 700 }}>{fmt(h.periodIncome)} ₽</Typography>
+                      </Box>
+                    </Box>
+                    {h.reason && (
+                      <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 1, fontStyle: 'italic' }}>
+                        «{h.reason}»{h.changedByName ? ` — ${h.changedByName}` : ''}
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button onClick={() => setMentorHistoryFor(null)}>Закрыть</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Merge dialog */}
       <Dialog open={!!mergeSource} onClose={() => { if (!merging) { setMergeSource(null); setMergeTarget(null); } }} maxWidth="sm" fullWidth>

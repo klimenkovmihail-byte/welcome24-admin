@@ -169,6 +169,7 @@ export const agentsApi = {
     api.post<{ ok: true; target: string; source: string; moved: Record<string, number> }>(
       `/api/agents/${targetId}/merge-from/${sourceId}`,
     ),
+  mentorHistory: (id: number) => api.get<MentorHistoryEntry[]>(`/api/agents/${id}/mentor-history`),
 
   reviews: (id: number, opts?: { all?: boolean }) =>
     api.get<RawReview[]>(`/api/agents/${id}/reviews${opts?.all ? '?all=1' : ''}`).then(rows => rows.map(normalizeReview)),
@@ -179,3 +180,19 @@ export const agentsApi = {
   deleteReview: (reviewId: number) =>
     api.del<{ ok: true }>(`/api/agents/_review/${reviewId}`),
 };
+
+export interface MentorHistoryEntry {
+  id: number;
+  agentId: number;
+  parentId: number | null;
+  parentName: string | null;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+  changedBy: number | null;
+  changedByName: string | null;
+  reason: string;
+  createdAt: string;
+  periodDeals: number;
+  periodVkd: number;
+  periodIncome: number;
+}
