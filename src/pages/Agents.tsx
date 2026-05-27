@@ -375,11 +375,11 @@ export default function Agents() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map((agent, i) => {
+            {filtered.map((agent) => {
               const lc = levelColor(agent.level);
               const sc = statusConfig[agent.status];
               return (
-                <motion.tr key={agent.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }} style={{ display: 'table-row' }}>
+                <TableRow key={agent.id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Avatar sx={{ width: 36, height: 36, background: `linear-gradient(135deg, ${lc.color}40, ${lc.color}20)`, color: lc.color, fontSize: 14, fontWeight: 700, border: `1px solid ${lc.color}30` }}>
@@ -504,7 +504,7 @@ export default function Agents() {
                       )}
                     </Box>
                   </TableCell>
-                </motion.tr>
+                </TableRow>
               );
             })}
           </TableBody>
