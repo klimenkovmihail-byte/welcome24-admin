@@ -1,11 +1,11 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Tooltip, Stack, Divider,
-  Autocomplete, CircularProgress, Alert,
+  Autocomplete, CircularProgress, Alert, Switch, FormControlLabel,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
@@ -13,10 +13,12 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import type { Deal, Agent } from '../types';
 import { dealsApi } from '../api/deals';
 import { agentsApi } from '../api/agents';
-import { api } from '../api/apiClient';
+import { api, API_BASE_URL, getToken } from '../api/apiClient';
 
 const typeLabels: Record<string, string> = {
   primary: 'Первичка', secondary: 'Вторичка', commercial: 'Коммерция', suburban: 'Загородная', rent: 'Аренда',
@@ -317,6 +319,133 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
 }
 
 // ============================================================
+// Диалог импорта xlsx сделок с MLM-связями.
+// Отправляет multipart/form-data на /api/admin/import/deals-mlm.
+// Чекбокс «Заменить все» — опасная операция (DELETE + INSERT).
+// ============================================================
+interface ImportDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onImported: () => void;
+}
+
+function ImportDealsDialog({ open, onClose, onImported }: ImportDialogProps) {
+  const [file, setFile] = useState<File | null>(null);
+  const [replace, setReplace] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ parsedRows: number; logs: string[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setFile(null); setReplace(false); setError(null); setResult(null);
+    }
+  }, [open]);
+
+  const handleSubmit = async () => {
+    if (!file) return;
+    setBusy(true); setError(null); setResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const url = `${API_BASE_URL}/api/admin/import/deals-mlm${replace ? '?replace=1' : ''}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      setResult(json);
+      onImported();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось импортировать');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Импорт сделок из xlsx</Typography>
+        <IconButton size="small" onClick={onClose} disabled={busy} sx={{ color: '#64748B' }}>
+          <CloseRoundedIcon />
+        </IconButton>
+      </DialogTitle>
+      <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
+      <DialogContent sx={{ pt: 3 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
+        {result ? (
+          <Box>
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Загружено строк: <b>{result.parsedRows}</b>. {replace ? 'База сделок заменена.' : 'Новые сделки добавлены (дубли пропущены).'}
+            </Alert>
+            <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mb: 1 }}>Логи импорта:</Typography>
+            <Box sx={{ maxHeight: 240, overflowY: 'auto', p: 1.5, borderRadius: 1.5, background: 'rgba(0,0,0,0.3)', fontFamily: 'monospace', fontSize: 11 }}>
+              {result.logs.map((line, i) => (
+                <Box key={i} sx={{ color: line.startsWith('[warn]') ? '#F59E0B' : '#94A3B8', whiteSpace: 'pre-wrap' }}>{line}</Box>
+              ))}
+            </Box>
+          </Box>
+        ) : (
+          <Stack spacing={2}>
+            <Typography variant="body2" sx={{ color: '#94A3B8' }}>
+              Ожидаемый формат: xlsx с колонками <b>ФИО</b>, <b>Дата сделки</b>, <b>Сумма ВКД</b>, <b>Сумма ВКД Агента</b>, <b>Кто привёл</b>, <b>Тип сделки</b> (новостройка / вторичка / аренда).
+            </Typography>
+            <Box>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                style={{ display: 'none' }}
+                onChange={e => setFile(e.target.files?.[0] || null)}
+              />
+              <Button variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={() => fileInputRef.current?.click()} fullWidth>
+                {file ? file.name : 'Выбрать файл .xlsx'}
+              </Button>
+            </Box>
+            <FormControlLabel
+              control={<Switch checked={replace} onChange={e => setReplace(e.target.checked)} color="warning" />}
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ color: '#F1F5F9', fontWeight: 600 }}>Заменить все существующие сделки</Typography>
+                  <Typography variant="caption" sx={{ color: '#F59E0B' }}>
+                    Без галочки — добавит новые, дубли пропустит. С галочкой — сначала удалит ВСЕ сделки из БД, потом зальёт из файла.
+                  </Typography>
+                </Box>
+              }
+            />
+            {replace && (
+              <Alert severity="warning" icon={<WarningAmberRoundedIcon />}>
+                <b>Опасно.</b> Все текущие сделки будут удалены и заменены содержимым файла. Действие необратимо.
+              </Alert>
+            )}
+          </Stack>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 3 }}>
+        {result ? (
+          <Button variant="contained" onClick={onClose}>Готово</Button>
+        ) : (
+          <>
+            <Button onClick={onClose} sx={{ color: '#64748B' }} disabled={busy}>Отмена</Button>
+            <Button
+              variant="contained" color={replace ? 'warning' : 'primary'}
+              onClick={handleSubmit} disabled={busy || !file}
+            >
+              {busy ? 'Импорт…' : replace ? 'Заменить и импортировать' : 'Импортировать'}
+            </Button>
+          </>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ============================================================
 // Главный компонент страницы
 // ============================================================
 export default function Deals() {
@@ -327,6 +456,7 @@ export default function Deals() {
 
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
 
   const reloadDeals = useCallback(() => {
@@ -371,10 +501,22 @@ export default function Deals() {
         <Typography variant="caption" sx={{ color: '#64748B', mr: 1 }}>
           {filtered.length} {pluralDeals(filtered.length)}
         </Typography>
-        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate} sx={{ ml: 'auto', flexShrink: 0 }}>
+        <Button
+          variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}
+          sx={{ ml: 'auto', flexShrink: 0, borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.06)' } }}
+        >
+          Импорт xlsx
+        </Button>
+        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate} sx={{ flexShrink: 0 }}>
           Новая сделка
         </Button>
       </Box>
+
+      <ImportDealsDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={reloadDeals}
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>
