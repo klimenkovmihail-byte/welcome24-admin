@@ -34,11 +34,25 @@ const opConfig: Record<ShareOperationType, { label: string; color: string; bg: s
   buyback: { label: 'Выкуп', color: '#EF4444', bg: 'rgba(239,68,68,0.12)' },
 };
 
+// Основания передачи/эмиссии акций.
+// gift = бесплатная (по номиналу 1₽), discount = покупка со скидкой 10%, ''  = ручная цена.
+type TransferReason = '' | 'founder' | 'first_deal_bonus' | 'recruit_bonus' | 'yearly_2m_vkd' | 'discount_purchase';
+
+const REASON_OPTIONS: Array<{ value: TransferReason; label: string; priceMode: 'gift' | 'discount' | 'manual' }> = [
+  { value: '',                   label: 'Без основания (ручная цена)',          priceMode: 'manual' },
+  { value: 'founder',            label: 'Founder-акции (1 ₽)',                  priceMode: 'gift' },
+  { value: 'first_deal_bonus',   label: 'Бонус за первую сделку (1 ₽)',         priceMode: 'gift' },
+  { value: 'recruit_bonus',      label: 'Бонус за первую сделку рекрута (1 ₽)', priceMode: 'gift' },
+  { value: 'yearly_2m_vkd',      label: 'Бонус за 2 млн ВКД за год (1 ₽)',      priceMode: 'gift' },
+  { value: 'discount_purchase',  label: 'Покупка со скидкой 10% от котировки',  priceMode: 'discount' },
+];
+
 type FormState = {
   type: ShareOperationType;
   fromAgentId: number | null; fromAgentName: string | null;
   toAgentId: number | null; toAgentName: string | null;
   quantity: string; pricePerShare: string; notes: string;
+  reason: TransferReason;
 };
 
 const emptyForm: FormState = {
@@ -46,6 +60,7 @@ const emptyForm: FormState = {
   fromAgentId: null, fromAgentName: null,
   toAgentId: null, toAgentName: null,
   quantity: '', pricePerShare: '', notes: '',
+  reason: '',
 };
 
 export default function Shares() {
@@ -110,12 +125,12 @@ export default function Shares() {
 
   const filtered = useMemo(() => filterType === 'all' ? ops : ops.filter(o => o.type === filterType), [ops, filterType]);
 
+  // Баланс акций каждого агента — из holders (бэк уже считает по share_packets).
   const agentShares = useMemo(() => {
-    // a.shares в бэке нет (пересчитывается из share_packets). Пока 0.
     const map = new Map<number, number>();
-    agents.forEach(a => map.set(a.id, 0));
+    holders.forEach(h => map.set(h.id, h.shares));
     return map;
-  }, [agents]);
+  }, [holders]);
 
   const handleOpSave = async () => {
     const qty = parseInt(form.quantity);
@@ -143,6 +158,8 @@ export default function Shares() {
         quantity: qty,
         pricePerShare: price,
         notes: form.notes,
+        reason: form.reason,
+        discountPct: form.reason === 'discount_purchase' ? 10 : 0,
       });
       await reloadAll();
       setDialogOpen(false);
@@ -550,6 +567,28 @@ export default function Shares() {
               />
             )}
 
+            {/* Reason — для эмиссии и передачи */}
+            {(form.type === 'issue' || form.type === 'transfer') && (
+              <FormControl size="small" fullWidth>
+                <InputLabel>Основание</InputLabel>
+                <Select
+                  value={form.reason} label="Основание"
+                  onChange={e => {
+                    const newReason = e.target.value as TransferReason;
+                    const opt = REASON_OPTIONS.find(o => o.value === newReason);
+                    let newPrice = form.pricePerShare;
+                    if (opt?.priceMode === 'gift') newPrice = '1';
+                    else if (opt?.priceMode === 'discount') newPrice = String(Math.round(settings.sharePrice * 0.9));
+                    setForm(f => ({ ...f, reason: newReason, pricePerShare: newPrice }));
+                  }}
+                >
+                  {REASON_OPTIONS.map(o => (
+                    <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+
             {/* Quantity + price */}
             <Box sx={{ p: 2, borderRadius: 2.5, border: '1px solid rgba(201,168,76,0.15)', background: 'rgba(201,168,76,0.04)' }}>
               <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
@@ -560,7 +599,13 @@ export default function Shares() {
                   onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} size="small" />
                 <TextField fullWidth label="Цена за акцию *" type="number" value={form.pricePerShare}
                   onChange={e => setForm(f => ({ ...f, pricePerShare: e.target.value }))} size="small"
-                  slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }} />
+                  slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }}
+                  helperText={
+                    form.reason === 'discount_purchase' ? `Котировка ${fmt(settings.sharePrice)} ₽ × 0.9 = ${fmt(Math.round(settings.sharePrice * 0.9))} ₽` :
+                    (form.reason && form.reason !== '') ? 'Подарочная акция — номинал 1 ₽' :
+                    `Текущая котировка: ${fmt(settings.sharePrice)} ₽`
+                  }
+                />
               </Box>
               {totalAmount > 0 && (
                 <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'space-between' }}>

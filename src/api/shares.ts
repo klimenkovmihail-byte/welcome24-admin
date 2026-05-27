@@ -72,6 +72,8 @@ export interface OperationCreatePayload {
   pricePerShare: number;
   date?: string;
   notes?: string;
+  reason?: '' | 'founder' | 'first_deal_bonus' | 'recruit_bonus' | 'yearly_2m_vkd' | 'discount_purchase';
+  discountPct?: number;
 }
 
 export interface ShareHolder {
