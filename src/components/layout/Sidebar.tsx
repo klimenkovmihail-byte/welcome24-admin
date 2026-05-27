@@ -24,6 +24,7 @@ import { subscriptionAdminApi } from '../../api/subscription';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
 import Logo, { LogoIcon } from '../Logo';
 
@@ -58,6 +59,7 @@ export default function Sidebar() {
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
     { path: '/docs', label: 'База данных', icon: <FolderRoundedIcon /> },
     { path: '/ai-prompts', label: 'AI-промпты', icon: <AutoAwesomeRoundedIcon /> },
+    { path: '/ai-analytics', label: 'AI-аналитика', icon: <InsightsRoundedIcon /> },
     { path: '/backoffice', label: 'Команда', icon: <SupportAgentRoundedIcon /> },
     { path: '/support', label: 'Поддержка', icon: <ContactSupportRoundedIcon />, badge: openTickets || null, tooltip: openTickets ? `${openTickets} открытых тикетов` : '' },
     { path: '/subscriptions', label: 'Абон. плата', icon: <ReceiptLongRoundedIcon /> },

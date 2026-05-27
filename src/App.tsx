@@ -15,6 +15,7 @@ import SubscriptionClaims from './pages/SubscriptionClaims';
 import Subscriptions from './pages/Subscriptions';
 import Docs from './pages/Docs';
 import AIPrompts from './pages/AIPrompts';
+import AIAnalytics from './pages/AIAnalytics';
 import Reports from './pages/Reports';
 import Login from './pages/Login';
 import { isAuthenticated, fetchMe, getCurrentUser } from './auth/auth';
@@ -77,6 +78,7 @@ export default function App() {
                 <Route path="/subscriptions" element={<RoleRoute path="/subscriptions"><Subscriptions /></RoleRoute>} />
                 <Route path="/docs" element={<RoleRoute path="/docs"><Docs /></RoleRoute>} />
                 <Route path="/ai-prompts" element={<RoleRoute path="/ai-prompts"><AIPrompts /></RoleRoute>} />
+                <Route path="/ai-analytics" element={<RoleRoute path="/ai-analytics"><AIAnalytics /></RoleRoute>} />
                 <Route path="/settings" element={<RoleRoute path="/settings"><Settings /></RoleRoute>} />
               </Routes>
             </Layout>

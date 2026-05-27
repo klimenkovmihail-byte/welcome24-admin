@@ -1,17 +1,45 @@
 import { useEffect, useState } from 'react';
 import {
   Box, Typography, Paper, CircularProgress, Alert, Tabs, Tab,
-  Table, TableHead, TableBody, TableRow, TableCell, TextField, Chip,
+  Table, TableHead, TableBody, TableRow, TableCell, TextField, Chip, Button,
 } from '@mui/material';
 import { motion } from 'framer-motion';
+import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import {
   reportsApi,
   type DealsByAgentResponse,
   type PropertyTypesResponse,
   type MlmPayoutsResponse,
 } from '../api/reports';
+import { API_BASE_URL, getToken } from '../api/apiClient';
 
 const fmt = (n: number) => (n || 0).toLocaleString('ru-RU');
+
+// Скачивание xlsx-отчёта. tab: 0=сделки, 1=МЛМ, 2=типы. URL отдаёт бэк
+// с правильным Content-Disposition; делаем blob и кликаем по якорю.
+async function downloadXlsx(tab: number, range: { from: string; to: string }) {
+  const paths = ['/api/reports/deals-by-agent/xlsx', '/api/reports/mlm-payouts/xlsx', '/api/reports/property-types/xlsx'];
+  const filenames = [
+    `Сделки_по_агентам_${range.from}_${range.to}.xlsx`,
+    `МЛМ_выплаты_${range.from}_${range.to}.xlsx`,
+    `Типы_недвижимости_${range.from}_${range.to}.xlsx`,
+  ];
+  const url = `${API_BASE_URL}${paths[tab]}?from=${range.from}&to=${range.to}`;
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filenames[tab];
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert('Не удалось скачать: ' + (e instanceof Error ? e.message : 'ошибка'));
+  }
+}
 
 // По умолчанию — текущий месяц.
 function defaultRange() {
@@ -76,7 +104,7 @@ export default function Reports() {
             Произвольный период · сортировка по убыванию · итоги внизу
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             type="date" size="small" label="С" value={range.from}
             onChange={e => setRange(r => ({ ...r, from: e.target.value }))}
@@ -89,6 +117,13 @@ export default function Reports() {
             slotProps={{ inputLabel: { shrink: true, sx: { color: '#94A3B8' } } }}
             sx={dateInputSx}
           />
+          <Button
+            variant="outlined" startIcon={<FileDownloadRoundedIcon />}
+            onClick={() => downloadXlsx(tab, range)}
+            sx={{ borderColor: 'rgba(34,197,94,0.4)', color: '#22C55E', '&:hover': { borderColor: '#22C55E', background: 'rgba(34,197,94,0.06)' } }}
+          >
+            Скачать .xlsx
+          </Button>
         </Box>
       </Box>
 

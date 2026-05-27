@@ -15,6 +15,7 @@ export const ROLE_ACCESS: Record<string, Role[]> = {
   '/news':       ['super_admin', 'admin', 'manager'],
   '/docs':       ['super_admin', 'admin', 'manager'],
   '/ai-prompts': ['super_admin', 'admin'],
+  '/ai-analytics': ['super_admin'],
   '/backoffice': ['super_admin'],
   '/support':    ['super_admin', 'admin'],
   '/subscription-claims': ['super_admin', 'admin'],
