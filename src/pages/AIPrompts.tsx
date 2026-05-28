@@ -23,7 +23,11 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
-import { aiPromptsApi, type PromptConfig, type PreviewResult } from '../api/aiPrompts';
+import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
+import Switch from '@mui/material/Switch';
+import { aiPromptsApi, type PromptConfig, type PreviewResult, type KnowledgeBlock } from '../api/aiPrompts';
 import { getCurrentUser } from '../auth/auth';
 
 export default function AIPrompts() {
@@ -211,6 +215,11 @@ export default function AIPrompts() {
                       slotProps={{ input: { sx: { fontFamily: 'ui-monospace, monospace', fontSize: 13, lineHeight: 1.55 } } }}
                     />
                   </Box>
+
+                  <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
+
+                  {/* База знаний — блоки автоматически инжектятся в system-prompt */}
+                  <KnowledgeBaseEditor toolKey={current.toolKey} isSuperAdmin={isSuperAdmin} />
 
                   <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
 
@@ -520,3 +529,209 @@ function renderInputFields(
 
 // Unused but kept for future cross-reference
 void useMemo;
+
+// ============================================================
+// Knowledge base editor — управление блоками базы знаний инструмента.
+// Активные блоки автоматически инжектятся в system-prompt при каждом
+// вызове AI для этого инструмента.
+// ============================================================
+function KnowledgeBaseEditor({ toolKey, isSuperAdmin }: { toolKey: string; isSuperAdmin: boolean }) {
+  const [items, setItems] = useState<KnowledgeBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<KnowledgeBlock | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const reload = () => {
+    setLoading(true);
+    aiPromptsApi.listKnowledge(toolKey)
+      .then(setItems)
+      .catch(e => setError(e instanceof Error ? e.message : 'Ошибка загрузки'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { reload(); }, [toolKey]);
+
+  const toggleActive = async (block: KnowledgeBlock) => {
+    try {
+      const next = !block.active;
+      setItems(prev => prev.map(b => b.id === block.id ? { ...b, active: next ? 1 : 0 } : b));
+      await aiPromptsApi.updateKnowledge(block.id, { active: next });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось обновить');
+    }
+  };
+
+  const remove = async (block: KnowledgeBlock) => {
+    if (!confirm(`Удалить блок «${block.title}»? Действие необратимо.`)) return;
+    try {
+      await aiPromptsApi.deleteKnowledge(block.id);
+      setItems(prev => prev.filter(b => b.id !== block.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось удалить');
+    }
+  };
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <MenuBookRoundedIcon sx={{ fontSize: 18, color: '#C9A84C' }} />
+          <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            База знаний
+          </Typography>
+          <Chip label={`${items.filter(b => b.active).length} активных / ${items.length}`} size="small" sx={{ background: 'rgba(201,168,76,0.08)', color: '#C9A84C', fontWeight: 700, fontSize: 10, height: 18 }} />
+        </Box>
+        {isSuperAdmin && (
+          <Button size="small" startIcon={<AddRoundedIcon />} onClick={() => setAddOpen(true)} sx={{ color: '#C9A84C' }}>
+            Добавить блок
+          </Button>
+        )}
+      </Box>
+      <Typography variant="caption" sx={{ color: '#475569', display: 'block', mb: 1.5 }}>
+        Активные блоки автоматически добавляются в конец system-prompt при каждом вызове AI. Используй для правил, таблиц, FAQ — то что часто меняется.
+      </Typography>
+      {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>{error}</Alert>}
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+          <CircularProgress size={20} sx={{ color: '#C9A84C' }} />
+        </Box>
+      ) : items.length === 0 ? (
+        <Box sx={{ py: 2.5, textAlign: 'center', borderRadius: 2, border: '1px dashed rgba(201,168,76,0.2)' }}>
+          <Typography variant="caption" sx={{ color: '#64748B' }}>
+            Блоков пока нет. Нажми «Добавить блок» чтобы начать.
+          </Typography>
+        </Box>
+      ) : (
+        <Stack spacing={1}>
+          {items.map(b => (
+            <Box key={b.id} sx={{
+              display: 'flex', alignItems: 'flex-start', gap: 1.5, p: 1.5,
+              borderRadius: 2, border: '1px solid rgba(201,168,76,0.1)',
+              background: b.active ? 'rgba(201,168,76,0.04)' : 'rgba(255,255,255,0.02)',
+              opacity: b.active ? 1 : 0.6,
+            }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9', mb: 0.3 }}>
+                  {b.title}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {b.content.slice(0, 120)}{b.content.length > 120 ? '…' : ''}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#475569', fontSize: 11 }}>
+                  Порядок: {b.order_idx} · обновлён {new Date(b.updated_at.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU')}
+                </Typography>
+              </Box>
+              {isSuperAdmin && (
+                <>
+                  <Switch checked={!!b.active} onChange={() => toggleActive(b)} size="small" />
+                  <Button size="small" variant="text" onClick={() => setEditing(b)} sx={{ color: '#C9A84C', minWidth: 'auto', px: 1 }}>
+                    Изм
+                  </Button>
+                  <IconButton size="small" onClick={() => remove(b)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                    <DeleteOutlineRoundedIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </>
+              )}
+            </Box>
+          ))}
+        </Stack>
+      )}
+
+      {(addOpen || editing) && (
+        <KnowledgeDialog
+          toolKey={toolKey}
+          block={editing}
+          onClose={() => { setAddOpen(false); setEditing(null); }}
+          onSaved={() => { setAddOpen(false); setEditing(null); reload(); }}
+        />
+      )}
+    </Box>
+  );
+}
+
+// ============================================================
+// Диалог добавления / редактирования блока базы знаний.
+// ============================================================
+function KnowledgeDialog({
+  toolKey, block, onClose, onSaved,
+}: { toolKey: string; block: KnowledgeBlock | null; onClose: () => void; onSaved: () => void }) {
+  const [title, setTitle] = useState(block?.title || '');
+  const [content, setContent] = useState(block?.content || '');
+  const [orderIdx, setOrderIdx] = useState(String(block?.order_idx ?? 0));
+  const [active, setActive] = useState(block ? !!block.active : true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!title.trim() || !content.trim()) return;
+    setSaving(true); setError(null);
+    try {
+      if (block) {
+        await aiPromptsApi.updateKnowledge(block.id, {
+          title: title.trim(), content: content.trim(),
+          orderIdx: Number(orderIdx) || 0, active,
+        });
+      } else {
+        await aiPromptsApi.createKnowledge({
+          tool: toolKey, title: title.trim(), content: content.trim(),
+          orderIdx: Number(orderIdx) || 0, active,
+        });
+      }
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={saving ? undefined : onClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
+          {block ? 'Редактировать блок' : 'Новый блок базы знаний'}
+        </Typography>
+        <IconButton size="small" onClick={onClose} disabled={saving} sx={{ color: '#64748B' }}>
+          <CloseRoundedIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+        <Stack spacing={2}>
+          <TextField
+            label="Заголовок блока *" size="small" fullWidth
+            value={title} onChange={e => setTitle(e.target.value)}
+            placeholder="Например: «Правила покупки акций» или «MLM-таблица»"
+          />
+          <TextField
+            label="Содержание блока *" size="small" fullWidth multiline rows={12}
+            value={content} onChange={e => setContent(e.target.value)}
+            placeholder="Текст знания, который AI будет учитывать. Можно с подзаголовками ЗАГЛАВНЫМИ БУКВАМИ и абзацами через пустую строку. Markdown не нужен."
+            slotProps={{ input: { sx: { fontFamily: 'ui-monospace, monospace', fontSize: 13 } } }}
+          />
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <TextField
+              label="Порядок" size="small" type="number" sx={{ width: 120 }}
+              value={orderIdx} onChange={e => setOrderIdx(e.target.value)}
+              helperText="0, 1, 2…"
+            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Switch checked={active} onChange={e => setActive(e.target.checked)} />
+              <Typography variant="body2" sx={{ color: '#F1F5F9' }}>Активен</Typography>
+            </Box>
+            <Typography variant="caption" sx={{ color: '#64748B' }}>
+              Выключенные блоки не подмешиваются в AI
+            </Typography>
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 3 }}>
+        <Button onClick={onClose} disabled={saving} sx={{ color: '#64748B' }}>Отмена</Button>
+        <Button variant="contained" onClick={save} disabled={saving || !title.trim() || !content.trim()}>
+          {saving ? 'Сохранение…' : 'Сохранить'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
