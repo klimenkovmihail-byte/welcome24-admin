@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel,
@@ -25,9 +25,13 @@ import {
   COURSE_CATEGORIES, WEBINAR_TOPICS,
   type AdminCourse, type AdminWebinar, type AdminEvent, type AdminEventFormat, type AdminLesson,
   type AcademyCategoryName, type WebinarTopicName,
+  type CourseAttachment,
 } from '../data/mockData';
 import { academyApi } from '../api/academy';
 import FileUploader from '../components/FileUploader';
+import { API_BASE_URL, getToken } from '../api/apiClient';
+import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 
 const LEVELS = ['Начинающий', 'Средний', 'Продвинутый'] as const;
 const FORMATS: { value: AdminEventFormat; label: string; color: string }[] = [
@@ -44,6 +48,109 @@ const cardSx = {
   border: '1px solid rgba(201,168,76,0.1)',
 };
 
+// Загружает PDF в Yandex Storage через /api/upload?type=doc и возвращает {url, key, size}.
+async function uploadDoc(file: File): Promise<CourseAttachment> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('type', 'doc');
+  const res = await fetch(`${API_BASE_URL}/api/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: fd,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+  return { name: file.name, url: data.url, key: data.key, size: file.size };
+}
+
+function fmtSize(n?: number) {
+  if (!n) return '';
+  if (n < 1024) return `${n} Б`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} КБ`;
+  return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+// Список PDF-приложений курса с возможностью добавлять/удалять.
+function CourseAttachmentsEditor({
+  attachments, onChange,
+}: { attachments: CourseAttachment[]; onChange: (a: CourseAttachment[]) => void }) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    e.target.value = '';
+    setErr(null);
+    setUploading(true);
+    try {
+      const uploaded: CourseAttachment[] = [];
+      for (const f of files) uploaded.push(await uploadDoc(f));
+      onChange([...attachments, ...uploaded]);
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : 'Ошибка загрузки');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>
+          Приложения курса (PDF и др.)
+        </Typography>
+        <Button
+          size="small" startIcon={<UploadFileRoundedIcon />}
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          sx={{ color: '#C9A84C' }}
+        >
+          {uploading ? 'Загрузка…' : 'Добавить файл'}
+        </Button>
+        <input
+          ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+          style={{ display: 'none' }}
+          onChange={onPick}
+        />
+      </Box>
+      {err && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setErr(null)}>{err}</Alert>}
+      {attachments.length === 0 ? (
+        <Box sx={{ py: 2, textAlign: 'center', borderRadius: 2, border: '1px dashed rgba(201,168,76,0.2)' }}>
+          <Typography variant="caption" sx={{ color: '#64748B' }}>Файлы не прикреплены</Typography>
+        </Box>
+      ) : (
+        <Stack spacing={1}>
+          {attachments.map((a, i) => (
+            <Box key={`${a.url}-${i}`} sx={{
+              display: 'flex', alignItems: 'center', gap: 1.5, p: 1.2,
+              borderRadius: 2, border: '1px solid rgba(201,168,76,0.1)',
+              background: 'rgba(201,168,76,0.03)',
+            }}>
+              <PictureAsPdfRoundedIcon sx={{ color: '#EF4444', fontSize: 22 }} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {a.name}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>
+                  {fmtSize(a.size)}
+                </Typography>
+              </Box>
+              <IconButton size="small" component="a" href={a.url} target="_blank" sx={{ color: '#94A3B8', '&:hover': { color: '#C9A84C' } }}>
+                <PlayCircleRoundedIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+              <IconButton size="small" onClick={() => onChange(attachments.filter((_, j) => j !== i))} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                <DeleteRoundedIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Box>
+  );
+}
+
 export default function Academy() {
   const [tab, setTab] = useState<'courses' | 'webinars' | 'events'>('courses');
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +163,8 @@ export default function Academy() {
   const [coursesCat, setCoursesCat] = useState<string>('all');
   const [courseDlgOpen, setCourseDlgOpen] = useState(false);
   const emptyCourse = (): AdminCourse => ({
-    id: 0, title: '', description: '', category: 'Базовый', level: 'Начинающий',
+    id: 0, title: '', description: '', content: '', attachments: [], orderIdx: 0,
+    category: 'Базовый', level: 'Начинающий',
     coverUrl: '', duration: '', author: '', lessons: [], rating: 0, ratingCount: 0, published: false,
   });
   const [courseForm, setCourseForm] = useState<AdminCourse>(emptyCourse());
@@ -76,6 +184,9 @@ export default function Academy() {
       const payload = {
         title: courseForm.title,
         description: courseForm.description,
+        content: courseForm.content || '',
+        attachments: courseForm.attachments || [],
+        orderIdx: courseForm.orderIdx || 0,
         category: courseForm.category,
         level: courseForm.level,
         coverUrl: courseForm.coverUrl,
@@ -550,7 +661,13 @@ export default function Academy() {
         <DialogContent sx={{ pt: 3 }}>
           <Stack spacing={2.5}>
             <TextField fullWidth size="small" label="Название курса *" value={courseForm.title} onChange={e => setCourseForm(f => ({ ...f, title: e.target.value }))} />
-            <TextField fullWidth size="small" label="Описание" value={courseForm.description} multiline rows={2} onChange={e => setCourseForm(f => ({ ...f, description: e.target.value }))} />
+            <TextField fullWidth size="small" label="Краткое описание (одна строка)" value={courseForm.description} multiline rows={2} onChange={e => setCourseForm(f => ({ ...f, description: e.target.value }))} />
+            <TextField
+              fullWidth size="small" label="Содержание курса (отображается агенту внутри карточки)"
+              value={courseForm.content || ''} multiline rows={8}
+              onChange={e => setCourseForm(f => ({ ...f, content: e.target.value }))}
+              placeholder="Расскажи о чём курс развёрнуто. Что узнает агент, какие практические навыки получит. Можно с подзаголовками и абзацами через пустую строку. Markdown не поддерживается — просто текст."
+            />
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControl size="small" fullWidth>
                 <InputLabel>Категория</InputLabel>
@@ -564,7 +681,18 @@ export default function Academy() {
                   {LEVELS.map(l => <MenuItem key={l} value={l}>{l}</MenuItem>)}
                 </Select>
               </FormControl>
+              <TextField
+                size="small" type="number" label="Порядок"
+                value={courseForm.orderIdx ?? 0}
+                onChange={e => setCourseForm(f => ({ ...f, orderIdx: Number(e.target.value) || 0 }))}
+                sx={{ width: 110 }}
+                helperText="внутри категории"
+              />
             </Box>
+            <CourseAttachmentsEditor
+              attachments={courseForm.attachments || []}
+              onChange={att => setCourseForm(f => ({ ...f, attachments: att }))}
+            />
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField fullWidth size="small" label="Длительность" value={courseForm.duration} placeholder="4 часа 30 мин" onChange={e => setCourseForm(f => ({ ...f, duration: e.target.value }))} />
               <TextField fullWidth size="small" label="Автор" value={courseForm.author} onChange={e => setCourseForm(f => ({ ...f, author: e.target.value }))} />
