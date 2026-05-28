@@ -163,7 +163,7 @@ export default function Academy() {
   const [coursesCat, setCoursesCat] = useState<string>('all');
   const [courseDlgOpen, setCourseDlgOpen] = useState(false);
   const emptyCourse = (): AdminCourse => ({
-    id: 0, title: '', description: '', content: '', attachments: [], orderIdx: 0,
+    id: 0, title: '', description: '', orderIdx: 0,
     category: 'Базовый', level: 'Начинающий',
     coverUrl: '', duration: '', author: '', lessons: [], rating: 0, ratingCount: 0, published: false,
   });
@@ -184,8 +184,6 @@ export default function Academy() {
       const payload = {
         title: courseForm.title,
         description: courseForm.description,
-        content: courseForm.content || '',
-        attachments: courseForm.attachments || [],
         orderIdx: courseForm.orderIdx || 0,
         category: courseForm.category,
         level: courseForm.level,
@@ -193,7 +191,13 @@ export default function Academy() {
         duration: courseForm.duration,
         authorName: courseForm.author,
         published: courseForm.published,
-        lessons: courseForm.lessons.map(l => ({ title: l.title, duration: l.duration, videoUrl: l.videoUrl })),
+        lessons: courseForm.lessons.map(l => ({
+          title: l.title,
+          duration: l.duration,
+          videoUrl: l.videoUrl,
+          content: l.content || '',
+          attachments: l.attachments || [],
+        })),
       };
       if (courseForm.id > 0) {
         await academyApi.updateCourse(courseForm.id, payload);
@@ -661,13 +665,7 @@ export default function Academy() {
         <DialogContent sx={{ pt: 3 }}>
           <Stack spacing={2.5}>
             <TextField fullWidth size="small" label="Название курса *" value={courseForm.title} onChange={e => setCourseForm(f => ({ ...f, title: e.target.value }))} />
-            <TextField fullWidth size="small" label="Краткое описание (одна строка)" value={courseForm.description} multiline rows={2} onChange={e => setCourseForm(f => ({ ...f, description: e.target.value }))} />
-            <TextField
-              fullWidth size="small" label="Содержание курса (отображается агенту внутри карточки)"
-              value={courseForm.content || ''} multiline rows={8}
-              onChange={e => setCourseForm(f => ({ ...f, content: e.target.value }))}
-              placeholder="Расскажи о чём курс развёрнуто. Что узнает агент, какие практические навыки получит. Можно с подзаголовками и абзацами через пустую строку. Markdown не поддерживается — просто текст."
-            />
+            <TextField fullWidth size="small" label="Описание" value={courseForm.description} multiline rows={2} onChange={e => setCourseForm(f => ({ ...f, description: e.target.value }))} />
             <Box sx={{ display: 'flex', gap: 2 }}>
               <FormControl size="small" fullWidth>
                 <InputLabel>Категория</InputLabel>
@@ -689,10 +687,6 @@ export default function Academy() {
                 helperText="внутри категории"
               />
             </Box>
-            <CourseAttachmentsEditor
-              attachments={courseForm.attachments || []}
-              onChange={att => setCourseForm(f => ({ ...f, attachments: att }))}
-            />
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField fullWidth size="small" label="Длительность" value={courseForm.duration} placeholder="4 часа 30 мин" onChange={e => setCourseForm(f => ({ ...f, duration: e.target.value }))} />
               <TextField fullWidth size="small" label="Автор" value={courseForm.author} onChange={e => setCourseForm(f => ({ ...f, author: e.target.value }))} />
@@ -725,6 +719,19 @@ export default function Academy() {
                       <TextField label="Длительность" value={l.duration} onChange={e => updateLesson(i, { duration: e.target.value })} size="small" sx={{ width: 120 }} placeholder="15 мин" />
                     </Box>
                     <TextField fullWidth size="small" label="Ссылка на видео" value={l.videoUrl} onChange={e => updateLesson(i, { videoUrl: e.target.value })} sx={{ mt: 1 }} />
+                    <TextField
+                      fullWidth size="small" label="Описание урока"
+                      value={l.content || ''}
+                      onChange={e => updateLesson(i, { content: e.target.value })}
+                      multiline rows={4} sx={{ mt: 1 }}
+                      placeholder="Что узнает агент в этом уроке. Можно с абзацами через пустую строку."
+                    />
+                    <Box sx={{ mt: 1.5 }}>
+                      <CourseAttachmentsEditor
+                        attachments={l.attachments || []}
+                        onChange={att => updateLesson(i, { attachments: att })}
+                      />
+                    </Box>
                   </Box>
                 ))}
                 {courseForm.lessons.length === 0 && (

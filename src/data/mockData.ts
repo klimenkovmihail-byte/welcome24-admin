@@ -113,8 +113,6 @@ export const WEBINAR_TOPICS: WebinarTopicName[] = [
   'Новостройки', 'Вторичка', 'Юридический блок', 'Ипотека', 'Загородная', 'Коммерческая',
 ];
 
-export interface AdminLesson { id: number; title: string; duration: string; videoUrl: string }
-
 export interface CourseAttachment {
   name: string;
   url: string;
@@ -122,12 +120,19 @@ export interface CourseAttachment {
   size?: number;
 }
 
+export interface AdminLesson {
+  id: number;
+  title: string;
+  duration: string;
+  videoUrl: string;
+  content?: string;
+  attachments?: CourseAttachment[];
+}
+
 export interface AdminCourse {
   id: number;
   title: string;
   description: string;
-  content?: string;
-  attachments?: CourseAttachment[];
   orderIdx?: number;
   category: AcademyCategoryName;
   level: 'Начинающий' | 'Средний' | 'Продвинутый';
