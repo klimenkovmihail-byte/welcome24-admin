@@ -115,10 +115,20 @@ export const WEBINAR_TOPICS: WebinarTopicName[] = [
 
 export interface AdminLesson { id: number; title: string; duration: string; videoUrl: string }
 
+export interface CourseAttachment {
+  name: string;
+  url: string;
+  key?: string;
+  size?: number;
+}
+
 export interface AdminCourse {
   id: number;
   title: string;
   description: string;
+  content?: string;
+  attachments?: CourseAttachment[];
+  orderIdx?: number;
   category: AcademyCategoryName;
   level: 'Начинающий' | 'Средний' | 'Продвинутый';
   coverUrl: string;
