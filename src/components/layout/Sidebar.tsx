@@ -16,7 +16,7 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import ContactSupportRoundedIcon from '@mui/icons-material/ContactSupportRounded';
-import { logout, getCurrentUser } from '../../auth/auth';
+import { logout, getCurrentUser, currentSectionAccess } from '../../auth/auth';
 import { canAccess, ROLE_LABEL, ROLE_COLOR, type Role } from '../../auth/roles';
 import { agentsApi } from '../../api/agents';
 import { supportApi } from '../../api/support';
@@ -37,15 +37,16 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const user = getCurrentUser();
   const role = (user?.role || 'agent') as Role;
+  const sectionAccess = currentSectionAccess();
 
   // Бейджи: отзывы на модерации + открытые тикеты поддержки.
   // Дёргаем только если у роли есть доступ к этим разделам (иначе 403 в консоли).
   useEffect(() => {
     let cancelled = false;
     const tasks: Promise<unknown>[] = [];
-    if (canAccess(role, '/agents'))  tasks.push(agentsApi.pendingReviews().catch(() => []).then(r => { if (!cancelled) setPendingReviews((r as unknown[]).length); }));
-    if (canAccess(role, '/support')) tasks.push(supportApi.list().catch(() => []).then(t => { if (!cancelled) setOpenTickets((t as { status: string }[]).filter(x => x.status === 'open').length); }));
-    if (canAccess(role, '/subscription-claims')) tasks.push(subscriptionAdminApi.pending().catch(() => []).then(p => { if (!cancelled) setPendingClaims((p as unknown[]).length); }));
+    if (canAccess(role, '/agents', sectionAccess))  tasks.push(agentsApi.pendingReviews().catch(() => []).then(r => { if (!cancelled) setPendingReviews((r as unknown[]).length); }));
+    if (canAccess(role, '/support', sectionAccess)) tasks.push(supportApi.list().catch(() => []).then(t => { if (!cancelled) setOpenTickets((t as { status: string }[]).filter(x => x.status === 'open').length); }));
+    if (canAccess(role, '/subscription-claims', sectionAccess)) tasks.push(subscriptionAdminApi.pending().catch(() => []).then(p => { if (!cancelled) setPendingClaims((p as unknown[]).length); }));
     Promise.all(tasks);
     return () => { cancelled = true; };
   }, [location.pathname, role]);
@@ -68,7 +69,7 @@ export default function Sidebar() {
     { path: '/reports', label: 'Отчёты', icon: <AssessmentRoundedIcon /> },
     { path: '/settings', label: 'Настройки', icon: <SettingsRoundedIcon /> },
   ];
-  const navItems = allNavItems.filter(i => canAccess(role, i.path));
+  const navItems = allNavItems.filter(i => canAccess(role, i.path, sectionAccess));
 
   const handleLogout = () => {
     logout();

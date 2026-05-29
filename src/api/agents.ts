@@ -34,6 +34,7 @@ type RawAgent = {
   reviews_count: number;
   referral_link?: string;
   terminated_at: string | null;
+  section_access?: string | null;   // JSON-массив путей или null (дефолт роли)
   // Поля приходят из агрегаций /api/agents (SUM по deals + share_packets).
   year_vkd?: number;
   year_deals?: number;
@@ -81,7 +82,12 @@ export function normalizeAgent(raw: RawAgent): Agent {
     referralLink: raw.referral_link || '',
     terminatedAt: raw.terminated_at || null,
     role: raw.role || 'agent',
-  } as Agent & { referralLink: string; role: Role };
+    sectionAccess: ((): string[] | null => {
+      const r = raw.section_access;
+      if (r == null) return null;
+      try { const a = JSON.parse(r); return Array.isArray(a) ? a : null; } catch { return null; }
+    })(),
+  } as Agent & { referralLink: string; role: Role; sectionAccess: string[] | null };
 }
 
 export function normalizeReview(raw: RawReview): AgentReview {
@@ -163,6 +169,9 @@ export const agentsApi = {
   remove:  (id: number) => api.del<{ ok: true }>(`/api/agents/${id}`),
   setRole: (id: number, role: Role) =>
     api.patch<RawAgent>(`/api/agents/${id}/role`, { role }).then(normalizeAgent),
+  // Индивидуальные права сотрудника на разделы админки (null = дефолт роли).
+  setSections: (id: number, sections: string[] | null) =>
+    api.patch<{ ok: true; sectionAccess: string[] | null }>(`/api/agents/${id}/sections`, { sections }),
   // Объединить дубликат (sourceId) с основной карточкой (targetId).
   // Все сделки/акции/etc переносятся к targetId, sourceId удаляется.
   mergeInto: (targetId: number, sourceId: number) =>

@@ -6,7 +6,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Tooltip, Avatar, Stack, Divider,
   Radio, RadioGroup, FormControlLabel, FormLabel, Autocomplete,
-  ToggleButtonGroup, ToggleButton, Alert,
+  ToggleButtonGroup, ToggleButton, Alert, Checkbox,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -34,11 +34,12 @@ import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded
 import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded';
 import MergeRoundedIcon from '@mui/icons-material/MergeRounded';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import { Rating } from '@mui/material';
 import { companySettings } from '../data/mockData';
 import type { AgentReview, ReviewModeration, AgentSocials } from '../types';
 import { impersonate, getCurrentUser } from '../auth/auth';
-import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
+import { ROLE_LABEL, ROLE_COLOR, SECTION_LIST, ROLE_ACCESS, type Role } from '../auth/roles';
 import type { Agent, AgentLevel, AgentStatus } from '../types';
 import { agentsApi, enrichAgents, enrichSharesFromHolders, type MentorHistoryEntry } from '../api/agents';
 import { sharesApi } from '../api/shares';
@@ -207,6 +208,8 @@ export default function Agents() {
   const [mentorHistoryFor, setMentorHistoryFor] = useState<Agent | null>(null);
   const [mentorHistory, setMentorHistory] = useState<MentorHistoryEntry[]>([]);
   const [mentorHistoryLoading, setMentorHistoryLoading] = useState(false);
+  // Редактор доступа к разделам (super_admin → сотруднику).
+  const [sectionsFor, setSectionsFor] = useState<Agent | null>(null);
 
   useEffect(() => {
     if (!mentorHistoryFor) { setMentorHistory([]); return; }
@@ -503,6 +506,13 @@ export default function Agents() {
                           <HistoryRoundedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      {canManageRoles && (agent as Agent & { role?: Role }).role && (agent as Agent & { role?: Role }).role !== 'agent' && (
+                        <Tooltip title="Доступ к разделам админки">
+                          <IconButton size="small" onClick={() => setSectionsFor(agent)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+                            <TuneRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {canManageRoles && (
                         <Tooltip title="Объединить с другой карточкой (смена фамилии и т.п.)">
                           <IconButton size="small" onClick={() => { setMergeSource(agent); setMergeTarget(null); }} sx={{ color: '#64748B', '&:hover': { color: '#8B5CF6' } }}>
@@ -547,6 +557,13 @@ export default function Agents() {
         canManageRoles={canManageRoles}
         defaultKind={isStaffView ? 'staff' : 'agent'}
         onSaved={() => { reloadAgents(); }}
+      />
+
+      {/* Редактор доступа к разделам (super_admin) */}
+      <SectionsDialog
+        agent={sectionsFor}
+        onClose={() => setSectionsFor(null)}
+        onSaved={() => { setSectionsFor(null); reloadAgents(); }}
       />
 
       {/* Mentor history dialog */}
@@ -789,5 +806,73 @@ export default function Agents() {
         </DialogContent>
       </Dialog>
     </Box>
+  );
+}
+
+// ---- Редактор доступа к разделам для сотрудника (super_admin) ----
+function SectionsDialog({ agent, onClose, onSaved }: {
+  agent: (Agent & { role?: Role; sectionAccess?: string[] | null }) | null;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [custom, setCustom] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const role = (agent?.role || 'admin') as Role;
+  const roleDefault = useMemo(
+    () => new Set(SECTION_LIST.filter(s => (ROLE_ACCESS[s.path] || []).includes(role)).map(s => s.path)),
+    [role],
+  );
+
+  useEffect(() => {
+    if (!agent) return;
+    const sa = agent.sectionAccess;
+    if (Array.isArray(sa)) { setCustom(true); setChecked(new Set(sa)); }
+    else { setCustom(false); setChecked(new Set(roleDefault)); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent]);
+
+  const toggle = (p: string) => setChecked(prev => {
+    const n = new Set(prev); if (n.has(p)) n.delete(p); else n.add(p); return n;
+  });
+
+  const save = async (resetToRole: boolean) => {
+    if (!agent) return;
+    setBusy(true);
+    try {
+      await agentsApi.setSections(agent.id, resetToRole ? null : Array.from(checked));
+      onSaved();
+    } catch (e) { alert(e instanceof Error ? e.message : 'Не удалось сохранить'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog open={!!agent} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ pb: 0.5 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Доступ к разделам</Typography>
+        <Typography variant="caption" sx={{ color: '#64748B' }}>{agent?.name} · {ROLE_LABEL[role]}</Typography>
+      </DialogTitle>
+      <DialogContent>
+        <FormControlLabel
+          control={<Checkbox checked={custom} onChange={e => { setCustom(e.target.checked); if (!e.target.checked) setChecked(new Set(roleDefault)); }} />}
+          label={<Typography variant="body2" sx={{ color: '#F1F5F9' }}>Индивидуальная настройка<br /><Typography component="span" variant="caption" sx={{ color: '#64748B' }}>иначе — доступ по умолчанию для роли</Typography></Typography>}
+          sx={{ mb: 1, alignItems: 'flex-start' }}
+        />
+        <Stack sx={{ opacity: custom ? 1 : 0.45, pointerEvents: custom ? 'auto' : 'none' }}>
+          {SECTION_LIST.map(s => (
+            <FormControlLabel key={s.path}
+              control={<Checkbox size="small" checked={checked.has(s.path)} onChange={() => toggle(s.path)} />}
+              label={<Typography variant="body2">{s.label}</Typography>}
+            />
+          ))}
+        </Stack>
+        <Alert severity="info" sx={{ mt: 1 }}>Настройки, AI-промпты и управление ролями — всегда только у супер-админа.</Alert>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={() => save(true)} disabled={busy} sx={{ color: '#94A3B8' }}>Сбросить к роли</Button>
+        <Box sx={{ flex: 1 }} />
+        <Button onClick={onClose} disabled={busy}>Отмена</Button>
+        <Button variant="contained" onClick={() => save(false)} disabled={busy || !custom}>Сохранить</Button>
+      </DialogActions>
+    </Dialog>
   );
 }

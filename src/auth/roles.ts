@@ -25,17 +25,42 @@ export const ROLE_ACCESS: Record<string, Role[]> = {
   '/settings':   ['super_admin'],
 };
 
-export function canAccess(role: Role | string | undefined, path: string): boolean {
+// Критичные разделы — только super_admin, нельзя делегировать.
+export const LOCKED_SECTIONS = ['/settings', '/ai-prompts'];
+
+// Настраиваемые разделы (super_admin выдаёт/забирает у сотрудников). Метки для UI.
+export const SECTION_LIST: { path: string; label: string }[] = [
+  { path: '/dashboard',           label: 'Обзор' },
+  { path: '/agents',              label: 'Агенты' },
+  { path: '/deals',               label: 'Сделки' },
+  { path: '/shares',              label: 'Акции' },
+  { path: '/academy',             label: 'Академия' },
+  { path: '/news',                label: 'Новости' },
+  { path: '/docs',                label: 'База данных' },
+  { path: '/support',             label: 'Поддержка' },
+  { path: '/subscriptions',       label: 'Абон. плата' },
+  { path: '/subscription-claims', label: 'Заявки на оплату' },
+  { path: '/reports',             label: 'Отчёты' },
+  { path: '/analytics',           label: 'Аналитика' },
+  { path: '/ai-analytics',        label: 'AI-аналитика' },
+  { path: '/backoffice',          label: 'Команда' },
+];
+
+// sectionAccess — индивидуальный список разделов сотрудника (null = дефолт роли).
+export function canAccess(role: Role | string | undefined, path: string, sectionAccess?: string[] | null): boolean {
   if (!role) return false;
+  if (role === 'super_admin') return true;                 // super_admin видит всё
+  if (LOCKED_SECTIONS.includes(path)) return false;        // критичные — только super_admin
+  if (sectionAccess) return sectionAccess.includes(path);  // индивидуальная настройка
   const allowed = ROLE_ACCESS[path];
   if (!allowed) return true; // нет правила — пускаем (например /login)
   return allowed.includes(role as Role);
 }
 
 // Первая доступная страница для редиректа после логина.
-export function firstAccessiblePath(role: Role | string | undefined): string {
-  const order = ['/dashboard', '/agents', '/academy', '/news', '/support', '/subscription-claims', '/analytics', '/settings'];
-  for (const p of order) if (canAccess(role, p)) return p;
+export function firstAccessiblePath(role: Role | string | undefined, sectionAccess?: string[] | null): string {
+  const order = ['/dashboard', '/agents', '/academy', '/news', '/support', '/subscriptions', '/subscription-claims', '/reports', '/analytics', '/settings'];
+  for (const p of order) if (canAccess(role, p, sectionAccess)) return p;
   return '/login';
 }
 

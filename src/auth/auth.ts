@@ -107,6 +107,14 @@ export function isAuthenticated(): boolean {
   return !!getToken() && !!getCurrentUser();
 }
 
+/** Индивидуальный список разделов текущего юзера (null = доступ по умолчанию роли). */
+export function currentSectionAccess(): string[] | null {
+  const raw = getCurrentUser()?.section_access;
+  if (raw == null) return null;
+  if (Array.isArray(raw)) return raw as string[];
+  try { const a = JSON.parse(raw as string); return Array.isArray(a) ? a : null; } catch { return null; }
+}
+
 /** Подтверждает токен на бэке и обновляет user в localStorage. Если 401 или не админ — стираем. */
 export async function fetchMe(): Promise<AdminUser | null> {
   if (!getToken()) return null;

@@ -18,7 +18,7 @@ import AIPrompts from './pages/AIPrompts';
 import AIAnalytics from './pages/AIAnalytics';
 import Reports from './pages/Reports';
 import Login from './pages/Login';
-import { isAuthenticated, fetchMe, getCurrentUser } from './auth/auth';
+import { isAuthenticated, fetchMe, getCurrentUser, currentSectionAccess } from './auth/auth';
 import { canAccess, firstAccessiblePath, type Role } from './auth/roles';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -38,7 +38,8 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function RoleRoute({ path, children }: { path: string; children: React.ReactNode }) {
   const user = getCurrentUser();
   const role = (user?.role || 'agent') as Role;
-  if (!canAccess(role, path)) return <Navigate to={firstAccessiblePath(role)} replace />;
+  const sa = currentSectionAccess();
+  if (!canAccess(role, path, sa)) return <Navigate to={firstAccessiblePath(role, sa)} replace />;
   return <>{children}</>;
 }
 
@@ -46,7 +47,7 @@ function RoleRoute({ path, children }: { path: string; children: React.ReactNode
 function HomeRedirect() {
   const user = getCurrentUser();
   const role = (user?.role || 'agent') as Role;
-  return <Navigate to={firstAccessiblePath(role)} replace />;
+  return <Navigate to={firstAccessiblePath(role, currentSectionAccess())} replace />;
 }
 
 export default function App() {
