@@ -76,4 +76,7 @@ export const subscriptionAdminApi = {
   agent:    (id: number) => api.get<AgentSubFull>(`/api/subscription/agent/${id}`),
   setOverride: (agentId: number, payload: OverridePayload) =>
     api.patch<AgentSubFull>(`/api/subscription/agent/${agentId}/override`, payload as unknown as Record<string, unknown>),
+  // Отметить период оплаченным вручную (прямая оплата) или снять отметку.
+  markPaid: (agentId: number, period: string, paid: boolean) =>
+    api.post<{ ok: boolean; period: string; paid: boolean }>(`/api/subscription/manual-claim/${agentId}`, { period, paid }),
 };

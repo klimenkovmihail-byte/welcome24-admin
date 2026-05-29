@@ -77,6 +77,23 @@ export default function Subscriptions() {
   const [drillFor, setDrillFor] = useState<AgentSubOverview | null>(null);
   const [drillData, setDrillData] = useState<AgentSubFull | null>(null);
   const [drillLoading, setDrillLoading] = useState(false);
+  const [markBusy, setMarkBusy] = useState<string | null>(null);
+
+  // Отметить период оплаченным вручную / снять отметку (прямая оплата в компанию).
+  const handleMarkPaid = async (period: string, paid: boolean) => {
+    if (!drillFor) return;
+    setMarkBusy(period);
+    try {
+      await subscriptionAdminApi.markPaid(drillFor.id, period, paid);
+      const fresh = await subscriptionAdminApi.agent(drillFor.id);
+      setDrillData(fresh);
+      subscriptionAdminApi.overview().then(setList).catch(() => { /* tolerate */ });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Не удалось обновить период');
+    } finally {
+      setMarkBusy(null);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -357,6 +374,7 @@ export default function Subscriptions() {
                       <TableCell>Квартал · ВКД</TableCell>
                       <TableCell>Статус</TableCell>
                       <TableCell align="right">Дата оплаты</TableCell>
+                      <TableCell align="right">Действие</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -377,6 +395,21 @@ export default function Subscriptions() {
                             <Typography variant="caption" sx={{ color: '#64748B' }}>
                               {p.paidAt ? new Date(p.paidAt.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU') : '—'}
                             </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            {p.status === 'paid' ? (
+                              <Button size="small" disabled={markBusy === p.period}
+                                onClick={() => handleMarkPaid(p.period, false)}
+                                sx={{ color: '#64748B', fontSize: 11, minWidth: 0, '&:hover': { color: '#EF4444' } }}>
+                                Снять
+                              </Button>
+                            ) : (p.status === 'unpaid' || p.status === 'overdue' || p.status === 'pending_review') ? (
+                              <Button size="small" variant="outlined" disabled={markBusy === p.period}
+                                onClick={() => handleMarkPaid(p.period, true)}
+                                sx={{ fontSize: 11, py: 0.2, px: 1, borderColor: 'rgba(34,197,94,0.4)', color: '#22C55E', '&:hover': { borderColor: '#22C55E', background: 'rgba(34,197,94,0.08)' } }}>
+                                Оплачено
+                              </Button>
+                            ) : <Typography variant="caption" sx={{ color: '#475569' }}>—</Typography>}
                           </TableCell>
                         </TableRow>
                       );
