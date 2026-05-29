@@ -821,14 +821,14 @@ export default function Academy() {
               </FormControl>
               <TextField fullWidth size="small" label="Тема" value={eventForm.topic} onChange={e => setEventForm(f => ({ ...f, topic: e.target.value }))} placeholder="например, Ипотека" />
             </Box>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth size="small" label="Дата" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
-              <TextField size="small" label="Начало" type="time" value={eventForm.startTime} onChange={e => setEventForm(f => ({ ...f, startTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 130 }} />
-              <TextField size="small" label="Конец" type="time" value={eventForm.endTime} onChange={e => setEventForm(f => ({ ...f, endTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 130 }} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField size="small" label="Дата" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 160px' }} />
+              <TextField size="small" label="Начало" type="time" value={eventForm.startTime} onChange={e => setEventForm(f => ({ ...f, startTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 140px', minWidth: 140 }} />
+              <TextField size="small" label="Конец" type="time" value={eventForm.endTime} onChange={e => setEventForm(f => ({ ...f, endTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 140px', minWidth: 140 }} />
             </Box>
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField fullWidth size="small" label="Спикер" value={eventForm.speaker} onChange={e => setEventForm(f => ({ ...f, speaker: e.target.value }))} />
-              <TextField size="small" label="Лимит" type="number" placeholder="без лимита" value={eventForm.capacity ?? ''} onChange={e => setEventForm(f => ({ ...f, capacity: e.target.value ? Number(e.target.value) : null }))} sx={{ width: 140 }} />
+              <TextField size="small" label="Лимит мест" type="number" placeholder="без лимита" helperText="Макс. участников" value={eventForm.capacity ?? ''} onChange={e => setEventForm(f => ({ ...f, capacity: e.target.value ? Number(e.target.value) : null }))} sx={{ width: 160 }} />
             </Box>
             <TextField fullWidth size="small" label="Локация" value={eventForm.location} placeholder="Онлайн / Zoom / адрес" onChange={e => setEventForm(f => ({ ...f, location: e.target.value }))} />
             <TextField fullWidth size="small" label="Ссылка на трансляцию" value={eventForm.link} placeholder="https://..." onChange={e => setEventForm(f => ({ ...f, link: e.target.value }))} />
