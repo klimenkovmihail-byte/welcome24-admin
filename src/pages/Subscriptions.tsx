@@ -13,7 +13,7 @@ import {
   Table, TableHead, TableBody, TableCell, TableRow, TableContainer, Paper,
   Select, MenuItem, FormControl, InputLabel, Avatar, CircularProgress,
   Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Button,
-  LinearProgress, Divider, TablePagination,
+  LinearProgress, Divider, TablePagination, Stack,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';

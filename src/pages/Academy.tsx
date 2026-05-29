@@ -819,7 +819,13 @@ export default function Academy() {
                   {FORMATS.map(f => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
                 </Select>
               </FormControl>
-              <TextField fullWidth size="small" label="Тема" value={eventForm.topic} onChange={e => setEventForm(f => ({ ...f, topic: e.target.value }))} placeholder="например, Ипотека" />
+              <FormControl size="small" fullWidth>
+                <InputLabel>Тема</InputLabel>
+                <Select value={eventForm.topic} label="Тема" onChange={e => setEventForm(f => ({ ...f, topic: e.target.value }))}>
+                  <MenuItem value=""><em>не указана</em></MenuItem>
+                  {COURSE_CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                </Select>
+              </FormControl>
             </Box>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
               <TextField size="small" label="Дата" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 160px' }} />
