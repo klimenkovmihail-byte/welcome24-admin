@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField,
-  Dialog, DialogTitle, DialogContent, IconButton, Link, Badge,
+  Dialog, DialogTitle, DialogContent, IconButton, Link, Badge, Tooltip,
 } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
@@ -143,6 +143,11 @@ export default function Cases() {
       setUploading(false);
       e.target.value = '';
     }
+  };
+
+  const handleDeleteCase = (caseId: number, clientName: string) => {
+    if (!window.confirm(`Удалить заявку «${clientName}» полностью? Будут удалены все задачи, чат, файлы и история. Действие необратимо.\n(Проведённая сделка в разделе «Сделки» останется.)`)) return;
+    casesAdminApi.remove(caseId).then(() => { setDetail(null); load(); }).catch(e => setError(e?.message || 'Не удалось удалить заявку'));
   };
 
   const handleDeleteAttachment = (attId: number) => {
@@ -347,7 +352,16 @@ export default function Cases() {
                   Заявка от {detail.agent_name || 'агента'} · {new Date(detail.created_at).toLocaleDateString('ru-RU')}
                 </Typography>
               </Box>
-              <IconButton onClick={() => setDetail(null)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {isSuperAdmin && (
+                  <Tooltip title="Удалить заявку полностью (super_admin)">
+                    <IconButton onClick={() => handleDeleteCase(detail.id, detail.client_name)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                      <DeleteOutlineRoundedIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <IconButton onClick={() => { setDetail(null); load(); }} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
+              </Box>
             </DialogTitle>
             <DialogContent dividers sx={{ borderColor: 'rgba(201,168,76,0.08)', p: 0, overflow: 'hidden', height: { md: 'calc(88vh - 80px)' } }}>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' }, height: '100%' }}>
