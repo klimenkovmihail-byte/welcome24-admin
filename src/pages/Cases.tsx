@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
-  Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl,
+  Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField,
   Dialog, DialogTitle, DialogContent, IconButton, Link,
 } from '@mui/material';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
@@ -65,6 +66,11 @@ export default function Cases() {
   const [detail, setDetail] = useState<CaseItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // Фильтры списка.
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -157,7 +163,21 @@ export default function Cases() {
     </Card>
   );
 
-  const list = tab === 'queue' ? queue : assigned;
+  const rawList = tab === 'queue' ? queue : assigned;
+  const q = search.trim().toLowerCase();
+  const list = rawList.filter(t => {
+    const matchQ = !q || t.client_name.toLowerCase().includes(q)
+      || (t.object_address || '').toLowerCase().includes(q)
+      || (t.city || '').toLowerCase().includes(q);
+    const matchStatus = statusFilter === 'all' || t.status === statusFilter;
+    const matchType = typeFilter === 'all' || t.type === typeFilter;
+    return matchQ && matchStatus && matchType;
+  });
+  // Статусы для фильтра — из текущей дорожки (для админа — выбранная, иначе обе).
+  const filterTracks: TaskTrack[] = isAdmin ? [adminTrack] : ['legal', 'mortgage'];
+  const statusOptions = [...new Set(filterTracks.flatMap(tr => TRACK_STATUSES[tr]))];
+  const typeOptions = (Object.keys(TYPE_LABEL) as (keyof typeof TYPE_LABEL)[])
+    .filter(k => filterTracks.includes(k === 'mortgage' ? 'mortgage' : 'legal'));
 
   return (
     <Box>
@@ -183,6 +203,31 @@ export default function Cases() {
               <MenuItem value="mortgage">Ипотека</MenuItem>
             </Select>
           </FormControl>
+        )}
+      </Box>
+
+      {/* Фильтры и поиск */}
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2, alignItems: 'center' }}>
+        <TextField
+          size="small" placeholder="Поиск: клиент, объект, город…"
+          value={search} onChange={e => setSearch(e.target.value)}
+          sx={{ flex: '1 1 260px', minWidth: 200 }}
+          slotProps={{ input: { startAdornment: <SearchRoundedIcon sx={{ fontSize: 18, color: '#64748B', mr: 1 }} /> } }}
+        />
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <Select value={typeFilter} displayEmpty onChange={e => setTypeFilter(e.target.value)}>
+            <MenuItem value="all">Все типы</MenuItem>
+            {typeOptions.map(k => <MenuItem key={k} value={k}>{TYPE_LABEL[k]}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <Select value={statusFilter} displayEmpty onChange={e => setStatusFilter(e.target.value)}>
+            <MenuItem value="all">Все этапы</MenuItem>
+            {statusOptions.map(s => <MenuItem key={s} value={s}>{STATUS_RU[s] || s}</MenuItem>)}
+          </Select>
+        </FormControl>
+        {(q || statusFilter !== 'all' || typeFilter !== 'all') && (
+          <Typography variant="caption" sx={{ color: '#64748B' }}>Найдено: {list.length}</Typography>
         )}
       </Box>
 
