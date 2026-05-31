@@ -18,6 +18,7 @@ import { getCurrentUser } from '../auth/auth';
 import { API_BASE_URL, getToken } from '../api/apiClient';
 import CaseChat from '../components/CaseChat';
 import CaseStatusStepper from '../components/CaseStatusStepper';
+import CaseFinance from '../components/CaseFinance';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -253,6 +254,10 @@ export default function Cases() {
                         </Box>
                         {t.assignee_id && (
                           <CaseStatusStepper track={t.track} status={t.status} onChange={(s) => handleStatus(t.id, s)} />
+                        )}
+                        {/* Финансы сделки — для юр-задач у исполнителя (с этапа «Сделка») */}
+                        {t.assignee_id && t.track === 'legal' && (
+                          <CaseFinance caseId={detail.id} task={t} onSaved={() => openDetail(detail.id)} />
                         )}
                       </Box>
                     ))}
