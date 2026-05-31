@@ -54,8 +54,9 @@ export default function CaseFinance({
         <TextField size="small" label="Дата" type="date" value={date} onChange={e => setDate(e.target.value)}
           slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 150 }} />
         <Button variant="contained" size="small" disabled={saving || !vkd} onClick={save}
-          sx={{ background: 'linear-gradient(135deg, #C9A84C, #E2C97E)', color: '#0A0E1A', fontWeight: 700 }}>
-          {saving ? <CircularProgress size={16} /> : 'Сохранить'}
+          sx={{ background: 'linear-gradient(135deg, #C9A84C, #E2C97E)', color: '#0A0E1A', fontWeight: 800,
+                '&.Mui-disabled': { background: 'rgba(201,168,76,0.3)', color: 'rgba(10,14,26,0.5)' } }}>
+          {saving ? <CircularProgress size={16} sx={{ color: '#0A0E1A' }} /> : 'Сохранить'}
         </Button>
       </Box>
       <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mt: 1, flexWrap: 'wrap' }}>

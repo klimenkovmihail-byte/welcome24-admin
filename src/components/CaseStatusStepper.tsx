@@ -50,7 +50,7 @@ export default function CaseStatusStepper({
             <Box
               onClick={handleClick}
               sx={{
-                flex: '1 1 0', minWidth: 92, cursor: 'pointer',
+                flex: '1 1 100px', minWidth: 96, maxWidth: 200, cursor: 'pointer',
                 px: 1, py: 0.8, borderRadius: 1.5,
                 background: bg, border: `1px solid ${color}55`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5,
@@ -58,8 +58,8 @@ export default function CaseStatusStepper({
                 '&:hover': { borderColor: color, background: active ? bg : 'rgba(201,168,76,0.08)' },
               }}
             >
-              {done && <CheckRoundedIcon sx={{ fontSize: 14, color }} />}
-              <Typography variant="caption" sx={{ color, fontWeight: active ? 800 : 600, fontSize: 11, whiteSpace: 'nowrap' }}>
+              {done && <CheckRoundedIcon sx={{ fontSize: 14, color, flexShrink: 0 }} />}
+              <Typography sx={{ color, fontWeight: active ? 800 : 600, fontSize: 11, lineHeight: 1.2, textAlign: 'center' }}>
                 {STATUS_RU[s] || s}
               </Typography>
             </Box>
