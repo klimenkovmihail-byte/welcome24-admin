@@ -14,7 +14,7 @@ const ICON_SRC = '/logo-icon.png';
 const FULL_ASPECT = 3760 / 1280; // ≈ 2.94
 
 const PREMIUM_GOLD_GRADIENT =
-  'linear-gradient(135deg, #F4DA8E 0%, #E2C97E 25%, #C9A84C 50%, #A88634 75%, #8B6F1F 100%)';
+  'linear-gradient(135deg, #FCE9A6 0%, #F0D277 28%, #E5C25A 52%, #D4AF37 78%, #C9A227 100%)';
 
 export function LogoIcon({ size = 40, color = '#C9A84C', premium = false }: { size?: number; color?: string; premium?: boolean }) {
   return (

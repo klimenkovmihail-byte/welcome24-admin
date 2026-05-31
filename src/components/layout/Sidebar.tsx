@@ -86,15 +86,12 @@ export default function Sidebar() {
         <Box sx={{ p: collapsed ? 1.5 : 2.5, pt: 3, display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 1.5 }}>
           {collapsed ? (
             <Box sx={{ position: 'relative', flexShrink: 0 }}>
-              <LogoIcon size={40} color="#C9A84C" />
-              <Box sx={{ position: 'absolute', top: -3, right: -3, width: 14, height: 14, background: '#EF4444', borderRadius: '50%', border: '2px solid #080C18', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <AdminPanelSettingsRoundedIcon sx={{ fontSize: 8, color: '#fff' }} />
-              </Box>
+              <LogoIcon size={44} premium />
             </Box>
           ) : (
             <AnimatePresence>
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}>
-                <Logo variant="full" size={32} color="#F1F5F9" />
+                <Logo variant="full" size={40} premium />
                 <Box sx={{ display: 'flex', flexDirection: 'column', borderLeft: '2px solid rgba(239,68,68,0.4)', pl: 1.2, lineHeight: 1.05 }}>
                   <Typography variant="caption" sx={{ color: '#EF4444', fontWeight: 800, letterSpacing: '0.06em', fontSize: 10 }}>
                     ADMIN

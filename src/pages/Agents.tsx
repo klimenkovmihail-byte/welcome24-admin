@@ -162,6 +162,10 @@ export default function Agents() {
   // Сброс пагинации при любой смене фильтра/поиска/вкладки.
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [deferredSearch, filterStatus, filterLevel, filterRole, view]);
 
+  // При переключении вкладки выставляем корректный дефолт фильтра роли:
+  // «Агенты» → только агенты, «Сотрудники» → все роли.
+  useEffect(() => { setFilterRole(view === 'agents' ? 'agent' : 'all'); }, [view]);
+
   const agentCount = useMemo(() =>
     agents.filter(a => ((a as AgentWithRole).role || 'agent') === 'agent').length,
   [agents]);
