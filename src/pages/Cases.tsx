@@ -21,6 +21,7 @@ import CaseChat from '../components/CaseChat';
 import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
 import CasesAnalytics from '../components/CasesAnalytics';
+import CaseTimeline from '../components/CaseTimeline';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -82,6 +83,7 @@ export default function Cases() {
   const [detail, setDetail] = useState<CaseItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [timelineKey, setTimelineKey] = useState(0); // инкремент → перезагрузка таймлайна
 
   // Фильтры списка.
   const [search, setSearch] = useState('');
@@ -114,13 +116,15 @@ export default function Cases() {
     casesAdminApi.markRead(caseId).then(load).catch(() => {});
   };
 
+  const bumpTimeline = () => setTimelineKey(k => k + 1);
   const handleTake = (taskId: number) => {
-    casesAdminApi.take(taskId).then(() => { load(); }).catch(e => setError(e?.message || 'Не удалось взять задачу'));
+    casesAdminApi.take(taskId).then(u => { load(); if (detail) setDetail(u); bumpTimeline(); }).catch(e => setError(e?.message || 'Не удалось взять задачу'));
   };
   const handleStatus = (taskId: number, status: string) => {
     casesAdminApi.updateTask(taskId, { status }).then(updated => {
       load();
       if (detail) setDetail(updated);
+      bumpTimeline();
     }).catch(e => setError(e?.message || 'Не удалось обновить'));
   };
 
@@ -132,6 +136,7 @@ export default function Cases() {
       const meta = await uploadFile(file);
       const updated = await casesAdminApi.addAttachment(detail.id, meta);
       setDetail(updated);
+      bumpTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка загрузки');
     } finally {
@@ -329,8 +334,8 @@ export default function Cases() {
       )}
 
       {/* Детальный диалог заявки */}
-      <Dialog open={!!detail || detailLoading} onClose={() => { setDetail(null); load(); }} fullWidth maxWidth="sm"
-        slotProps={{ paper: { sx: { background: 'linear-gradient(135deg, #0F1629, #0A0E1A)', border: '1px solid rgba(201,168,76,0.15)' } } }}>
+      <Dialog open={!!detail || detailLoading} onClose={() => { setDetail(null); load(); }} fullWidth maxWidth="lg"
+        slotProps={{ paper: { sx: { background: 'linear-gradient(135deg, #0F1629, #0A0E1A)', border: '1px solid rgba(201,168,76,0.15)', height: { md: '88vh' } } } }}>
         {detailLoading || !detail ? (
           <Box sx={{ p: 6, textAlign: 'center' }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>
         ) : (
@@ -344,8 +349,11 @@ export default function Cases() {
               </Box>
               <IconButton onClick={() => setDetail(null)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
             </DialogTitle>
-            <DialogContent>
-              <Stack spacing={2.5} sx={{ mt: 1 }}>
+            <DialogContent dividers sx={{ borderColor: 'rgba(201,168,76,0.08)', p: 0, overflow: 'hidden', height: { md: 'calc(88vh - 80px)' } }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' }, height: '100%' }}>
+              {/* ЛЕВАЯ колонка — детали/задачи/файлы/таймлайн (скроллится) */}
+              <Box sx={{ overflowY: 'auto', p: 3, borderRight: { md: '1px solid rgba(201,168,76,0.08)' } }}>
+              <Stack spacing={2.5}>
                 {/* Объект */}
                 <Box>
                   <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em' }}>Объект</Typography>
@@ -385,7 +393,7 @@ export default function Cases() {
                         )}
                         {/* Финансы сделки — для юр-задач у исполнителя (с этапа «Сделка») */}
                         {t.assignee_id && t.track === 'legal' && (
-                          <CaseFinance caseId={detail.id} task={t} onSaved={() => openDetail(detail.id)} />
+                          <CaseFinance caseId={detail.id} task={t} onSaved={() => { openDetail(detail.id); bumpTimeline(); }} />
                         )}
                       </Box>
                     ))}
@@ -425,12 +433,22 @@ export default function Cases() {
 
                 <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)' }} />
 
-                {/* Чат заявки */}
+                {/* Таймлайн событий */}
                 <Box>
-                  <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em', display: 'block', mb: 1 }}>Обсуждение</Typography>
-                  <CaseChat caseId={detail.id} myId={getCurrentUser()?.id ?? null} />
+                  <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em', display: 'block', mb: 1 }}>История</Typography>
+                  <CaseTimeline caseId={detail.id} refreshKey={timelineKey} />
                 </Box>
               </Stack>
+              </Box>
+
+              {/* ПРАВАЯ колонка — чат во всю высоту */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', p: 2, minHeight: 0 }}>
+                <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em', display: 'block', mb: 1 }}>Обсуждение</Typography>
+                <Box sx={{ flex: 1, minHeight: 0 }}>
+                  <CaseChat caseId={detail.id} myId={getCurrentUser()?.id ?? null} fillHeight />
+                </Box>
+              </Box>
+              </Box>
             </DialogContent>
           </>
         )}

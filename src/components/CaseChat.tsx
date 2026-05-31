@@ -31,7 +31,7 @@ async function uploadFile(file: File): Promise<{ url: string; name: string }> {
 
 /** Чат заявки: агент справа (золото), бэк-офис слева (цвет по роли).
  *  Файл прикрепляется к сообщению и показывается вместе с текстом. */
-export default function CaseChat({ caseId, myId }: { caseId: number; myId: number | null }) {
+export default function CaseChat({ caseId, myId, fillHeight }: { caseId: number; myId: number | null; fillHeight?: boolean }) {
   const [messages, setMessages] = useState<CaseMessage[]>([]);
   const [text, setText] = useState('');
   const [pending, setPending] = useState<{ url: string; name: string } | null>(null);
@@ -83,8 +83,8 @@ export default function CaseChat({ caseId, myId }: { caseId: number; myId: numbe
   };
 
   return (
-    <Box>
-      <Box sx={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1, p: 1, borderRadius: 2, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)' }}>
+    <Box sx={fillHeight ? { display: 'flex', flexDirection: 'column', height: '100%' } : undefined}>
+      <Box sx={{ ...(fillHeight ? { flex: 1, minHeight: 0 } : { maxHeight: 280 }), overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1, p: 1, borderRadius: 2, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)' }}>
         {loading ? (
           <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} sx={{ color: '#C9A84C' }} /></Box>
         ) : messages.length === 0 ? (
