@@ -18,6 +18,17 @@ export interface CaseTask {
   updated_at: string;
 }
 
+export interface CaseAttachment {
+  id: number;
+  case_id: number;
+  uploader_id: number | null;
+  uploader_name: string | null;
+  name: string;
+  url: string;
+  size: number;
+  created_at: string;
+}
+
 export interface CaseItem {
   id: number;
   agent_id: number;
@@ -30,6 +41,7 @@ export interface CaseItem {
   created_at: string;
   updated_at: string;
   tasks: CaseTask[];
+  attachments: CaseAttachment[];
 }
 
 export interface QueueTask {
@@ -72,4 +84,8 @@ export const casesAdminApi = {
   take: (taskId: number) => api.post<CaseItem>(`/api/cases/tasks/${taskId}/take`, {}),
   updateTask: (taskId: number, body: { status?: string; assigneeId?: number | null }) =>
     api.patch<CaseItem>(`/api/cases/tasks/${taskId}`, body),
+  addAttachment: (caseId: number, body: { name: string; url: string; size?: number }) =>
+    api.post<CaseItem>(`/api/cases/${caseId}/attachments`, body),
+  deleteAttachment: (caseId: number, attId: number) =>
+    api.del<CaseItem>(`/api/cases/${caseId}/attachments/${attId}`),
 };

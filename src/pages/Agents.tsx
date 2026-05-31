@@ -78,6 +78,9 @@ export default function Agents() {
   // По умолчанию показываем только обычных агентов — сотрудники не «загрязняют» базу.
   // Чтобы увидеть сотрудников, нужно явно переключить фильтр.
   const [filterRole, setFilterRole] = useState<'all' | 'staff' | Role>('agent');
+  // Пагинация списка (рендерим порциями — иначе 795 строк тормозят).
+  const PAGE_SIZE = 50;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Agent | null>(null);
   // Reviews
@@ -146,9 +149,8 @@ export default function Agents() {
     const matchStatus = filterStatus === 'all' || a.status === filterStatus;
     const matchLevel = filterLevel === 0 || a.level === filterLevel;
     const aRole = ((a as AgentWithRole).role || 'agent') as Role;
-    // Сначала отсекаем по верхней вкладке.
-    const matchView = view === 'agents' ? aRole === 'agent'
-                                        : (aRole === 'super_admin' || aRole === 'admin' || aRole === 'manager');
+    // Сначала отсекаем по верхней вкладке. «Сотрудники» = все не-агенты.
+    const matchView = view === 'agents' ? aRole === 'agent' : aRole !== 'agent';
     // Затем (только для вкладки «Сотрудники») фильтр по конкретной роли.
     const matchRole = view === 'agents'
       ? true
@@ -156,14 +158,14 @@ export default function Agents() {
     return matchQ && matchStatus && matchLevel && matchView && matchRole;
   }), [agents, deferredSearch, filterStatus, filterLevel, filterRole, view]);
 
+  // Сброс пагинации при любой смене фильтра/поиска/вкладки.
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [deferredSearch, filterStatus, filterLevel, filterRole, view]);
+
   const agentCount = useMemo(() =>
     agents.filter(a => ((a as AgentWithRole).role || 'agent') === 'agent').length,
   [agents]);
   const staffCount = useMemo(() =>
-    agents.filter(a => {
-      const r = ((a as AgentWithRole).role || 'agent') as Role;
-      return r === 'super_admin' || r === 'admin' || r === 'manager';
-    }).length,
+    agents.filter(a => (((a as AgentWithRole).role || 'agent') as Role) !== 'agent').length,
   [agents]);
 
   const openCreate = () => {
