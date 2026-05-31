@@ -6,7 +6,7 @@ import { STATUS_RU, type TaskTrack } from '../api/cases';
 // Линейные «дорожки» этапов (как колонки Trello). Терминальные «отказные»
 // статусы вынесены отдельной кнопкой, чтобы не ломать линейность.
 const FLOW: Record<TaskTrack, string[]> = {
-  legal: ['new', 'in_progress', 'done'],
+  legal: ['check', 'contract', 'deposit', 'dkp', 'deal', 'act', 'done'],
   mortgage: ['consultation', 'approval', 'approved', 'issued'],
 };
 const CANCEL_STATUS: Record<TaskTrack, string> = {

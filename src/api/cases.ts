@@ -4,7 +4,7 @@
 import { api } from './apiClient';
 
 export type TaskTrack = 'legal' | 'mortgage';
-export type TaskType = 'doc_check' | 'contract' | 'deposit' | 'mortgage';
+export type TaskType = 'doc_check' | 'contract' | 'deposit' | 'dkp' | 'mortgage';
 
 export interface CaseTask {
   id: number;
@@ -61,18 +61,23 @@ export const TYPE_LABEL: Record<TaskType, string> = {
   doc_check: 'Проверка документов',
   contract: 'Договор',
   deposit: 'Задаток / аванс',
+  dkp: 'ДКП',
   mortgage: 'Ипотека',
 };
 
 export const STATUS_RU: Record<string, string> = {
-  new: 'Новая', in_progress: 'В работе', done: 'Готово', cancelled: 'Отменена',
+  // legal — полная воронка
+  check: 'Проверка документов', contract: 'Договор', deposit: 'Задаток / аванс',
+  dkp: 'ДКП', deal: 'Сделка', act: 'Акт', done: 'Завершено',
+  new: 'Новая', in_progress: 'В работе', cancelled: 'Отменена',
+  // mortgage
   consultation: 'Консультация', approval: 'Заявка на одобрение',
   approved: 'Одобрено', rejected: 'Отказ', issued: 'Ипотека выдана',
 };
 
 // Статусы по дорожке — для кнопок смены статуса исполнителем.
 export const TRACK_STATUSES: Record<TaskTrack, string[]> = {
-  legal: ['new', 'in_progress', 'done', 'cancelled'],
+  legal: ['check', 'contract', 'deposit', 'dkp', 'deal', 'act', 'done', 'cancelled'],
   mortgage: ['consultation', 'approval', 'approved', 'rejected', 'issued', 'cancelled'],
 };
 
@@ -90,8 +95,8 @@ export const casesAdminApi = {
     api.del<CaseItem>(`/api/cases/${caseId}/attachments/${attId}`),
   messages: (caseId: number, after = 0) =>
     api.get<CaseMessage[]>(`/api/cases/${caseId}/messages?after=${after}`),
-  sendMessage: (caseId: number, body: string) =>
-    api.post<CaseMessage>(`/api/cases/${caseId}/messages`, { body }),
+  sendMessage: (caseId: number, payload: { body?: string; attachmentUrl?: string; attachmentName?: string }) =>
+    api.post<CaseMessage>(`/api/cases/${caseId}/messages`, payload),
 };
 
 export interface CaseMessage {
@@ -99,6 +104,9 @@ export interface CaseMessage {
   case_id: number;
   sender_id: number | null;
   sender_name: string | null;
+  sender_role: string | null;
   body: string;
+  attachment_url: string | null;
+  attachment_name: string | null;
   created_at: string;
 }
