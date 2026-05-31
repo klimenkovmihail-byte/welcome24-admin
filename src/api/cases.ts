@@ -64,6 +64,7 @@ export interface QueueTask {
   vkd?: number | null;
   commission_pct?: number | null;
   deal_id?: number | null;
+  unread?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -113,6 +114,8 @@ export const casesAdminApi = {
     api.get<CaseMessage[]>(`/api/cases/${caseId}/messages?after=${after}`),
   sendMessage: (caseId: number, payload: { body?: string; attachmentUrl?: string; attachmentName?: string }) =>
     api.post<CaseMessage>(`/api/cases/${caseId}/messages`, payload),
+  markRead: (caseId: number, lastId?: number) =>
+    api.post<{ ok: boolean }>(`/api/cases/${caseId}/read`, lastId ? { lastId } : {}),
 };
 
 export interface CaseMessage {

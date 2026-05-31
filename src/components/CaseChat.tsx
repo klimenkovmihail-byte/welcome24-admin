@@ -48,6 +48,7 @@ export default function CaseChat({ caseId, myId }: { caseId: number; myId: numbe
         lastIdRef.current = fresh[fresh.length - 1].id;
         setMessages(prev => [...prev, ...fresh]);
         setTimeout(scrollDown, 50);
+        casesAdminApi.markRead(caseId, lastIdRef.current).catch(() => {});
       }
     } catch { /* tolerate */ }
   }, [caseId]);

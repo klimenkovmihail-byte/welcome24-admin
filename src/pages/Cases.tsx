@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField,
-  Dialog, DialogTitle, DialogContent, IconButton, Link,
+  Dialog, DialogTitle, DialogContent, IconButton, Link, Badge,
 } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
@@ -180,7 +180,11 @@ export default function Cases() {
               <Chip label={STATUS_RU[t.status] || t.status} size="small"
                 sx={{ background: `${statusColor(t.status)}22`, color: statusColor(t.status), fontWeight: 700 }} />
             )}
-            <Button size="small" onClick={() => openDetail(t.case_id)} sx={{ color: '#94A3B8', textTransform: 'none' }}>Открыть</Button>
+            <Badge badgeContent={t.unread || 0} color="error" sx={{ '& .MuiBadge-badge': { fontWeight: 800 } }}>
+              <Button size="small" onClick={() => openDetail(t.case_id)} sx={{ color: t.unread ? '#C9A84C' : '#94A3B8', textTransform: 'none', fontWeight: t.unread ? 700 : 400 }}>
+                {t.unread ? 'Новое сообщение' : 'Открыть'}
+              </Button>
+            </Badge>
           </Box>
         </Box>
 
@@ -323,7 +327,7 @@ export default function Cases() {
       )}
 
       {/* Детальный диалог заявки */}
-      <Dialog open={!!detail || detailLoading} onClose={() => setDetail(null)} fullWidth maxWidth="sm"
+      <Dialog open={!!detail || detailLoading} onClose={() => { setDetail(null); load(); }} fullWidth maxWidth="sm"
         slotProps={{ paper: { sx: { background: 'linear-gradient(135deg, #0F1629, #0A0E1A)', border: '1px solid rgba(201,168,76,0.15)' } } }}>
         {detailLoading || !detail ? (
           <Box sx={{ p: 6, textAlign: 'center' }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>
