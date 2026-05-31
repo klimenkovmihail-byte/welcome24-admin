@@ -479,6 +479,9 @@ export default function Deals() {
     return !q || d.agentName.toLowerCase().includes(q) || d.clientName.toLowerCase().includes(q) || d.address.toLowerCase().includes(q);
   }), [deals, search]);
 
+  // Сброс пагинации при смене поиска/данных.
+  useEffect(() => { setPage(1); }, [search, deals]);
+
   const openCreate = () => { setEditTarget(null); setDialogOpen(true); };
   const openEdit = useCallback((deal: Deal) => { setEditTarget(deal); setDialogOpen(true); }, []);
 
@@ -585,6 +588,14 @@ export default function Deals() {
         {filtered.length === 0 && (
           <Box sx={{ py: 6, textAlign: 'center' }}>
             <Typography sx={{ color: '#64748B' }}>Сделки не найдены</Typography>
+          </Box>
+        )}
+        {filtered.length > page * PER_PAGE && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+            <Button variant="outlined" onClick={() => setPage(p => p + 1)}
+              sx={{ borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C' }}>
+              Показать ещё ({filtered.length - page * PER_PAGE})
+            </Button>
           </Box>
         )}
       </TableContainer>
