@@ -41,7 +41,7 @@ type FormState = {
   // или 'staff' (сотрудник бэк-офиса — НЕ показывается в дефолтном фильтре).
   kind: 'agent' | 'staff';
   // Конкретная роль сотрудника при kind='staff' (для kind='agent' игнорируется).
-  staffRole: 'manager' | 'admin' | 'super_admin';
+  staffRole: 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker';
   name: string; email: string; phone: string; city: string;
   password: string;
   level: AgentLevel; commission: 80 | 90 | 95;
@@ -213,9 +213,11 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
                   <Select
                     value={form.staffRole}
                     label="Роль сотрудника"
-                    onChange={e => setForm(f => ({ ...f, staffRole: e.target.value as 'manager' | 'admin' | 'super_admin' }))}
+                    onChange={e => setForm(f => ({ ...f, staffRole: e.target.value as 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker' }))}
                   >
                     <MenuItem value="manager"     sx={{ color: ROLE_COLOR.manager,     fontWeight: 600 }}>{ROLE_LABEL.manager} — только Академия и Новости</MenuItem>
+                    <MenuItem value="lawyer"      sx={{ color: ROLE_COLOR.lawyer,      fontWeight: 600 }}>{ROLE_LABEL.lawyer} — Заявки (юридические)</MenuItem>
+                    <MenuItem value="broker"      sx={{ color: ROLE_COLOR.broker,      fontWeight: 600 }}>{ROLE_LABEL.broker} — Заявки (ипотека)</MenuItem>
                     <MenuItem value="admin"       sx={{ color: ROLE_COLOR.admin,       fontWeight: 600 }}>{ROLE_LABEL.admin} — Агенты/Сделки/Акции/Поддержка/Новости</MenuItem>
                     <MenuItem value="super_admin" sx={{ color: ROLE_COLOR.super_admin, fontWeight: 600 }}>{ROLE_LABEL.super_admin} — полный доступ</MenuItem>
                   </Select>

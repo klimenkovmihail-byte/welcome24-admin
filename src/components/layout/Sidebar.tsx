@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
+import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded';
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded';
@@ -55,6 +56,7 @@ export default function Sidebar() {
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
     { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
+    { path: '/cases', label: 'Заявки', icon: <GavelRoundedIcon /> },
     { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
     { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },

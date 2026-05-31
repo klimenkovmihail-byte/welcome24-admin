@@ -2,7 +2,7 @@
 // Бэк уже сам блокирует мутации (requireSuperAdmin / requireStaff / requireAdmin),
 // фронт делает то же самое для UX: прячет пункты сайдбара и блокирует роуты.
 
-export type Role = 'super_admin' | 'admin' | 'manager' | 'agent';
+export type Role = 'super_admin' | 'admin' | 'manager' | 'agent' | 'lawyer' | 'broker';
 
 // Какие разделы видны каждой роли.
 // Ключ — путь в App router; значение — список ролей с доступом.
@@ -10,6 +10,8 @@ export const ROLE_ACCESS: Record<string, Role[]> = {
   '/dashboard':  ['super_admin', 'admin'],
   '/agents':     ['super_admin', 'admin'],
   '/deals':      ['super_admin', 'admin'],
+  // Заявки специалистам: видят админы + сами специалисты (юрист/брокер).
+  '/cases':      ['super_admin', 'admin', 'lawyer', 'broker'],
   '/shares':     ['super_admin', 'admin'],
   '/academy':    ['super_admin', 'admin', 'manager'],
   '/news':       ['super_admin', 'admin', 'manager'],
@@ -33,6 +35,7 @@ export const SECTION_LIST: { path: string; label: string }[] = [
   { path: '/dashboard',           label: 'Обзор' },
   { path: '/agents',              label: 'Агенты' },
   { path: '/deals',               label: 'Сделки' },
+  { path: '/cases',               label: 'Заявки специалистам' },
   { path: '/shares',              label: 'Акции' },
   { path: '/academy',             label: 'Академия' },
   { path: '/news',                label: 'Новости' },
@@ -59,7 +62,7 @@ export function canAccess(role: Role | string | undefined, path: string, section
 
 // Первая доступная страница для редиректа после логина.
 export function firstAccessiblePath(role: Role | string | undefined, sectionAccess?: string[] | null): string {
-  const order = ['/dashboard', '/agents', '/academy', '/news', '/support', '/subscriptions', '/subscription-claims', '/reports', '/analytics', '/settings'];
+  const order = ['/dashboard', '/cases', '/agents', '/academy', '/news', '/support', '/subscriptions', '/subscription-claims', '/reports', '/analytics', '/settings'];
   for (const p of order) if (canAccess(role, p, sectionAccess)) return p;
   return '/login';
 }
@@ -69,6 +72,8 @@ export const ROLE_LABEL: Record<Role, string> = {
   admin:       'Админ',
   manager:     'Менеджер',
   agent:       'Агент',
+  lawyer:      'Юрист',
+  broker:      'Брокер',
 };
 
 export const ROLE_COLOR: Record<Role, string> = {
@@ -76,4 +81,6 @@ export const ROLE_COLOR: Record<Role, string> = {
   admin:       '#C9A84C',
   manager:     '#4361EE',
   agent:       '#94A3B8',
+  lawyer:      '#22C55E',
+  broker:      '#8B5CF6',
 };
