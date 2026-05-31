@@ -19,6 +19,7 @@ import type { Deal, Agent } from '../types';
 import { dealsApi } from '../api/deals';
 import { agentsApi } from '../api/agents';
 import { api, API_BASE_URL, getToken } from '../api/apiClient';
+import { getCurrentUser } from '../auth/auth';
 
 const typeLabels: Record<string, string> = {
   primary: 'Первичка', secondary: 'Вторичка', commercial: 'Коммерция', suburban: 'Загородная', rent: 'Аренда',
@@ -458,6 +459,8 @@ export default function Deals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
+  // Удалять сделки может только super_admin (необратимо, влияет на комиссию/MLM).
+  const canDelete = getCurrentUser()?.role === 'super_admin';
   const PER_PAGE = 50;
   const [page, setPage] = useState(1);
 
@@ -574,11 +577,13 @@ export default function Deals() {
                         <EditRoundedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Удалить">
-                      <IconButton size="small" onClick={() => handleDelete(deal)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
-                        <DeleteRoundedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    {canDelete && (
+                      <Tooltip title="Удалить сделку (super_admin)">
+                        <IconButton size="small" onClick={() => handleDelete(deal)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                          <DeleteRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </Box>
                 </TableCell>
               </TableRow>
