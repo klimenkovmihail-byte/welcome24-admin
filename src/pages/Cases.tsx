@@ -71,6 +71,7 @@ export default function Cases() {
   const user = getCurrentUser();
   const role = user?.role;
   const isAdmin = role === 'super_admin' || role === 'admin';
+  const isSuperAdmin = role === 'super_admin';
   const [adminTrack, setAdminTrack] = useState<TaskTrack>('legal');
 
   const [tab, setTab] = useState<'queue' | 'assigned' | 'analytics'>('queue');
