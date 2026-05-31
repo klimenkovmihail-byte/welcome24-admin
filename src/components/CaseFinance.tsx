@@ -17,8 +17,13 @@ export default function CaseFinance({
 
   useEffect(() => {
     casesAdminApi.commissionSuggestion(caseId, date)
-      .then(s => { setSugg(s); if (!task.commission_pct) setPct(String(s.commission)); })
-      .catch(() => { /* tolerate */ });
+      .then(s => {
+        if (s && typeof s.commission === 'number') {
+          setSugg(s);
+          if (!task.commission_pct) setPct(String(s.commission));
+        }
+      })
+      .catch(() => { /* tolerate — без подсказки */ });
   }, [caseId, date, task.commission_pct]);
 
   if (task.deal_id) {
