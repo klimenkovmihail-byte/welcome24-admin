@@ -31,6 +31,21 @@ function statusColor(status: string): string {
   }
 }
 
+// Дата ДД.ММ.ГГ из строки SQLite (UTC).
+function fmtDate(s?: string): string {
+  if (!s) return '—';
+  const d = new Date(s.replace(' ', 'T') + 'Z');
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+// «Зависла»: в работе и без движения > 7 дней.
+function isStale(t: { status: string; updated_at?: string; assignee_id?: number | null }): boolean {
+  const closed = ['done', 'cancelled', 'issued', 'rejected'].includes(t.status);
+  if (closed || !t.assignee_id || !t.updated_at) return false;
+  const last = new Date(t.updated_at.replace(' ', 'T') + 'Z').getTime();
+  return Date.now() - last > 7 * 86400000;
+}
+const CLOSED_STATUSES = ['done', 'cancelled', 'issued', 'rejected'];
+
 const trackIcon = (track: string) =>
   track === 'mortgage'
     ? <AccountBalanceRoundedIcon sx={{ fontSize: 18, color: '#8B5CF6' }} />
@@ -72,6 +87,9 @@ export default function Cases() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [stateFilter, setStateFilter] = useState<'active' | 'done' | 'stale' | 'all'>('active');
+  const [specialistFilter, setSpecialistFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'new' | 'stale'>('new');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -125,8 +143,12 @@ export default function Cases() {
     casesAdminApi.deleteAttachment(detail.id, attId).then(setDetail).catch(() => { /* tolerate */ });
   };
 
-  const renderTask = (t: QueueTask, mode: 'queue' | 'assigned') => (
-    <Card key={t.task_id} sx={{ mb: 1.5, cursor: 'pointer', '&:hover': { borderColor: 'rgba(201,168,76,0.3)' } }}
+  const renderTask = (t: QueueTask, mode: 'queue' | 'assigned') => {
+    const stale = isStale(t);
+    return (
+    <Card key={t.task_id} sx={{ mb: 1.5, cursor: 'pointer',
+      border: stale ? '1px solid rgba(239,68,68,0.45)' : undefined,
+      '&:hover': { borderColor: stale ? '#EF4444' : 'rgba(201,168,76,0.3)' } }}
       onClick={() => openDetail(t.case_id)}>
       <CardContent sx={{ p: 2.5 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
@@ -135,9 +157,17 @@ export default function Cases() {
             <Box>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{TYPE_LABEL[t.type] || t.type}</Typography>
               <Typography variant="body2" sx={{ color: '#F1F5F9' }}>{t.client_name}</Typography>
-              <Typography variant="caption" sx={{ color: '#64748B' }}>
+              <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>
                 {[t.object_address, t.city].filter(Boolean).join(' · ') || 'объект не указан'}
               </Typography>
+              <Typography variant="caption" sx={{ color: '#475569', display: 'block', mt: 0.3 }}>
+                {t.agent_name ? `Агент: ${t.agent_name} · ` : ''}создана {fmtDate(t.created_at)}
+                {t.updated_at && t.updated_at !== t.created_at ? ` · движение ${fmtDate(t.updated_at)}` : ''}
+                {stale && <Box component="span" sx={{ color: '#EF4444', fontWeight: 700 }}> · зависла</Box>}
+              </Typography>
+              {mode === 'assigned' && isAdmin && t.assignee_name && (
+                <Typography variant="caption" sx={{ color: '#8B5CF6', display: 'block' }}>Исполнитель: {t.assignee_name}</Typography>
+              )}
             </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
@@ -162,17 +192,36 @@ export default function Cases() {
         )}
       </CardContent>
     </Card>
-  );
+  ); };
 
   const rawList = tab === 'queue' ? queue : assigned;
   const q = search.trim().toLowerCase();
+  // Список специалистов для фильтра (только в «Мои задачи» у админа).
+  const specialists = isAdmin && tab === 'assigned'
+    ? [...new Map(assigned.filter(t => t.assignee_id).map(t => [t.assignee_id, t.assignee_name || '—'])).entries()]
+    : [];
   const list = rawList.filter(t => {
     const matchQ = !q || t.client_name.toLowerCase().includes(q)
       || (t.object_address || '').toLowerCase().includes(q)
-      || (t.city || '').toLowerCase().includes(q);
+      || (t.city || '').toLowerCase().includes(q)
+      || (t.agent_name || '').toLowerCase().includes(q);
     const matchStatus = statusFilter === 'all' || t.status === statusFilter;
     const matchType = typeFilter === 'all' || t.type === typeFilter;
-    return matchQ && matchStatus && matchType;
+    const closed = CLOSED_STATUSES.includes(t.status);
+    const matchState = tab !== 'assigned' || stateFilter === 'all'
+      || (stateFilter === 'active' && !closed)
+      || (stateFilter === 'done' && closed)
+      || (stateFilter === 'stale' && isStale(t));
+    const matchSpec = specialistFilter === 'all' || String(t.assignee_id) === specialistFilter;
+    return matchQ && matchStatus && matchType && matchState && matchSpec;
+  }).sort((a, b) => {
+    if (sortBy === 'stale') {
+      // Сначала зависшие, потом по давности движения (старые сверху).
+      const sa = isStale(a) ? 1 : 0, sb = isStale(b) ? 1 : 0;
+      if (sa !== sb) return sb - sa;
+      return (a.updated_at || '').localeCompare(b.updated_at || '');
+    }
+    return (b.created_at || '').localeCompare(a.created_at || ''); // новые сверху
   });
   // Статусы для фильтра — из текущей дорожки (для админа — выбранная, иначе обе).
   const filterTracks: TaskTrack[] = isAdmin ? [adminTrack] : ['legal', 'mortgage'];
@@ -229,9 +278,31 @@ export default function Cases() {
             {statusOptions.map(s => <MenuItem key={s} value={s}>{STATUS_RU[s] || s}</MenuItem>)}
           </Select>
         </FormControl>
-        {(q || statusFilter !== 'all' || typeFilter !== 'all') && (
-          <Typography variant="caption" sx={{ color: '#64748B' }}>Найдено: {list.length}</Typography>
+        {tab === 'assigned' && (
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <Select value={stateFilter} onChange={e => setStateFilter(e.target.value as typeof stateFilter)}>
+              <MenuItem value="active">Активные</MenuItem>
+              <MenuItem value="done">Завершённые</MenuItem>
+              <MenuItem value="stale">Зависшие &gt;7 дн</MenuItem>
+              <MenuItem value="all">Все</MenuItem>
+            </Select>
+          </FormControl>
         )}
+        {specialists.length > 0 && (
+          <FormControl size="small" sx={{ minWidth: 170 }}>
+            <Select value={specialistFilter} onChange={e => setSpecialistFilter(e.target.value)}>
+              <MenuItem value="all">Все специалисты</MenuItem>
+              {specialists.map(([id, name]) => <MenuItem key={id} value={String(id)}>{name}</MenuItem>)}
+            </Select>
+          </FormControl>
+        )}
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <Select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}>
+            <MenuItem value="new">Сначала новые</MenuItem>
+            <MenuItem value="stale">Сначала зависшие</MenuItem>
+          </Select>
+        </FormControl>
+        <Typography variant="caption" sx={{ color: '#64748B' }}>Найдено: {list.length}</Typography>
       </Box>
       )}
 

@@ -58,7 +58,14 @@ export interface QueueTask {
   object_address: string;
   city: string;
   agent_id?: number;
+  agent_name?: string | null;
+  assignee_id?: number | null;
+  assignee_name?: string | null;
+  vkd?: number | null;
+  commission_pct?: number | null;
+  deal_id?: number | null;
   created_at?: string;
+  updated_at?: string;
 }
 
 export const TYPE_LABEL: Record<TaskType, string> = {
