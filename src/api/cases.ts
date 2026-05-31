@@ -88,4 +88,17 @@ export const casesAdminApi = {
     api.post<CaseItem>(`/api/cases/${caseId}/attachments`, body),
   deleteAttachment: (caseId: number, attId: number) =>
     api.del<CaseItem>(`/api/cases/${caseId}/attachments/${attId}`),
+  messages: (caseId: number, after = 0) =>
+    api.get<CaseMessage[]>(`/api/cases/${caseId}/messages?after=${after}`),
+  sendMessage: (caseId: number, body: string) =>
+    api.post<CaseMessage>(`/api/cases/${caseId}/messages`, { body }),
 };
+
+export interface CaseMessage {
+  id: number;
+  case_id: number;
+  sender_id: number | null;
+  sender_name: string | null;
+  body: string;
+  created_at: string;
+}

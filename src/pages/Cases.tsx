@@ -16,6 +16,7 @@ import {
 } from '../api/cases';
 import { getCurrentUser } from '../auth/auth';
 import { API_BASE_URL, getToken } from '../api/apiClient';
+import CaseChat from '../components/CaseChat';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -285,6 +286,14 @@ export default function Cases() {
                       ))}
                     </Stack>
                   )}
+                </Box>
+
+                <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)' }} />
+
+                {/* Чат заявки */}
+                <Box>
+                  <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em', display: 'block', mb: 1 }}>Обсуждение</Typography>
+                  <CaseChat caseId={detail.id} myId={getCurrentUser()?.id ?? null} />
                 </Box>
               </Stack>
             </DialogContent>
