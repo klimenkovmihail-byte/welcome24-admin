@@ -543,7 +543,7 @@ export default function Deals() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map((deal) => (
+            {filtered.slice(0, page * PER_PAGE).map((deal) => (
               <TableRow key={deal.id} hover>
                 <TableCell>
                   <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
