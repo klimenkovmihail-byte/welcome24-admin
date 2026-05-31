@@ -399,7 +399,7 @@ export default function Agents() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.map((agent) => {
+            {filtered.slice(0, visibleCount).map((agent) => {
               const lc = levelColor(agent.level);
               const sc = statusConfig[agent.status];
               return (
