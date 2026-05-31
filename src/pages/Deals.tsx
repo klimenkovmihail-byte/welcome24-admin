@@ -458,6 +458,8 @@ export default function Deals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
+  const PER_PAGE = 50;
+  const [page, setPage] = useState(1);
 
   const reloadDeals = useCallback(() => {
     setLoading(true);

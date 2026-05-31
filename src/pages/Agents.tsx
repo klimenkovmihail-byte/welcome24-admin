@@ -17,6 +17,7 @@ import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import BlockRoundedIcon from '@mui/icons-material/BlockRounded';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import PauseCircleRoundedIcon from '@mui/icons-material/PauseCircleRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
@@ -187,6 +188,16 @@ export default function Agents() {
     }
   };
 
+  const handleDelete = async (agent: Agent) => {
+    if (!window.confirm(`Удалить учётку «${agent.name}» навсегда? Действие необратимо.\n(Удаление запрещено, если у агента есть сделки.)`)) return;
+    try {
+      await agentsApi.remove(agent.id);
+      setAgents(prev => enrichAgents(prev.filter(a => a.id !== agent.id)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Не удалось удалить');
+    }
+  };
+
   // Смена роли (только super_admin видит этот UI).
   const currentUser = getCurrentUser();
   const currentRole = (currentUser?.role || 'agent') as Role;
@@ -275,7 +286,7 @@ export default function Agents() {
       {/* Top tabs: Агенты / Сотрудники */}
       <Box sx={{ mb: 3, display: 'flex', gap: 1, p: 0.5, borderRadius: 3, background: 'rgba(15,22,41,0.6)', border: '1px solid rgba(201,168,76,0.1)', maxWidth: 520 }}>
         <Box
-          onClick={() => setView('agents')}
+          onClick={() => { setView('agents'); setFilterRole('agent'); }}
           sx={{
             flex: 1, px: 2.5, py: 1.2, borderRadius: 2.5, cursor: 'pointer',
             background: view === 'agents' ? 'linear-gradient(135deg, rgba(201,168,76,0.18), rgba(201,168,76,0.08))' : 'transparent',
@@ -292,7 +303,7 @@ export default function Agents() {
           </Box>
         </Box>
         <Box
-          onClick={() => setView('staff')}
+          onClick={() => { setView('staff'); setFilterRole('all'); }}
           sx={{
             flex: 1, px: 2.5, py: 1.2, borderRadius: 2.5, cursor: 'pointer',
             background: view === 'staff' ? `linear-gradient(135deg, ${ROLE_COLOR.admin}30, ${ROLE_COLOR.admin}10)` : 'transparent',
@@ -535,6 +546,13 @@ export default function Agents() {
                         <Tooltip title="Заблокировать">
                           <IconButton size="small" onClick={() => toggleStatus(agent.id, 'blocked')} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                             <BlockRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {canManageRoles && (
+                        <Tooltip title="Удалить учётку навсегда">
+                          <IconButton size="small" onClick={() => handleDelete(agent)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                            <DeleteOutlineRoundedIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
