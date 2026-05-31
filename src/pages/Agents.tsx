@@ -550,6 +550,14 @@ export default function Agents() {
             <Typography sx={{ color: '#64748B' }}>Агенты не найдены</Typography>
           </Box>
         )}
+        {filtered.length > visibleCount && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+            <Button variant="outlined" onClick={() => setVisibleCount(v => v + PAGE_SIZE)}
+              sx={{ borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C' }}>
+              Показать ещё ({filtered.length - visibleCount})
+            </Button>
+          </Box>
+        )}
       </TableContainer>
 
       {/* Create / Edit Dialog — вынесен в AgentFormDialog (свой state → таблица не ре-рендерится на каждом keystroke) */}
