@@ -22,6 +22,8 @@ import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import Sidebar from './Sidebar';
+import PushBanner from '../PushBanner';
+import { syncPushSubscription } from '../../push';
 import { logout, PORTAL_URL } from '../../auth/auth';
 import { agents, deals } from '../../data/mockData';
 
@@ -102,6 +104,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notifs, setNotifs] = useState<AdminNotification[]>([]);
+
+  // Привязываем существующую push-подписку к текущему пользователю при входе.
+  useEffect(() => { syncPushSubscription(); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,6 +326,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Content */}
         <Box sx={{ flex: 1, p: 4, overflow: 'auto' }}>
+          <PushBanner />
           {children}
         </Box>
       </Box>
