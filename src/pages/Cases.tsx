@@ -20,6 +20,7 @@ import { API_BASE_URL, getToken } from '../api/apiClient';
 import CaseChat from '../components/CaseChat';
 import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
+import CasesAnalytics from '../components/CasesAnalytics';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -56,7 +57,7 @@ export default function Cases() {
   const isAdmin = role === 'super_admin' || role === 'admin';
   const [adminTrack, setAdminTrack] = useState<TaskTrack>('legal');
 
-  const [tab, setTab] = useState<'queue' | 'assigned'>('queue');
+  const [tab, setTab] = useState<'queue' | 'assigned' | 'analytics'>('queue');
   const [queue, setQueue] = useState<QueueTask[]>([]);
   const [assigned, setAssigned] = useState<QueueTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,6 +196,7 @@ export default function Cases() {
           sx={{ '& .MuiTab-root': { color: '#64748B', fontWeight: 700 }, '& .Mui-selected': { color: '#C9A84C !important' }, '& .MuiTabs-indicator': { background: '#C9A84C' } }}>
           <Tab value="queue" label={`Очередь (${queue.length})`} />
           <Tab value="assigned" label={`Мои задачи (${assigned.length})`} />
+          <Tab value="analytics" label="Аналитика" />
         </Tabs>
         {isAdmin && tab === 'queue' && (
           <FormControl size="small" sx={{ minWidth: 160 }}>
@@ -206,7 +208,8 @@ export default function Cases() {
         )}
       </Box>
 
-      {/* Фильтры и поиск */}
+      {/* Фильтры и поиск (скрыты на вкладке аналитики) */}
+      {tab !== 'analytics' && (
       <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2, alignItems: 'center' }}>
         <TextField
           size="small" placeholder="Поиск: клиент, объект, город…"
@@ -230,10 +233,13 @@ export default function Cases() {
           <Typography variant="caption" sx={{ color: '#64748B' }}>Найдено: {list.length}</Typography>
         )}
       </Box>
+      )}
 
       <Divider sx={{ mb: 2, borderColor: 'rgba(201,168,76,0.08)' }} />
 
-      {loading ? (
+      {tab === 'analytics' ? (
+        <CasesAnalytics />
+      ) : loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>
       ) : list.length === 0 ? (
         <Card><CardContent sx={{ py: 6, textAlign: 'center' }}>
