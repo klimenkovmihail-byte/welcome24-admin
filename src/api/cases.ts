@@ -105,7 +105,7 @@ export const casesAdminApi = {
     api.patch<CaseItem>(`/api/cases/tasks/${taskId}/finance`, body),
   commissionSuggestion: (caseId: number, date?: string) =>
     api.get<{ ytdVkdBefore: number; commission: number; level: number }>(`/api/cases/${caseId}/commission-suggestion${date ? `?date=${date}` : ''}`),
-  analytics: () => api.get<CaseAnalytics>('/api/cases/analytics'),
+  analytics: (period = 'all') => api.get<CaseAnalytics>(`/api/cases/analytics?period=${period}`),
   addAttachment: (caseId: number, body: { name: string; url: string; size?: number }) =>
     api.post<CaseItem>(`/api/cases/${caseId}/attachments`, body),
   deleteAttachment: (caseId: number, attId: number) =>
@@ -136,9 +136,13 @@ export interface CaseSpecialistRow {
 }
 export interface CaseAnalytics {
   scope: 'admin' | 'specialist';
+  period: string;
   totals: { total: number; active: number; closedThisMonth: number; provenDeals: number; provenVkd: number; provenIncome: number };
-  stages: Record<string, number>;
+  funnels: { legal: Record<string, number>; mortgage: Record<string, number> };
+  cancelled: { legal: number; mortgage: number };
+  hasLegal: boolean;
+  hasMortgage: boolean;
   bySpecialist?: CaseSpecialistRow[];
-  company?: { queue: number; stages: Record<string, number> };
+  queue?: number;
   stuck?: number;
 }
