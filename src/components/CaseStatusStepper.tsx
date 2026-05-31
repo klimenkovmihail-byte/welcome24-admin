@@ -31,10 +31,24 @@ export default function CaseStatusStepper({
         const active = !isCancelled && currentIdx === i;
         const color = done ? '#22C55E' : active ? '#C9A84C' : '#475569';
         const bg = done ? 'rgba(34,197,94,0.12)' : active ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.03)';
+        // «Завершено» (legal) проводит сделку в систему — требуем подтверждение.
+        const handleClick = () => {
+          if (s === 'done' && track === 'legal') {
+            const ok = window.confirm(
+              'Перевести в «Завершено»?\n\n' +
+              'Сделка будет проведена в систему: запись появится у агента в портале, ' +
+              'учтётся в его комиссии и MLM-доходе. Делайте это только после полного ' +
+              'расчёта клиента (продавца/покупателя) с компанией.\n\n' +
+              'Действие необратимо из заявки (отменить сделку можно только в разделе «Сделки»).'
+            );
+            if (!ok) return;
+          }
+          onChange(s);
+        };
         return (
           <Tooltip key={s} title={`Перевести: ${STATUS_RU[s] || s}`}>
             <Box
-              onClick={() => onChange(s)}
+              onClick={handleClick}
               sx={{
                 flex: '1 1 0', minWidth: 92, cursor: 'pointer',
                 px: 1, py: 0.8, borderRadius: 1.5,
