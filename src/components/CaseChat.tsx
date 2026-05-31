@@ -97,7 +97,7 @@ export default function CaseChat({ caseId, myId }: { caseId: number; myId: numbe
                 <Typography variant="caption" sx={{ color: st.name, fontWeight: 700, display: 'block' }}>
                   {m.sender_name || 'участник'}{m.sender_id === myId ? ' (вы)' : ''}
                 </Typography>
-                {m.body && <Typography variant="body2" sx={{ color: '#E2E8F0', whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
+                {m.body && m.body !== '[object Object]' && <Typography variant="body2" sx={{ color: '#E2E8F0', whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
                 {m.attachment_url && (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: m.body ? 0.5 : 0 }}>
                     <DescriptionRoundedIcon sx={{ fontSize: 16, color: st.name }} />

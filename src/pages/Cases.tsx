@@ -110,6 +110,8 @@ export default function Cases() {
       .then(setDetail)
       .catch(e => setError(e?.message || 'Не удалось открыть заявку'))
       .finally(() => setDetailLoading(false));
+    // Отмечаем заявку прочитанной (сбрасываем бейдж) при открытии.
+    casesAdminApi.markRead(caseId).then(load).catch(() => {});
   };
 
   const handleTake = (taskId: number) => {

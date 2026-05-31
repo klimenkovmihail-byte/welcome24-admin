@@ -324,10 +324,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Popover>
         </Box>
 
-        {/* Content */}
-        <Box sx={{ flex: 1, p: 4, overflow: 'auto' }}>
-          <PushBanner />
-          {children}
+        {/* Content — ограничиваем ширину, иначе на широких мониторах всё растягивается */}
+        <Box sx={{ flex: 1, p: { xs: 2, md: 4 }, overflow: 'auto' }}>
+          <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
+            <PushBanner />
+            {children}
+          </Box>
         </Box>
       </Box>
 
