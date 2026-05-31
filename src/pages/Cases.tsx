@@ -17,6 +17,7 @@ import {
 import { getCurrentUser } from '../auth/auth';
 import { API_BASE_URL, getToken } from '../api/apiClient';
 import CaseChat from '../components/CaseChat';
+import CaseStatusStepper from '../components/CaseStatusStepper';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -132,23 +133,25 @@ export default function Cases() {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
-            <Chip label={STATUS_RU[t.status] || t.status} size="small"
-              sx={{ background: `${statusColor(t.status)}22`, color: statusColor(t.status), fontWeight: 700 }} />
             {mode === 'queue' ? (
               <Button size="small" variant="contained" onClick={() => handleTake(t.task_id)}
                 sx={{ background: 'linear-gradient(135deg, #C9A84C, #E2C97E)', color: '#0A0E1A', fontWeight: 700 }}>
                 Взять в работу
               </Button>
             ) : (
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <Select value={t.status} onChange={e => handleStatus(t.task_id, e.target.value)}>
-                  {TRACK_STATUSES[t.track].map(s => <MenuItem key={s} value={s}>{STATUS_RU[s] || s}</MenuItem>)}
-                </Select>
-              </FormControl>
+              <Chip label={STATUS_RU[t.status] || t.status} size="small"
+                sx={{ background: `${statusColor(t.status)}22`, color: statusColor(t.status), fontWeight: 700 }} />
             )}
             <Button size="small" onClick={() => openDetail(t.case_id)} sx={{ color: '#94A3B8', textTransform: 'none' }}>Открыть</Button>
           </Box>
         </Box>
+
+        {/* Этапы (как Trello): клик двигает задачу вправо к завершению */}
+        {mode === 'assigned' && (
+          <Box sx={{ mt: 1.5 }} onClick={e => e.stopPropagation()}>
+            <CaseStatusStepper track={t.track} status={t.status} onChange={(s) => handleStatus(t.task_id, s)} />
+          </Box>
+        )}
       </CardContent>
     </Card>
   );
@@ -237,20 +240,19 @@ export default function Cases() {
                   <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em' }}>Задачи</Typography>
                   <Stack spacing={1} sx={{ mt: 1 }}>
                     {detail.tasks.map(t => (
-                      <Box key={t.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                        {trackIcon(t.track)}
-                        <Typography variant="body2" sx={{ color: '#F1F5F9', fontWeight: 600, flex: '1 1 auto' }}>{TYPE_LABEL[t.type] || t.type}</Typography>
-                        {t.assignee_id ? (
-                          <FormControl size="small" sx={{ minWidth: 170 }}>
-                            <Select value={t.status} onChange={e => handleStatus(t.id, e.target.value)}>
-                              {TRACK_STATUSES[t.track].map(s => <MenuItem key={s} value={s}>{STATUS_RU[s] || s}</MenuItem>)}
-                            </Select>
-                          </FormControl>
-                        ) : (
-                          <Button size="small" variant="contained" onClick={() => handleTake(t.id)}
-                            sx={{ background: 'linear-gradient(135deg, #C9A84C, #E2C97E)', color: '#0A0E1A', fontWeight: 700 }}>
-                            Взять
-                          </Button>
+                      <Box key={t.id} sx={{ p: 1.2, borderRadius: 1.5, background: 'rgba(255,255,255,0.02)' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: t.assignee_id ? 1 : 0 }}>
+                          {trackIcon(t.track)}
+                          <Typography variant="body2" sx={{ color: '#F1F5F9', fontWeight: 600, flex: '1 1 auto' }}>{TYPE_LABEL[t.type] || t.type}</Typography>
+                          {!t.assignee_id && (
+                            <Button size="small" variant="contained" onClick={() => handleTake(t.id)}
+                              sx={{ background: 'linear-gradient(135deg, #C9A84C, #E2C97E)', color: '#0A0E1A', fontWeight: 700 }}>
+                              Взять
+                            </Button>
+                          )}
+                        </Box>
+                        {t.assignee_id && (
+                          <CaseStatusStepper track={t.track} status={t.status} onChange={(s) => handleStatus(t.id, s)} />
                         )}
                       </Box>
                     ))}

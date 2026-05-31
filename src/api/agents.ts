@@ -167,6 +167,12 @@ export const agentsApi = {
   update:  (id: number, payload: AgentUpdatePayload) =>
     api.patch<RawAgent>(`/api/agents/${id}`, payload as unknown as Record<string, unknown>).then(normalizeAgent),
   remove:  (id: number) => api.del<{ ok: true }>(`/api/agents/${id}`),
+  // Web Push для специалистов/админов (тот же бэк, что и в портале).
+  pushKey: () => api.get<{ enabled: boolean; publicKey: string }>('/api/agents/me/push-key'),
+  pushSubscribe: (sub: { endpoint: string; keys: { p256dh: string; auth: string }; userAgent?: string }) =>
+    api.post<{ ok: boolean }>('/api/agents/me/push-subscribe', sub),
+  pushUnsubscribe: (endpoint: string) =>
+    api.post<{ ok: boolean }>('/api/agents/me/push-unsubscribe', { endpoint }),
   setRole: (id: number, role: Role) =>
     api.patch<RawAgent>(`/api/agents/${id}/role`, { role }).then(normalizeAgent),
   // Индивидуальные права сотрудника на разделы админки (null = дефолт роли).

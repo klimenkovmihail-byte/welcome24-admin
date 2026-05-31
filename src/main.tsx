@@ -5,6 +5,7 @@ import App from './App';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { theme } from './theme/theme';
+import { registerServiceWorker } from './push';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -14,3 +15,6 @@ createRoot(document.getElementById('root')!).render(
     </ThemeProvider>
   </StrictMode>
 );
+
+// Регистрируем service worker для Web Push (no-op если не поддерживается).
+registerServiceWorker();
