@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Tooltip, IconButton, Divider } from '@mui/material';
+import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Tooltip, IconButton, Divider, Button } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
@@ -29,7 +29,9 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
 import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
+import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
 import Logo, { LogoIcon } from '../Logo';
+import NotificationsDialog from '../NotificationsDialog';
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -37,6 +39,7 @@ export default function Sidebar() {
   const [openTickets, setOpenTickets] = useState(0);
   const [pendingClaims, setPendingClaims] = useState(0);
   const [adUnread, setAdUnread] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const user = getCurrentUser();
@@ -155,6 +158,20 @@ export default function Sidebar() {
               </Typography>
             </Box>
           )}
+          {!collapsed ? (
+            <Button fullWidth size="small" variant="outlined" startIcon={<NotificationsActiveRoundedIcon fontSize="small" />} onClick={() => setNotifOpen(true)}
+              sx={{ mb: 1, color: '#C9A84C', borderColor: 'rgba(201,168,76,0.3)', textTransform: 'none', justifyContent: 'flex-start', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.06)' } }}>
+              Уведомления и бот
+            </Button>
+          ) : (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 0.5 }}>
+              <Tooltip title="Уведомления и бот" placement="right">
+                <IconButton size="small" onClick={() => setNotifOpen(true)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+                  <NotificationsActiveRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
           <Box sx={{ display: 'flex', justifyContent: collapsed ? 'center' : 'space-between', alignItems: 'center' }}>
             <Tooltip title="Выйти" placement="right">
               <IconButton size="small" onClick={handleLogout} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
@@ -173,6 +190,7 @@ export default function Sidebar() {
           </Box>
         </Box>
       </Box>
+      <NotificationsDialog open={notifOpen} onClose={() => setNotifOpen(false)} />
     </motion.div>
   );
 }

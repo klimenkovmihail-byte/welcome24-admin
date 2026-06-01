@@ -174,6 +174,13 @@ export const agentsApi = {
     api.post<{ ok: boolean }>('/api/agents/me/push-subscribe', sub),
   pushUnsubscribe: (endpoint: string) =>
     api.post<{ ok: boolean }>('/api/agents/me/push-unsubscribe', { endpoint }),
+  // Telegram/MAX-боты для сотрудников (тот же бэк, что и в портале).
+  telegramLink: () =>
+    api.get<{ linked: boolean; available: boolean; deepLink?: string; botUsername?: string }>('/api/agents/me/telegram-link'),
+  telegramUnlink: () => api.post<{ ok: boolean }>('/api/agents/me/telegram-unlink', {}),
+  maxLink: () =>
+    api.get<{ linked: boolean; available: boolean; botLink?: string; botUsername?: string; code?: string }>('/api/agents/me/max-link'),
+  maxUnlink: () => api.post<{ ok: boolean }>('/api/agents/me/max-unlink', {}),
   setRole: (id: number, role: Role) =>
     api.patch<RawAgent>(`/api/agents/${id}/role`, { role }).then(normalizeAgent),
   // Индивидуальные права сотрудника на разделы админки (null = дефолт роли).
