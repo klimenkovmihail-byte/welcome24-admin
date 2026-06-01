@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField, InputLabel,
@@ -25,6 +25,13 @@ import { getCurrentUser } from '../auth/auth';
 import { API_BASE_URL, getToken } from '../api/apiClient';
 
 const GOLD = '#C9A84C';
+// Цвет участника чата по роли (агент золото, юрист зелёный, брокер фиолет,
+// листинг-менеджер циан, админ синий).
+const ROLE_COLOR: Record<string, string> = {
+  agent: '#C9A84C', lawyer: '#22C55E', broker: '#8B5CF6',
+  listing_manager: '#06B6D4', admin: '#4361EE', super_admin: '#4361EE', manager: '#4361EE',
+};
+const roleColor = (r?: string | null) => ROLE_COLOR[r || ''] || '#94A3B8';
 const money = (n: number) => Number(n || 0).toLocaleString('ru-RU');
 function fmtDate(s?: string | null): string {
   if (!s) return '—';
@@ -187,6 +194,14 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
     adRequestsApi.events(r.id).then(setEvents).catch(() => {});
   }, [r.id]);
   useEffect(() => { reload(); adRequestsApi.markRead(r.id).catch(() => {}); }, [reload, r.id]);
+  // Поллинг чата — новые сообщения подтягиваются без переоткрытия.
+  useEffect(() => {
+    const iv = setInterval(() => { adRequestsApi.messages(r.id).then(setMessages).catch(() => {}); }, 4000);
+    return () => clearInterval(iv);
+  }, [r.id]);
+  // Автоскролл вниз при новых сообщениях.
+  const chatRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { const el = chatRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
 
   const send = async () => {
     if (!text.trim()) return;
@@ -244,14 +259,15 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
           {/* Правая колонка — чат */}
           <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 320 }}>
             <Typography sx={{ color: '#64748B', fontSize: 12, mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Чат с агентом</Typography>
-            <Box sx={{ flex: 1, overflowY: 'auto', maxHeight: 320, background: 'rgba(2,6,23,0.5)', borderRadius: 2, p: 1.5, mb: 1 }}>
+            <Box ref={chatRef} sx={{ flex: 1, overflowY: 'auto', maxHeight: 320, background: 'rgba(2,6,23,0.5)', borderRadius: 2, p: 1.5, mb: 1 }}>
               {messages.length === 0 && <Typography sx={{ color: '#475569', fontSize: 13, textAlign: 'center', py: 2 }}>Сообщений нет</Typography>}
               {messages.map(m => {
                 const mine = m.sender_id === user?.id;
+                const c = roleColor(m.sender_role);
                 return (
                   <Box key={m.id} sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', mb: 0.8 }}>
-                    <Box sx={{ maxWidth: '80%', background: mine ? 'rgba(201,168,76,0.18)' : 'rgba(148,163,184,0.12)', borderRadius: 2, px: 1.3, py: 0.7 }}>
-                      {!mine && <Typography sx={{ color: GOLD, fontSize: 11, fontWeight: 700 }}>{m.sender_name}</Typography>}
+                    <Box sx={{ maxWidth: '80%', background: c + '2E', border: `1px solid ${c}44`, borderRadius: 2, px: 1.3, py: 0.7 }}>
+                      {!mine && <Typography sx={{ color: c, fontSize: 11, fontWeight: 700 }}>{m.sender_name}</Typography>}
                       <Typography sx={{ color: '#E2E8F0', fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{m.body}</Typography>
                       <Typography sx={{ color: '#475569', fontSize: 10, textAlign: 'right' }}>{fmtDate(m.created_at)}</Typography>
                     </Box>
