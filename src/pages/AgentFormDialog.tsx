@@ -237,13 +237,28 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
             <TextField fullWidth label="Телефон" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} size="small" />
           </Box>
           {!editTarget && (
-            <TextField
-              fullWidth size="small" type="password"
-              label="Пароль (минимум 6 символов)"
-              value={form.password}
-              onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-              helperText="Пользователь сможет сменить позже в личном кабинете"
-            />
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <TextField
+                fullWidth size="small" type="text"
+                label="Пароль (минимум 6 символов)"
+                value={form.password}
+                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                helperText="Виден вам — скопируйте и передайте агенту. Сменит позже в кабинете."
+                autoComplete="off"
+                slotProps={{ input: { autoComplete: 'new-password' } }}
+              />
+              <Button
+                variant="outlined" size="small"
+                onClick={() => {
+                  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+                  const pwd = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+                  setForm(f => ({ ...f, password: pwd }));
+                }}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap', mt: 0.25 }}
+              >
+                Сгенерировать
+              </Button>
+            </Stack>
           )}
           {editTarget && canManageRoles && (
             <Box sx={{
