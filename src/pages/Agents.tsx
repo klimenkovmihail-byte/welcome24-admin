@@ -74,7 +74,9 @@ export default function Agents() {
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<AgentStatus | 'all'>('all');
+  const [filterStatus, setFilterStatus] = useState<AgentStatus | 'all'>('active');
+  const [filterMonth, setFilterMonth] = useState<string>('all'); // '01'..'12' join_date
+  const [filterYear, setFilterYear] = useState<string>('all');   // YYYY join_date
   const [filterLevel, setFilterLevel] = useState<AgentLevel | 0>(0);
   // По умолчанию показываем только обычных агентов — сотрудники не «загрязняют» базу.
   // Чтобы увидеть сотрудников, нужно явно переключить фильтр.
@@ -156,11 +158,23 @@ export default function Agents() {
     const matchRole = view === 'agents'
       ? true
       : (filterRole === 'all' || filterRole === 'staff' ? true : aRole === filterRole);
-    return matchQ && matchStatus && matchLevel && matchView && matchRole;
-  }), [agents, deferredSearch, filterStatus, filterLevel, filterRole, view]);
+    // Фильтр по дате присоединения (join_date = 'YYYY-MM-DD').
+    const jd = (a.joinDate || '');
+    const matchYear = filterYear === 'all' || jd.slice(0, 4) === filterYear;
+    const matchMonth = filterMonth === 'all' || jd.slice(5, 7) === filterMonth;
+    return matchQ && matchStatus && matchLevel && matchView && matchRole && matchYear && matchMonth;
+  }).sort((a, b) => (b.joinDate || '').localeCompare(a.joinDate || '')), // новые сверху
+  [agents, deferredSearch, filterStatus, filterLevel, filterRole, view, filterYear, filterMonth]);
+
+  // Годы присоединения для фильтра (из данных, по убыванию).
+  const joinYears = useMemo(() => {
+    const ys = new Set<string>();
+    agents.forEach(a => { const y = (a.joinDate || '').slice(0, 4); if (y) ys.add(y); });
+    return [...ys].sort((a, b) => b.localeCompare(a));
+  }, [agents]);
 
   // Сброс пагинации при любой смене фильтра/поиска/вкладки.
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [deferredSearch, filterStatus, filterLevel, filterRole, view]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [deferredSearch, filterStatus, filterLevel, filterRole, view, filterYear, filterMonth]);
 
   // При переключении вкладки выставляем корректный дефолт фильтра роли:
   // «Агенты» → только агенты, «Сотрудники» → все роли.
@@ -358,6 +372,21 @@ export default function Agents() {
             <MenuItem value="blocked">Заблокированные</MenuItem>
           </Select>
         </FormControl>
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <InputLabel>Месяц</InputLabel>
+          <Select value={filterMonth} label="Месяц" onChange={e => setFilterMonth(e.target.value)}>
+            <MenuItem value="all">Все</MenuItem>
+            {['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
+              .map((m, i) => <MenuItem key={i} value={String(i + 1).padStart(2, '0')}>{m}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 110 }}>
+          <InputLabel>Год</InputLabel>
+          <Select value={filterYear} label="Год" onChange={e => setFilterYear(e.target.value)}>
+            <MenuItem value="all">Все</MenuItem>
+            {joinYears.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+          </Select>
+        </FormControl>
         <FormControl size="small" sx={{ minWidth: 130 }}>
           <InputLabel>Уровень</InputLabel>
           <Select value={filterLevel} label="Уровень" onChange={e => setFilterLevel(e.target.value as AgentLevel | 0)}>
@@ -406,10 +435,6 @@ export default function Agents() {
               <TableCell>Источник / Ментор</TableCell>
               <TableCell>Статус</TableCell>
               <TableCell>Роль</TableCell>
-              <TableCell align="right">ВКД (год)</TableCell>
-              <TableCell align="right">Комиссия</TableCell>
-              <TableCell align="right">Акции</TableCell>
-              <TableCell align="right">Команда</TableCell>
               <TableCell align="center">Действия</TableCell>
             </TableRow>
           </TableHead>
@@ -429,10 +454,10 @@ export default function Agents() {
                         <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>
                           {agent.email.endsWith('@w24.local') ? 'архивная запись (без логина)' : agent.email}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: agent.terminatedAt ? '#EF4444' : '#475569', fontSize: 10 }}>
+                        <Typography variant="caption" sx={{ color: agent.terminatedAt ? '#EF4444' : '#94A3B8', fontSize: 11, fontWeight: 600, display: 'block', mt: 0.2 }}>
                           {agent.terminatedAt
                             ? `с ${agent.joinDate} · уволен ${agent.terminatedAt}`
-                            : `с ${agent.joinDate}`}
+                            : `присоединился ${agent.joinDate}`}
                         </Typography>
                       </Box>
                     </Box>
@@ -487,18 +512,6 @@ export default function Agents() {
                         <Chip label={ROLE_LABEL[r] || r} size="small" sx={{ background: `${c}22`, color: c, fontWeight: 700, fontSize: 11 }} />
                       );
                     })()}
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{fmt(agent.vkdYear)} ₽</Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{agent.commission}%</Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ color: '#94A3B8' }}>{fmt(agent.shares)}</Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" sx={{ color: '#94A3B8' }}>{agent.teamSize}</Typography>
                   </TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
