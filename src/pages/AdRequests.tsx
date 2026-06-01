@@ -160,7 +160,7 @@ function RequestsTab() {
         ))}
       </Stack>
 
-      {detail && <RequestDetail request={detail} onClose={() => setDetail(null)} onChanged={load} setStatus={setStatus} take={take} />}
+      {detail && <RequestDetail request={detail} onClose={() => { setDetail(null); load(); }} onChanged={load} setStatus={setStatus} take={take} />}
     </Box>
   );
 }
@@ -210,6 +210,11 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
     finally { setSending(false); }
   };
   const doStatus = (s: AdStatus) => { setStatus(r.id, s); setTimeout(() => { reload(); onChanged(); }, 300); };
+  const removeRequest = async () => {
+    if (!window.confirm('Удалить заявку безвозвратно? Чат и история будут стёрты.')) return;
+    try { await adRequestsApi.remove(r.id); onChanged(); onClose(); }
+    catch { window.alert('Не удалось удалить заявку'); }
+  };
 
   const STATUS_FLOW: AdStatus[] = ['new', 'in_progress', 'done', 'cancelled'];
 
@@ -240,6 +245,10 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
                 <Button key={s} size="small" variant="outlined" onClick={() => doStatus(s)}
                   sx={{ color: statusColor(s), borderColor: statusColor(s) + '55', textTransform: 'none' }}>{AD_STATUS_RU[s]}</Button>
               ))}
+              {user?.role === 'super_admin' && (
+                <Button size="small" startIcon={<DeleteOutlineRoundedIcon />} onClick={removeRequest}
+                  sx={{ color: '#EF4444', textTransform: 'none', ml: 'auto' }}>Удалить</Button>
+              )}
             </Stack>
 
             {events.length > 0 && (

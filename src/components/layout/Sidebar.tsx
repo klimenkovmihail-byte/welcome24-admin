@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
-import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
+import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded';
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded';
@@ -22,6 +22,7 @@ import { canAccess, ROLE_LABEL, ROLE_COLOR, type Role } from '../../auth/roles';
 import { agentsApi } from '../../api/agents';
 import { supportApi } from '../../api/support';
 import { subscriptionAdminApi } from '../../api/subscription';
+import { adRequestsApi } from '../../api/adRequests';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
@@ -35,6 +36,7 @@ export default function Sidebar() {
   const [pendingReviews, setPendingReviews] = useState(0);
   const [openTickets, setOpenTickets] = useState(0);
   const [pendingClaims, setPendingClaims] = useState(0);
+  const [adUnread, setAdUnread] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const user = getCurrentUser();
@@ -49,6 +51,7 @@ export default function Sidebar() {
     if (canAccess(role, '/agents', sectionAccess))  tasks.push(agentsApi.pendingReviews().catch(() => []).then(r => { if (!cancelled) setPendingReviews((r as unknown[]).length); }));
     if (canAccess(role, '/support', sectionAccess)) tasks.push(supportApi.list().catch(() => []).then(t => { if (!cancelled) setOpenTickets((t as { status: string }[]).filter(x => x.status === 'open').length); }));
     if (canAccess(role, '/subscription-claims', sectionAccess)) tasks.push(subscriptionAdminApi.pending().catch(() => []).then(p => { if (!cancelled) setPendingClaims((p as unknown[]).length); }));
+    if (canAccess(role, '/ad-requests', sectionAccess)) tasks.push(adRequestsApi.list().catch(() => []).then(l => { if (!cancelled) setAdUnread((l as { unread?: number }[]).filter(x => (x.unread || 0) > 0).length); }));
     Promise.all(tasks);
     return () => { cancelled = true; };
   }, [location.pathname, role]);
@@ -57,8 +60,8 @@ export default function Sidebar() {
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
     { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
-    { path: '/cases', label: 'Заявки', icon: <GavelRoundedIcon /> },
-    { path: '/ad-requests', label: 'Отдел рекламы', icon: <CampaignRoundedIcon /> },
+    { path: '/cases', label: 'Заявки', icon: <AssignmentRoundedIcon /> },
+    { path: '/ad-requests', label: 'Отдел рекламы', icon: <CampaignRoundedIcon />, badge: adUnread || null, tooltip: adUnread ? `${adUnread} заявок с новыми сообщениями` : '' },
     { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
     { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },
