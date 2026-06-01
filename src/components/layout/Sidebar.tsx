@@ -27,6 +27,7 @@ import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
+import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
 import Logo, { LogoIcon } from '../Logo';
 
 export default function Sidebar() {
@@ -57,6 +58,7 @@ export default function Sidebar() {
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
     { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
     { path: '/cases', label: 'Заявки', icon: <GavelRoundedIcon /> },
+    { path: '/ad-requests', label: 'Отдел рекламы', icon: <CampaignRoundedIcon /> },
     { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
     { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
     { path: '/news', label: 'Новости', icon: <ArticleRoundedIcon /> },

@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Agents from './pages/Agents';
 import Deals from './pages/Deals';
 import Cases from './pages/Cases';
+import AdRequests from './pages/AdRequests';
 import Shares from './pages/Shares';
 import Academy from './pages/Academy';
 import News from './pages/News';
@@ -70,6 +71,7 @@ export default function App() {
                 <Route path="/agents" element={<RoleRoute path="/agents"><Agents /></RoleRoute>} />
                 <Route path="/deals" element={<RoleRoute path="/deals"><Deals /></RoleRoute>} />
                 <Route path="/cases" element={<RoleRoute path="/cases"><Cases /></RoleRoute>} />
+                <Route path="/ad-requests" element={<RoleRoute path="/ad-requests"><AdRequests /></RoleRoute>} />
                 <Route path="/shares" element={<RoleRoute path="/shares"><Shares /></RoleRoute>} />
                 <Route path="/academy" element={<RoleRoute path="/academy"><Academy /></RoleRoute>} />
                 <Route path="/news" element={<RoleRoute path="/news"><News /></RoleRoute>} />
