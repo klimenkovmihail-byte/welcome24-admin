@@ -116,7 +116,17 @@ export const casesAdminApi = {
     api.post<CaseMessage>(`/api/cases/${caseId}/messages`, payload),
   markRead: (caseId: number, lastId?: number) =>
     api.post<{ ok: boolean }>(`/api/cases/${caseId}/read`, lastId ? { lastId } : {}),
+  events: (caseId: number) => api.get<CaseEvent[]>(`/api/cases/${caseId}/events`),
+  remove: (caseId: number) => api.del<{ ok: boolean }>(`/api/cases/${caseId}`),
 };
+
+export interface CaseEvent {
+  id: number;
+  kind: string;
+  text: string;
+  actor_name: string | null;
+  created_at: string;
+}
 
 export interface CaseMessage {
   id: number;
