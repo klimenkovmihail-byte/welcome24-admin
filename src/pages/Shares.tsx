@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
@@ -27,6 +28,9 @@ import { settingsApi } from '../api/settings';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
+// Деньги: «N млн ₽» только от 1 млн, иначе обычные рубли (не «0.02 млн»).
+const fmtMoney = (n: number) =>
+  Math.abs(n) >= 1_000_000 ? `${(n / 1e6).toFixed(2)} млн ₽` : `${fmt(Math.round(n))} ₽`;
 
 const opConfig: Record<ShareOperationType, { label: string; color: string; bg: string }> = {
   issue: { label: 'Эмиссия', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' },
@@ -79,6 +83,10 @@ export default function Shares() {
   const [totalDialogOpen, setTotalDialogOpen] = useState(false);
   const [newTotal, setNewTotal] = useState(String(initialSettings.totalSharesIssued));
   const [filterType, setFilterType] = useState<ShareOperationType | 'all'>('all');
+  const [holderSearch, setHolderSearch] = useState('');
+  const [opSearch, setOpSearch] = useState('');      // поиск по ФИО в операциях
+  const [opDateFrom, setOpDateFrom] = useState('');  // YYYY-MM-DD
+  const [opDateTo, setOpDateTo] = useState('');
   const [form, setForm] = useState<FormState>({ ...emptyForm });
 
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
@@ -123,7 +131,23 @@ export default function Shares() {
 
   const totalAmount = useMemo(() => Math.round((parseFloat(form.quantity) || 0) * (parseFloat(form.pricePerShare) || 0)), [form.quantity, form.pricePerShare]);
 
-  const filtered = useMemo(() => filterType === 'all' ? ops : ops.filter(o => o.type === filterType), [ops, filterType]);
+  const filtered = useMemo(() => {
+    const q = opSearch.trim().toLowerCase();
+    return ops.filter(o => {
+      if (filterType !== 'all' && o.type !== filterType) return false;
+      if (q && !`${o.fromAgentName || ''} ${o.toAgentName || ''}`.toLowerCase().includes(q)) return false;
+      const d = (o.date || '').slice(0, 10);
+      if (opDateFrom && d < opDateFrom) return false;
+      if (opDateTo && d > opDateTo) return false;
+      return true;
+    });
+  }, [ops, filterType, opSearch, opDateFrom, opDateTo]);
+
+  const filteredHolders = useMemo(() => {
+    const q = holderSearch.trim().toLowerCase();
+    const sorted = [...holders].sort((a, b) => b.shares - a.shares);
+    return q ? sorted.filter(h => h.name.toLowerCase().includes(q)) : sorted;
+  }, [holders, holderSearch]);
 
   // Баланс акций каждого агента — из holders (бэк уже считает по share_packets).
   const agentShares = useMemo(() => {
@@ -349,6 +373,9 @@ export default function Shares() {
               </Typography>
             </Box>
           </Box>
+          <TextField size="small" placeholder="Поиск по ФИО…" value={holderSearch}
+            onChange={e => setHolderSearch(e.target.value)} sx={{ minWidth: 220 }}
+            slotProps={{ input: { startAdornment: <SearchRoundedIcon sx={{ fontSize: 18, color: '#64748B', mr: 1 }} /> } }} />
         </Box>
         <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.06)', maxHeight: 480 }}>
           <Table size="small" stickyHeader>
@@ -362,7 +389,7 @@ export default function Shares() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {[...holders].sort((a, b) => b.shares - a.shares).map(h => {
+              {filteredHolders.map(h => {
                 const value = h.shares * settings.sharePrice;
                 const totalAll = holders.reduce((s, x) => s + x.shares, 0);
                 const sharePct = totalAll ? (h.shares / totalAll) * 100 : 0;
@@ -379,7 +406,7 @@ export default function Shares() {
                       <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{fmt(h.shares)}</Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#22C55E' }}>{(value / 1e6).toFixed(2)} млн ₽</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#22C55E' }}>{fmtMoney(value)}</Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Chip label={`${sharePct.toFixed(2)}%`} size="small"
@@ -388,10 +415,10 @@ export default function Shares() {
                   </TableRow>
                 );
               })}
-              {holders.length === 0 && (
+              {filteredHolders.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} sx={{ textAlign: 'center', color: '#64748B', py: 3 }}>
-                    Пока нет акционеров с положительным балансом
+                    {holderSearch ? 'Ничего не найдено по поиску' : 'Пока нет акционеров с положительным балансом'}
                   </TableCell>
                 </TableRow>
               )}
@@ -412,6 +439,23 @@ export default function Shares() {
             </ToggleButton>
           ))}
         </ToggleButtonGroup>
+      </Box>
+
+      {/* Поиск по ФИО + диапазон дат операций */}
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2, alignItems: 'center' }}>
+        <TextField size="small" placeholder="Поиск по ФИО (от/кому)…" value={opSearch}
+          onChange={e => { setOpSearch(e.target.value); setOpsPage(0); }} sx={{ flex: '1 1 240px', minWidth: 200 }}
+          slotProps={{ input: { startAdornment: <SearchRoundedIcon sx={{ fontSize: 18, color: '#64748B', mr: 1 }} /> } }} />
+        <TextField size="small" type="date" label="С" value={opDateFrom}
+          onChange={e => { setOpDateFrom(e.target.value); setOpsPage(0); }}
+          slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 160 }} />
+        <TextField size="small" type="date" label="По" value={opDateTo}
+          onChange={e => { setOpDateTo(e.target.value); setOpsPage(0); }}
+          slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 160 }} />
+        {(opSearch || opDateFrom || opDateTo) && (
+          <Button size="small" onClick={() => { setOpSearch(''); setOpDateFrom(''); setOpDateTo(''); setOpsPage(0); }}
+            sx={{ color: '#64748B', textTransform: 'none' }}>Сбросить</Button>
+        )}
       </Box>
 
       <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
@@ -463,7 +507,7 @@ export default function Shares() {
                     <Typography variant="body2" sx={{ color: '#94A3B8' }}>{fmt(op.pricePerShare)} ₽</Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: cfg.color }}>{(op.totalAmount / 1e6).toFixed(2)} млн ₽</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: cfg.color }}>{fmtMoney(op.totalAmount)}</Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption" sx={{ color: '#64748B' }}>{op.date}</Typography>
