@@ -148,7 +148,7 @@ export default function Agents() {
   const deferredSearch = useDeferredValue(search);
   const filtered = useMemo(() => agents.filter(a => {
     const q = deferredSearch.toLowerCase();
-    const matchQ = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q) || a.city.toLowerCase().includes(q);
+    const matchQ = !q || (a.name || '').toLowerCase().includes(q) || (a.email || '').toLowerCase().includes(q) || (a.city || '').toLowerCase().includes(q);
     const matchStatus = filterStatus === 'all' || a.status === filterStatus;
     const matchLevel = filterLevel === 0 || a.level === filterLevel;
     const aRole = ((a as AgentWithRole).role || 'agent') as Role;

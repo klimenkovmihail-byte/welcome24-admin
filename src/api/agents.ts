@@ -130,6 +130,7 @@ export interface AgentCreatePayload {
   password: string;
   phone?: string;
   city?: string;
+  joinDate?: string;
   level?: AgentLevel;
   commission?: 80 | 90 | 95;
   status?: AgentStatus;
