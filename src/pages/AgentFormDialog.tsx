@@ -41,7 +41,7 @@ type FormState = {
   // или 'staff' (сотрудник бэк-офиса — НЕ показывается в дефолтном фильтре).
   kind: 'agent' | 'staff';
   // Конкретная роль сотрудника при kind='staff' (для kind='agent' игнорируется).
-  staffRole: 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker';
+  staffRole: 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker' | 'listing_manager';
   name: string; email: string; phone: string; city: string;
   password: string;
   joinDate: string; // дата присоединения YYYY-MM-DD
@@ -89,10 +89,10 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
     if (!open) return;
     if (editTarget) {
       const r = ((editTarget as Agent & { role?: Role }).role || 'agent') as Role;
-      const isStaff = r === 'super_admin' || r === 'admin' || r === 'manager';
+      const isStaff = r === 'super_admin' || r === 'admin' || r === 'manager' || r === 'lawyer' || r === 'broker' || r === 'listing_manager';
       setForm({
         kind: isStaff ? 'staff' : 'agent',
-        staffRole: isStaff ? (r as 'manager' | 'admin' | 'super_admin') : 'manager',
+        staffRole: isStaff ? (r as 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker' | 'listing_manager') : 'manager',
         name: editTarget.name, email: editTarget.email, phone: editTarget.phone, city: editTarget.city,
         password: '',
         joinDate: editTarget.joinDate || new Date().toISOString().slice(0, 10),
@@ -218,11 +218,12 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
                   <Select
                     value={form.staffRole}
                     label="Роль сотрудника"
-                    onChange={e => setForm(f => ({ ...f, staffRole: e.target.value as 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker' }))}
+                    onChange={e => setForm(f => ({ ...f, staffRole: e.target.value as 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker' | 'listing_manager' }))}
                   >
                     <MenuItem value="manager"     sx={{ color: ROLE_COLOR.manager,     fontWeight: 600 }}>{ROLE_LABEL.manager} — только Академия и Новости</MenuItem>
                     <MenuItem value="lawyer"      sx={{ color: ROLE_COLOR.lawyer,      fontWeight: 600 }}>{ROLE_LABEL.lawyer} — Заявки (юридические)</MenuItem>
                     <MenuItem value="broker"      sx={{ color: ROLE_COLOR.broker,      fontWeight: 600 }}>{ROLE_LABEL.broker} — Заявки (ипотека)</MenuItem>
+                    <MenuItem value="listing_manager" sx={{ color: ROLE_COLOR.listing_manager, fontWeight: 600 }}>{ROLE_LABEL.listing_manager} — Отдел рекламы</MenuItem>
                     <MenuItem value="admin"       sx={{ color: ROLE_COLOR.admin,       fontWeight: 600 }}>{ROLE_LABEL.admin} — Агенты/Сделки/Акции/Поддержка/Новости</MenuItem>
                     <MenuItem value="super_admin" sx={{ color: ROLE_COLOR.super_admin, fontWeight: 600 }}>{ROLE_LABEL.super_admin} — полный доступ</MenuItem>
                   </Select>

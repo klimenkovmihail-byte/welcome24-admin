@@ -356,7 +356,7 @@ function PackagesTab() {
             <TextField size="small" label="Название" value={title} onChange={e => setTitle(e.target.value)} placeholder="Июнь 2026"
               InputLabelProps={{ sx: { color: '#94A3B8' } }} sx={{ '& .MuiOutlinedInput-root': { color: '#E2E8F0' } }} />
             <TextField size="small" type="date" label="Дедлайн" value={deadline} onChange={e => setDeadline(e.target.value)}
-              InputLabelProps={{ shrink: true, sx: { color: '#94A3B8' } }} sx={{ '& .MuiOutlinedInput-root': { color: '#E2E8F0' } }} />
+              slotProps={{ inputLabel: { shrink: true, sx: { color: '#94A3B8' } } }} sx={{ '& .MuiOutlinedInput-root': { color: '#E2E8F0' } }} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>

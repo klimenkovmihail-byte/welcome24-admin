@@ -408,6 +408,7 @@ export default function Agents() {
             <MenuItem value="manager"     sx={{ color: ROLE_COLOR.manager,     fontWeight: 600 }}>{ROLE_LABEL.manager}</MenuItem>
             <MenuItem value="lawyer"      sx={{ color: ROLE_COLOR.lawyer,      fontWeight: 600 }}>{ROLE_LABEL.lawyer}</MenuItem>
             <MenuItem value="broker"      sx={{ color: ROLE_COLOR.broker,      fontWeight: 600 }}>{ROLE_LABEL.broker}</MenuItem>
+            <MenuItem value="listing_manager" sx={{ color: ROLE_COLOR.listing_manager, fontWeight: 600 }}>{ROLE_LABEL.listing_manager}</MenuItem>
             <MenuItem value="agent"       sx={{ color: ROLE_COLOR.agent,       fontWeight: 600 }}>{ROLE_LABEL.agent}</MenuItem>
           </Select>
         </FormControl>
@@ -500,7 +501,7 @@ export default function Agents() {
                             onChange={e => changeRole(agent.id, e.target.value as Role)}
                             sx={{ fontSize: 11, fontWeight: 700, color: c, '& .MuiSelect-select': { p: 0, pr: '20px !important' }, '& .MuiSvgIcon-root': { color: c, fontSize: 16 } }}
                           >
-                            {(['super_admin', 'admin', 'manager', 'agent'] as Role[]).map(opt => (
+                            {(['super_admin', 'admin', 'manager', 'lawyer', 'broker', 'listing_manager', 'agent'] as Role[]).map(opt => (
                               <MenuItem key={opt} value={opt} sx={{ fontSize: 12, color: ROLE_COLOR[opt], fontWeight: 600 }}>
                                 {ROLE_LABEL[opt]}
                               </MenuItem>
