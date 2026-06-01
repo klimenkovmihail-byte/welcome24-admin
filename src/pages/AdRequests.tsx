@@ -518,10 +518,11 @@ function PriceListTab() {
         </Select></FormControl>
         <Typography sx={{ color: '#64748B', fontSize: 13 }}>Цена за квоту по городам и категориям</Typography>
         <Box sx={{ flex: 1 }} />
-        <TextField size="small" placeholder="Добавить город" value={newCity} onChange={e => setNewCity(e.target.value)}
+        <TextField size="small" placeholder="Город (напр. Москва)" value={newCity} onChange={e => setNewCity(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') addCity(); }}
-          sx={{ '& .MuiOutlinedInput-root': { color: '#E2E8F0' } }}
-          InputProps={{ endAdornment: <InputAdornment position="end"><IconButton size="small" onClick={addCity} sx={{ color: GOLD }}><AddRoundedIcon /></IconButton></InputAdornment> }} />
+          sx={{ '& .MuiOutlinedInput-root': { color: '#E2E8F0' }, minWidth: 200 }} />
+        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={addCity} disabled={!newCity.trim()}
+          sx={{ background: GOLD, color: '#0A0E1A', fontWeight: 700, whiteSpace: 'nowrap', '&:hover': { background: '#E2C97E' } }}>Добавить город</Button>
       </Stack>
 
       {loading ? <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress sx={{ color: GOLD }} /></Box> : (
