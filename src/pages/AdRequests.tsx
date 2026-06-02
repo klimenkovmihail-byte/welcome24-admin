@@ -38,6 +38,11 @@ function fmtDate(s?: string | null): string {
   const d = new Date(s.replace(' ', 'T') + 'Z');
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
+function fmtDateTime(s?: string | null): string {
+  if (!s) return '—';
+  const d = new Date(s.replace(' ', 'T') + 'Z');
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
 function statusColor(s: AdStatus): string {
   return s === 'done' ? '#22C55E' : s === 'cancelled' ? '#EF4444' : s === 'in_progress' ? GOLD : '#64748B';
 }
@@ -146,6 +151,7 @@ function RequestsTab() {
                   {r.platforms.map(p => <Chip key={p} label={PLATFORM_LABEL[p]} size="small" variant="outlined" sx={{ height: 20, fontSize: 11, color: '#94A3B8', borderColor: 'rgba(148,163,184,0.3)' }} />)}
                 </Stack>
                 <Box sx={{ flex: 1 }} />
+                <Typography sx={{ color: '#CBD5E1', fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtDateTime(r.created_at)}</Typography>
                 <Typography sx={{ color: '#64748B', fontSize: 12 }}>{r.agent_name}</Typography>
                 <Chip label={AD_STATUS_RU[r.status]} size="small" sx={{ background: statusColor(r.status) + '22', color: statusColor(r.status), fontWeight: 700 }} />
                 {!r.assignee_id ? (
@@ -234,7 +240,7 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
               <Info label="Агент" value={r.agent_name || '—'} />
               {r.object_ref && <Info label="Объект" value={r.object_ref} />}
               {r.region && <Info label="Регион" value={r.region} />}
-              {(r.need_date || r.need_time) && <Info label="Желаемо" value={[r.need_date, r.need_time].filter(Boolean).join(' ')} />}
+              <Info label="Подана" value={fmtDateTime(r.created_at)} />
               {r.platforms.length > 0 && <Info label="Площадки" value={r.platforms.map(p => PLATFORM_LABEL[p]).join(', ')} />}
               {r.comment && <Info label="Комментарий" value={r.comment} />}
               <Info label="Исполнитель" value={r.assignee_name || 'не взята'} />
