@@ -209,8 +209,19 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
     return () => clearInterval(iv);
   }, [r.id]);
   // Автоскролл вниз при новых сообщениях.
+  // Автоскролл вниз — только при первом открытии или новом сообщении, и только если
+  // пользователь уже внизу. Если он прокрутил вверх (читает историю) — не дёргаем.
   const chatRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { const el = chatRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
+  const prevCount = useRef(0);
+  useEffect(() => {
+    const el = chatRef.current;
+    if (!el) return;
+    const first = prevCount.current === 0;
+    const grew = messages.length > prevCount.current;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (first || (grew && nearBottom)) el.scrollTop = el.scrollHeight;
+    prevCount.current = messages.length;
+  }, [messages]);
 
   const [uploading, setUploading] = useState(false);
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
