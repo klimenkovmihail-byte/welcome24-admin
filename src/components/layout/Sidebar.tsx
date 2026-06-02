@@ -46,18 +46,22 @@ export default function Sidebar() {
   const role = (user?.role || 'agent') as Role;
   const sectionAccess = currentSectionAccess();
 
-  // Бейджи: отзывы на модерации + открытые тикеты поддержки.
-  // Дёргаем только если у роли есть доступ к этим разделам (иначе 403 в консоли).
+  // Бейджи: отзывы/тикеты/заявки рекламы. Поллинг каждые 20с — чтобы новые уведомления
+  // появлялись без перезагрузки страницы. Дёргаем только доступные роли разделы.
   useEffect(() => {
-    let cancelled = false;
-    const tasks: Promise<unknown>[] = [];
-    if (canAccess(role, '/agents', sectionAccess))  tasks.push(agentsApi.pendingReviews().catch(() => []).then(r => { if (!cancelled) setPendingReviews((r as unknown[]).length); }));
-    if (canAccess(role, '/support', sectionAccess)) tasks.push(supportApi.list().catch(() => []).then(t => { if (!cancelled) setOpenTickets((t as { status: string }[]).filter(x => x.status === 'open').length); }));
-    if (canAccess(role, '/subscription-claims', sectionAccess)) tasks.push(subscriptionAdminApi.pending().catch(() => []).then(p => { if (!cancelled) setPendingClaims((p as unknown[]).length); }));
-    if (canAccess(role, '/ad-requests', sectionAccess)) tasks.push(adRequestsApi.list().catch(() => []).then(l => { if (!cancelled) setAdUnread((l as { unread?: number }[]).filter(x => (x.unread || 0) > 0).length); }));
-    Promise.all(tasks);
-    return () => { cancelled = true; };
-  }, [location.pathname, role]);
+    const load = () => {
+      const u = getCurrentUser();
+      const r = (u?.role || 'agent') as Role;
+      const sa = currentSectionAccess();
+      if (canAccess(r, '/agents', sa)) agentsApi.pendingReviews().catch(() => []).then(x => setPendingReviews((x as unknown[]).length));
+      if (canAccess(r, '/support', sa)) supportApi.list().catch(() => []).then(t => setOpenTickets((t as { status: string }[]).filter(y => y.status === 'open').length));
+      if (canAccess(r, '/subscription-claims', sa)) subscriptionAdminApi.pending().catch(() => []).then(p => setPendingClaims((p as unknown[]).length));
+      if (canAccess(r, '/ad-requests', sa)) adRequestsApi.list().catch(() => []).then(l => setAdUnread((l as { unread?: number }[]).filter(y => (y.unread || 0) > 0).length));
+    };
+    load();
+    const iv = setInterval(load, 20000);
+    return () => clearInterval(iv);
+  }, [location.pathname]);
 
   const allNavItems = [
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
