@@ -129,7 +129,7 @@ export default function Sidebar({ isMobile = false, mobileOpen = false, onClose 
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)', mx: 2 }} />
 
         {/* Nav */}
-        <List sx={{ flex: 1, px: 1.5, py: 2, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+        <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 1.5, py: 2, display: 'flex', flexDirection: 'column', gap: 0.5, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { background: 'rgba(201,168,76,0.25)', borderRadius: 2 } }}>
           {navItems.map((item) => {
             const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
             return (
