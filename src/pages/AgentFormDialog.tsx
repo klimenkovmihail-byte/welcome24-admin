@@ -45,6 +45,7 @@ type FormState = {
   name: string; email: string; phone: string; city: string;
   password: string;
   joinDate: string; // дата присоединения YYYY-MM-DD
+  birthDate: string; // дата рождения YYYY-MM-DD
   level: AgentLevel; commission: 80 | 90 | 95;
   status: AgentStatus;
   parentType: 'company' | 'agent';
@@ -61,6 +62,7 @@ const emptyForm: FormState = {
   name: '', email: '', phone: '', city: '',
   password: '',
   joinDate: new Date().toISOString().slice(0, 10),
+  birthDate: '',
   level: 1, commission: 80,
   status: 'active',
   parentType: 'company', parentId: null, parentName: null,
@@ -96,6 +98,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
         name: editTarget.name, email: editTarget.email, phone: editTarget.phone, city: editTarget.city,
         password: '',
         joinDate: editTarget.joinDate || new Date().toISOString().slice(0, 10),
+        birthDate: (editTarget as Agent & { birthDate?: string }).birthDate || '',
         level: editTarget.level, commission: editTarget.commission, status: editTarget.status,
         parentType: editTarget.parentId ? 'agent' : 'company',
         parentId: editTarget.parentId, parentName: editTarget.parentName,
@@ -134,7 +137,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
       if (editTarget) {
         const updatePayload: Record<string, unknown> = {
           name: form.name, email: form.email, phone: form.phone, city: form.city,
-          joinDate: form.joinDate,
+          joinDate: form.joinDate, birthDate: form.birthDate || null,
           level: form.level, commission: form.commission, status: form.status,
           parentId: finalParentId, specialization: form.specialization,
           referralLink: form.referralLink,
@@ -157,7 +160,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
         await agentsApi.create({
           name: form.name, email: form.email, password: form.password,
           phone: form.phone, city: form.city,
-          joinDate: form.joinDate || undefined,
+          joinDate: form.joinDate || undefined, birthDate: form.birthDate || undefined,
           level: form.level, commission: form.commission, status: form.status,
           parentId: finalParentId, specialization: form.specialization,
           referralLink: form.referralLink,
@@ -301,10 +304,13 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               )}
             </Box>
           )}
+          <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
             <TextField fullWidth label="Дата присоединения" type="date" value={form.joinDate}
               onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} size="small"
+              slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField fullWidth label="Дата рождения" type="date" value={form.birthDate}
+              onChange={e => setForm(f => ({ ...f, birthDate: e.target.value }))} size="small"
               slotProps={{ inputLabel: { shrink: true } }} />
           </Box>
 

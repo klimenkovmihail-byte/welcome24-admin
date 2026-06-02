@@ -27,6 +27,7 @@ type RawAgent = {
   parent_id: number | null;
   team_level: number;
   join_date: string;
+  birth_date?: string | null;
   experience_years: number;
   specialization: string[];
   socials: AgentSocials;
@@ -68,6 +69,7 @@ export function normalizeAgent(raw: RawAgent): Agent {
     parentId: raw.parent_id,
     parentName: null, // обогащается на странице из списка по parentId
     joinDate: raw.join_date,
+    birthDate: raw.birth_date || undefined,
     specialization: raw.specialization || [],
     vkdYear: raw.year_vkd || 0,
     incomeYear: raw.year_income || 0,

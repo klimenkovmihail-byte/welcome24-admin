@@ -234,6 +234,7 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
               <Info label="Агент" value={r.agent_name || '—'} />
               {r.object_ref && <Info label="Объект" value={r.object_ref} />}
               {r.region && <Info label="Регион" value={r.region} />}
+              {(r.need_date || r.need_time) && <Info label="Желаемо" value={[r.need_date, r.need_time].filter(Boolean).join(' ')} />}
               {r.platforms.length > 0 && <Info label="Площадки" value={r.platforms.map(p => PLATFORM_LABEL[p]).join(', ')} />}
               {r.comment && <Info label="Комментарий" value={r.comment} />}
               <Info label="Исполнитель" value={r.assignee_name || 'не взята'} />

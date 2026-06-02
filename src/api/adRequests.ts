@@ -26,6 +26,8 @@ export interface AdRequest {
   status: AdStatus;
   assignee_id: number | null;
   assignee_name: string | null;
+  need_date?: string | null;
+  need_time?: string | null;
   created_at: string;
   updated_at: string;
   unread?: number;

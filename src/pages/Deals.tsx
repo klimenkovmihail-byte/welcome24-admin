@@ -489,7 +489,9 @@ export default function Deals() {
   const openEdit = useCallback((deal: Deal) => { setEditTarget(deal); setDialogOpen(true); }, []);
 
   const handleDelete = useCallback(async (deal: Deal) => {
+    // Двойное подтверждение — удаление сделки необратимо.
     if (!confirm(`Удалить сделку #${deal.id} (${deal.agentName}, ${fmt(deal.vkd)} ₽)?`)) return;
+    if (!confirm('Вы уверены? Сделка будет удалена БЕЗВОЗВРАТНО — это повлияет на ВКД, комиссию и MLM агента.')) return;
     try {
       await dealsApi.remove(deal.id);
       setDeals(prev => prev.filter(d => d.id !== deal.id));
