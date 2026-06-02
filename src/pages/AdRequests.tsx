@@ -3,7 +3,7 @@ import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField, InputLabel,
   Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Switch, Tooltip, Badge,
-  Table, TableHead, TableRow, TableCell, TableBody, InputAdornment,
+  Table, TableHead, TableRow, TableCell, TableBody, InputAdornment, Link,
 } from '@mui/material';
 import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
@@ -12,6 +12,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
+import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
 import {
   adRequestsApi, type AdRequest, type AdStatus, type AdMessage, type AdEvent,
   type RosterAgent, type PlatformStats, type AdAnalytics, type ConnectPlatform,
@@ -211,6 +212,14 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
   const chatRef = useRef<HTMLDivElement>(null);
   useEffect(() => { const el = chatRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages]);
 
+  const [uploading, setUploading] = useState(false);
+  const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try { const up = await uploadFile(file); await adRequestsApi.sendMessage(r.id, { attachmentUrl: up.url, attachmentName: up.name }); reload(); }
+    catch { /* tolerate */ } finally { setUploading(false); e.target.value = ''; }
+  };
   const send = async () => {
     if (!text.trim()) return;
     setSending(true);
@@ -286,14 +295,25 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
                   <Box key={m.id} sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', mb: 0.8 }}>
                     <Box sx={{ maxWidth: '80%', background: c + '2E', border: `1px solid ${c}44`, borderRadius: 2, px: 1.3, py: 0.7 }}>
                       {!mine && <Typography sx={{ color: c, fontSize: 11, fontWeight: 700 }}>{m.sender_name}</Typography>}
-                      <Typography sx={{ color: '#E2E8F0', fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{m.body}</Typography>
+                      {m.body && <Typography sx={{ color: '#E2E8F0', fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
+                      {m.attachment_url && (
+                        <Link href={m.attachment_url} target="_blank" rel="noopener" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color: '#E2C97E', fontSize: 13, textDecoration: 'none', mt: 0.3, '&:hover': { textDecoration: 'underline' } }}>
+                          <AttachFileRoundedIcon sx={{ fontSize: 14 }} /> {m.attachment_name || 'файл'}
+                        </Link>
+                      )}
                       <Typography sx={{ color: '#475569', fontSize: 10, textAlign: 'right' }}>{fmtDate(m.created_at)}</Typography>
                     </Box>
                   </Box>
                 );
               })}
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Tooltip title="Прикрепить файл (чек, скрин)">
+                <IconButton component="label" disabled={uploading} sx={{ color: '#94A3B8', '&:hover': { color: GOLD } }}>
+                  {uploading ? <CircularProgress size={18} sx={{ color: GOLD }} /> : <AttachFileRoundedIcon />}
+                  <input type="file" hidden onChange={handleAttach} />
+                </IconButton>
+              </Tooltip>
               <TextField size="small" fullWidth placeholder="Сообщение…" value={text} onChange={e => setText(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                 sx={{ '& .MuiOutlinedInput-root': { color: '#E2E8F0', '& fieldset': { borderColor: 'rgba(201,168,76,0.2)' } } }} />
