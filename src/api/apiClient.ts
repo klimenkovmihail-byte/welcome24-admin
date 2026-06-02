@@ -42,39 +42,55 @@ export class ApiError extends Error {
 
 type Json = Record<string, unknown> | unknown[] | null;
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 async function request<T>(method: string, path: string, body?: Json): Promise<T> {
   const headers: Record<string, string> = { 'Accept': 'application/json' };
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch (e: unknown) {
-    throw new ApiError(
-      'Не удаётся подключиться к серверу. Проверь что бэкенд запущен на ' + API_BASE_URL,
-      0,
-      e,
-    );
+  // Авто-ретрай только для GET (повтор POST/PATCH мог бы создать дубль). Render при
+  // деплое/просыпании на ~30-60с отдаёт сетевую ошибку или 502/503/504 — тихо повторяем.
+  const canRetry = method === 'GET';
+  const maxAttempts = canRetry ? 3 : 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch (e: unknown) {
+      if (attempt < maxAttempts) { await sleep(700 * attempt); continue; }
+      throw new ApiError(
+        'Не удаётся подключиться к серверу. Проверь что бэкенд запущен на ' + API_BASE_URL,
+        0,
+        e,
+      );
+    }
+
+    if (canRetry && [502, 503, 504].includes(res.status) && attempt < maxAttempts) {
+      await sleep(700 * attempt);
+      continue;
+    }
+
+    const text = await res.text();
+    const json = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+
+    if (!res.ok) {
+      if (res.status === 401) setToken(null);
+      const message = (json && typeof json === 'object' && 'error' in json && typeof (json as { error: unknown }).error === 'string')
+        ? (json as { error: string }).error
+        : `HTTP ${res.status}`;
+      throw new ApiError(message, res.status, json);
+    }
+
+    return json as T;
   }
-
-  const text = await res.text();
-  const json = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
-
-  if (!res.ok) {
-    if (res.status === 401) setToken(null);
-    const message = (json && typeof json === 'object' && 'error' in json && typeof (json as { error: unknown }).error === 'string')
-      ? (json as { error: string }).error
-      : `HTTP ${res.status}`;
-    throw new ApiError(message, res.status, json);
-  }
-
-  return json as T;
+  throw new ApiError('Не удаётся подключиться к серверу', 0, null);
 }
 
 export const api = {
