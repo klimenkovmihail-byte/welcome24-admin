@@ -93,14 +93,16 @@ function RequestsTab() {
   const [statusFilter, setStatusFilter] = useState<'active' | AdStatus | 'all'>('active');
   const [detail, setDetail] = useState<AdRequest | null>(null);
 
-  const load = useCallback(() => {
-    setLoading(true);
+  // silent — без спиннера (для фонового поллинга).
+  const load = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
     Promise.all([adRequestsApi.list().catch(() => []), adRequestsApi.analytics().catch(() => null)])
       .then(([l, a]) => { setItems(l); setAnalytics(a); })
       .catch(e => setError(e?.message || 'Ошибка'))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   }, []);
-  useEffect(() => { load(); }, [load]);
+  // Поллинг каждые 20с — новые заявки появляются без перезагрузки.
+  useEffect(() => { load(); const iv = setInterval(() => load(true), 20000); return () => clearInterval(iv); }, [load]);
 
   const filtered = items.filter(r => {
     if (statusFilter === 'all') return true;

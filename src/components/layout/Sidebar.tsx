@@ -32,6 +32,7 @@ import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
 import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
 import Logo, { LogoIcon } from '../Logo';
 import NotificationsDialog from '../NotificationsDialog';
+import { casesAdminApi } from '../../api/cases';
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -39,6 +40,7 @@ export default function Sidebar() {
   const [openTickets, setOpenTickets] = useState(0);
   const [pendingClaims, setPendingClaims] = useState(0);
   const [adUnread, setAdUnread] = useState(0);
+  const [casesQueue, setCasesQueue] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -56,7 +58,13 @@ export default function Sidebar() {
       if (canAccess(r, '/agents', sa)) agentsApi.pendingReviews().catch(() => []).then(x => setPendingReviews((x as unknown[]).length));
       if (canAccess(r, '/support', sa)) supportApi.list().catch(() => []).then(t => setOpenTickets((t as { status: string }[]).filter(y => y.status === 'open').length));
       if (canAccess(r, '/subscription-claims', sa)) subscriptionAdminApi.pending().catch(() => []).then(p => setPendingClaims((p as unknown[]).length));
-      if (canAccess(r, '/ad-requests', sa)) adRequestsApi.list().catch(() => []).then(l => setAdUnread((l as { unread?: number }[]).filter(y => (y.unread || 0) > 0).length));
+      // Отдел рекламы: новые в очереди (не взяты, не закрыты) + заявки с непрочитанными сообщениями.
+      if (canAccess(r, '/ad-requests', sa)) adRequestsApi.list().catch(() => []).then(l => {
+        const arr = l as { unread?: number; assignee_id?: number | null; status?: string }[];
+        setAdUnread(arr.filter(y => (y.unread || 0) > 0 || (!y.assignee_id && y.status !== 'done' && y.status !== 'cancelled')).length);
+      });
+      // Заявки специалистам (юр/ипотека): незанятые задачи в очереди.
+      if (canAccess(r, '/cases', sa)) casesAdminApi.queue().catch(() => []).then(q => setCasesQueue((q as unknown[]).length));
     };
     load();
     const iv = setInterval(load, 20000);
@@ -67,7 +75,7 @@ export default function Sidebar() {
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
     { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
-    { path: '/cases', label: 'Заявки', icon: <AssignmentRoundedIcon /> },
+    { path: '/cases', label: 'Заявки', icon: <AssignmentRoundedIcon />, badge: casesQueue || null, tooltip: casesQueue ? `${casesQueue} заявок в очереди` : '' },
     { path: '/ad-requests', label: 'Отдел рекламы', icon: <CampaignRoundedIcon />, badge: adUnread || null, tooltip: adUnread ? `${adUnread} заявок с новыми сообщениями` : '' },
     { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },
     { path: '/academy', label: 'Академия', icon: <SchoolRoundedIcon /> },
