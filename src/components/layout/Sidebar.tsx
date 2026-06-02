@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Tooltip, IconButton, Divider, Button } from '@mui/material';
+import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Tooltip, IconButton, Divider, Button, Drawer } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
@@ -34,7 +34,7 @@ import Logo, { LogoIcon } from '../Logo';
 import NotificationsDialog from '../NotificationsDialog';
 import { casesAdminApi } from '../../api/cases';
 
-export default function Sidebar() {
+export default function Sidebar({ isMobile = false, mobileOpen = false, onClose = () => {} }: { isMobile?: boolean; mobileOpen?: boolean; onClose?: () => void }) {
   const [collapsed, setCollapsed] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
   const [openTickets, setOpenTickets] = useState(0);
@@ -97,10 +97,11 @@ export default function Sidebar() {
     logout();
     navigate('/login', { replace: true });
   };
+  // На мобиле после перехода закрываем выезжающую панель.
+  const handleNav = (path: string) => { navigate(path); if (isMobile) onClose(); };
 
-  return (
-    <motion.div animate={{ width: collapsed ? 72 : 248 }} transition={{ duration: 0.3 }} style={{ flexShrink: 0, overflow: 'hidden' }}>
-      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0A1020 0%, #080C18 100%)', borderRight: '1px solid rgba(201,168,76,0.1)', position: 'sticky', top: 0, overflow: 'hidden' }}>
+  const content = (
+      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0A1020 0%, #080C18 100%)', borderRight: isMobile ? 'none' : '1px solid rgba(201,168,76,0.1)', position: isMobile ? 'static' : 'sticky', top: 0, overflow: 'hidden' }}>
 
         {/* Logo */}
         <Box sx={{ p: collapsed ? 1.5 : 2.5, pt: 3, display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 1.5 }}>
@@ -134,7 +135,7 @@ export default function Sidebar() {
             return (
               <ListItem key={item.path} disablePadding>
                 <Tooltip title={collapsed ? item.label : ''} placement="right">
-                  <ListItemButton onClick={() => navigate(item.path)} sx={{ borderRadius: 2.5, minHeight: 44, px: collapsed ? 1.5 : 2, justifyContent: collapsed ? 'center' : 'flex-start', position: 'relative', background: active ? 'linear-gradient(135deg, rgba(201,168,76,0.14), rgba(201,168,76,0.07))' : 'transparent', border: active ? '1px solid rgba(201,168,76,0.2)' : '1px solid transparent', color: active ? '#C9A84C' : '#94A3B8', '&:hover': { background: 'rgba(201,168,76,0.07)', color: '#E2C97E', border: '1px solid rgba(201,168,76,0.12)' }, transition: 'all 0.2s' }}>
+                  <ListItemButton onClick={() => handleNav(item.path)} sx={{ borderRadius: 2.5, minHeight: 44, px: collapsed ? 1.5 : 2, justifyContent: collapsed ? 'center' : 'flex-start', position: 'relative', background: active ? 'linear-gradient(135deg, rgba(201,168,76,0.14), rgba(201,168,76,0.07))' : 'transparent', border: active ? '1px solid rgba(201,168,76,0.2)' : '1px solid transparent', color: active ? '#C9A84C' : '#94A3B8', '&:hover': { background: 'rgba(201,168,76,0.07)', color: '#E2C97E', border: '1px solid rgba(201,168,76,0.12)' }, transition: 'all 0.2s' }}>
                     {active && <Box sx={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 3, height: 20, background: '#C9A84C', borderRadius: '0 3px 3px 0' }} />}
                     <ListItemIcon sx={{ minWidth: collapsed ? 0 : 34, color: 'inherit' }}>{item.icon}</ListItemIcon>
                     <AnimatePresence>
@@ -190,7 +191,7 @@ export default function Sidebar() {
                 <LogoutRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            {!collapsed ? (
+            {!isMobile && (!collapsed ? (
               <IconButton size="small" onClick={() => setCollapsed(true)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                 <ChevronLeftRoundedIcon fontSize="small" />
               </IconButton>
@@ -198,11 +199,25 @@ export default function Sidebar() {
               <IconButton size="small" onClick={() => setCollapsed(false)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                 <ChevronRightRoundedIcon fontSize="small" />
               </IconButton>
-            )}
+            ))}
           </Box>
         </Box>
       </Box>
+  );
+
+  return (
+    <>
+      {isMobile ? (
+        <Drawer variant="temporary" open={mobileOpen} onClose={onClose} ModalProps={{ keepMounted: true }}
+          slotProps={{ paper: { sx: { width: 260, border: 'none', backgroundColor: 'transparent', backgroundImage: 'none', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' } } }}>
+          {content}
+        </Drawer>
+      ) : (
+        <motion.div animate={{ width: collapsed ? 72 : 248 }} transition={{ duration: 0.3 }} style={{ flexShrink: 0, overflow: 'hidden' }}>
+          {content}
+        </motion.div>
+      )}
       <NotificationsDialog open={notifOpen} onClose={() => setNotifOpen(false)} />
-    </motion.div>
+    </>
   );
 }

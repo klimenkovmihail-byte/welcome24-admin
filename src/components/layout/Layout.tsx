@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, IconButton, Badge, Chip, Popover, List, ListItem, ListItemAvatar, ListItemText, Avatar, Button, Divider,
-  Dialog, DialogContent, TextField, InputAdornment, Menu, MenuItem, Tooltip,
+  Dialog, DialogContent, TextField, InputAdornment, Menu, MenuItem, Tooltip, useMediaQuery,
 } from '@mui/material';
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import { motion, AnimatePresence } from 'framer-motion';
 import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
 import { notificationsApi } from '../../api/notifications';
@@ -104,6 +105,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notifs, setNotifs] = useState<AdminNotification[]>([]);
+  const isMobile = useMediaQuery('(max-width:900px)');
+  const [mobileOpen, setMobileOpen] = useState(false);
+  // Закрываем мобильную панель при смене маршрута.
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
   // Привязываем существующую push-подписку к текущему пользователю при входе.
   useEffect(() => { syncPushSubscription(); }, []);
@@ -188,14 +193,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', background: '#080C18' }}>
-      <Sidebar />
+      <Sidebar isMobile={isMobile} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 4, py: 2.5, background: 'rgba(8,12,24,0.95)', borderBottom: '1px solid rgba(201,168,76,0.08)', backdropFilter: 'blur(20px)', position: 'sticky', top: 0, zIndex: 100 }}>
-          <motion.div key={location.pathname} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}>
-            <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9', lineHeight: 1.2 }}>{title}</Typography>
-            <Typography variant="caption" sx={{ color: '#64748B' }}>{subtitle}</Typography>
-          </motion.div>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: { xs: 2, md: 4 }, py: 2.5, background: 'rgba(8,12,24,0.95)', borderBottom: '1px solid rgba(201,168,76,0.08)', backdropFilter: 'blur(20px)', position: 'sticky', top: 0, zIndex: 100 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            {isMobile && (
+              <IconButton onClick={() => setMobileOpen(true)} sx={{ color: '#C9A84C', flexShrink: 0 }}>
+                <MenuRoundedIcon />
+              </IconButton>
+            )}
+            <motion.div key={location.pathname} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} style={{ minWidth: 0 }}>
+              <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9', lineHeight: 1.2, fontSize: { xs: 18, md: 24 }, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
+              <Typography variant="caption" sx={{ color: '#64748B', display: { xs: 'none', sm: 'block' } }}>{subtitle}</Typography>
+            </motion.div>
+          </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Tooltip title="Меню администратора">
               <Chip
