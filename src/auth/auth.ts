@@ -5,7 +5,7 @@ import { api, setToken, getToken, ApiError } from '../api/apiClient';
 import type { Role } from './roles';
 
 // Какие роли вообще могут войти в админку (всё, кроме обычного agent).
-const ADMIN_ROLES: Role[] = ['super_admin', 'admin', 'manager', 'lawyer', 'broker'];
+const ADMIN_ROLES: Role[] = ['super_admin', 'admin', 'manager', 'lawyer', 'broker', 'listing_manager'];
 const isStaffRole = (r: string | undefined) => !!r && (ADMIN_ROLES as string[]).includes(r);
 
 export interface AdminUser {
