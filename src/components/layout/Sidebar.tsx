@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Box, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography, Tooltip, IconButton, Divider, Button, Drawer } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
+import MoveToInboxRoundedIcon from '@mui/icons-material/MoveToInboxRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
@@ -73,6 +74,7 @@ export default function Sidebar({ isMobile = false, mobileOpen = false, onClose 
 
   const allNavItems = [
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
+    { path: '/inbox', label: 'Инбокс', icon: <MoveToInboxRoundedIcon /> },
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
     { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
     { path: '/cases', label: 'Заявки', icon: <AssignmentRoundedIcon />, badge: casesQueue || null, tooltip: casesQueue ? `${casesQueue} заявок в очереди` : '' },

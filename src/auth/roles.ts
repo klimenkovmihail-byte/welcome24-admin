@@ -56,6 +56,7 @@ export const SECTION_LIST: { path: string; label: string }[] = [
 export function canAccess(role: Role | string | undefined, path: string, sectionAccess?: string[] | null): boolean {
   if (!role) return false;
   if (role === 'super_admin') return true;                 // super_admin видит всё
+  if (path === '/inbox') return role !== 'agent';          // инбокс задач — всем сотрудникам, минуя section_access
   if (LOCKED_SECTIONS.includes(path)) return false;        // критичные — только super_admin
   if (sectionAccess) return sectionAccess.includes(path);  // индивидуальная настройка
   const allowed = ROLE_ACCESS[path];

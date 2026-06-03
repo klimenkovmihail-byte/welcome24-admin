@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
+import Inbox from './pages/Inbox';
 import Agents from './pages/Agents';
 import Deals from './pages/Deals';
 import Cases from './pages/Cases';
@@ -68,6 +69,7 @@ export default function App() {
             <Layout>
               <Routes>
                 <Route path="/dashboard" element={<RoleRoute path="/dashboard"><Dashboard /></RoleRoute>} />
+                <Route path="/inbox" element={<RoleRoute path="/inbox"><Inbox /></RoleRoute>} />
                 <Route path="/agents" element={<RoleRoute path="/agents"><Agents /></RoleRoute>} />
                 <Route path="/deals" element={<RoleRoute path="/deals"><Deals /></RoleRoute>} />
                 <Route path="/cases" element={<RoleRoute path="/cases"><Cases /></RoleRoute>} />
