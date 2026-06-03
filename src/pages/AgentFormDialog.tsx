@@ -12,6 +12,7 @@ import {
   Radio, RadioGroup, FormControlLabel, FormLabel, Autocomplete,
   ToggleButtonGroup, ToggleButton, Alert,
 } from '@mui/material';
+import SmartAvatar from '../components/SmartAvatar';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
@@ -411,12 +412,13 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
             <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, letterSpacing: '0.05em' }}>ПУБЛИЧНЫЙ ПРОФИЛЬ</Typography>
           </Divider>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar
-              src={form.photo || undefined}
-              sx={{ width: 64, height: 64, fontSize: 18, fontWeight: 800, background: 'rgba(201,168,76,0.18)', color: '#C9A84C', border: '2px solid rgba(201,168,76,0.3)' }}
-            >
-              {form.name.split(' ').map(n => n[0]).slice(0, 2).join('') || '—'}
-            </Avatar>
+            <SmartAvatar
+              src={form.photo}
+              name={form.name}
+              size={64}
+              fontSize={18}
+              sx={{ background: 'rgba(201,168,76,0.18)', color: '#C9A84C', border: '2px solid rgba(201,168,76,0.3)' }}
+            />
             <TextField
               fullWidth size="small" label="Фото (URL)"
               value={form.photo} onChange={e => setForm(f => ({ ...f, photo: e.target.value }))}
