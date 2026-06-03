@@ -48,6 +48,7 @@ interface AdminNotification {
   desc: string;
   time: string;
   unread: boolean;
+  link: string | null;
 }
 
 function relativeTime(iso: string): string {
@@ -115,20 +116,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    notificationsApi.list()
-      .then(rows => {
-        if (cancelled) return;
-        setNotifs(rows.map(n => ({
-          id: n.id,
-          type: n.type,
-          title: n.title,
-          desc: n.description,
-          time: relativeTime(n.createdAt),
-          unread: !n.readAt,
-        })));
-      })
-      .catch(() => { /* tolerate */ });
-    return () => { cancelled = true; };
+    const load = () => {
+      notificationsApi.list()
+        .then(rows => {
+          if (cancelled) return;
+          setNotifs(rows.map(n => ({
+            id: n.id,
+            type: n.type,
+            title: n.title,
+            desc: n.description,
+            time: relativeTime(n.createdAt),
+            unread: !n.readAt,
+            link: n.link,
+          })));
+        })
+        .catch(() => { /* tolerate */ });
+    };
+    load();
+    // Живой колокол: новые заявки/сообщения появляются без перезагрузки. Пауза при скрытой вкладке.
+    const iv = setInterval(() => { if (!document.hidden) load(); }, 30000);
+    return () => { cancelled = true; clearInterval(iv); };
   }, []);
 
   const unreadCount = notifs.filter(n => n.unread).length;
@@ -304,9 +311,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     onClick={() => {
                       setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, unread: false } : x));
                       notificationsApi.markRead(n.id).catch(() => { /* tolerate */ });
-                      if (n.type === 'deal') navigate('/deals');
-                      if (n.type === 'agent') navigate('/agents');
-                      if (n.type === 'shares') navigate('/shares');
+                      // Ссылки относительные (/cases, /ad-requests, /ad-packages и т.п.) и есть в админке.
+                      if (n.link && n.link.startsWith('/')) navigate(n.link);
+                      else if (n.type === 'deal') navigate('/deals');
+                      else if (n.type === 'agent') navigate('/agents');
+                      else if (n.type === 'shares') navigate('/shares');
                       setNotifAnchor(null);
                     }}
                     sx={{
