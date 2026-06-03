@@ -92,6 +92,7 @@ function RequestsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'active' | AdStatus | 'all'>('active');
+  const [q, setQ] = useState('');
   const [detail, setDetail] = useState<AdRequest | null>(null);
 
   // silent — без спиннера (для фонового поллинга).
@@ -105,10 +106,17 @@ function RequestsTab() {
   // Поллинг каждые 20с — новые заявки появляются без перезагрузки.
   useEffect(() => { load(); const iv = setInterval(() => load(true), 20000); return () => clearInterval(iv); }, [load]);
 
+  const term = q.trim().toLowerCase();
   const filtered = items.filter(r => {
-    if (statusFilter === 'all') return true;
-    if (statusFilter === 'active') return r.status === 'new' || r.status === 'in_progress';
-    return r.status === statusFilter;
+    const statusOk = statusFilter === 'all' ? true
+      : statusFilter === 'active' ? (r.status === 'new' || r.status === 'in_progress')
+      : r.status === statusFilter;
+    const searchOk = !term
+      || (r.agent_name || '').toLowerCase().includes(term)
+      || (r.object_ref || '').toLowerCase().includes(term)
+      || (r.region || '').toLowerCase().includes(term)
+      || (r.kind_label || '').toLowerCase().includes(term);
+    return statusOk && searchOk;
   });
 
   const take = (id: number) => adRequestsApi.take(id).then(load).catch(e => setError(e?.message));
@@ -127,17 +135,21 @@ function RequestsTab() {
           <StatChip label="Готово" value={analytics.byStatus.done} color="#22C55E" />
         </Stack>
       )}
-      <FormControl size="small" sx={{ mb: 2, minWidth: 180 }}>
-        <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
-          sx={{ color: '#E2E8F0', '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(201,168,76,0.2)' } }}>
-          <MenuItem value="active">Активные</MenuItem>
-          <MenuItem value="new">Новые</MenuItem>
-          <MenuItem value="in_progress">В работе</MenuItem>
-          <MenuItem value="done">Готово</MenuItem>
-          <MenuItem value="cancelled">Отменённые</MenuItem>
-          <MenuItem value="all">Все</MenuItem>
-        </Select>
-      </FormControl>
+      <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: 'wrap' }} useFlexGap>
+        <TextField size="small" placeholder="Поиск: агент / объект / регион" value={q} onChange={e => setQ(e.target.value)}
+          sx={{ minWidth: 240, flex: 1, '.MuiOutlinedInput-root': { color: '#E2E8F0' }, '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(201,168,76,0.2)' } }} />
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+            sx={{ color: '#E2E8F0', '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(201,168,76,0.2)' } }}>
+            <MenuItem value="active">Активные</MenuItem>
+            <MenuItem value="new">Новые</MenuItem>
+            <MenuItem value="in_progress">В работе</MenuItem>
+            <MenuItem value="done">Готово</MenuItem>
+            <MenuItem value="cancelled">Отменённые</MenuItem>
+            <MenuItem value="all">Все</MenuItem>
+          </Select>
+        </FormControl>
+      </Stack>
 
       <Stack spacing={1.2}>
         {filtered.length === 0 && <Typography sx={{ color: '#64748B', py: 4, textAlign: 'center' }}>Заявок нет</Typography>}
