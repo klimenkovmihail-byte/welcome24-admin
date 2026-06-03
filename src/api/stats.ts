@@ -54,6 +54,8 @@ export interface PortalActivityAgent {
   lastLoginAt: string | null;
   activeDays30: number;
   aiReq30: number;
+  deals90: number;
+  vkd90: number;
   hasTelegram: boolean;
   hasMax: boolean;
   hasPush: boolean;
