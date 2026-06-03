@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import { statsApi, type OverviewResponse } from '../api/stats';
 import { sharesApi, type ShareQuote } from '../api/shares';
+import PortalActivity from '../components/PortalActivity';
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
   if (!active || !payload?.length) return null;
@@ -298,6 +299,11 @@ export default function Analytics() {
           </ResponsiveContainer>
         </>, 0.3
       )}
+
+      {/* Активность портала агентов (DAU/WAU/MAU + детализация) */}
+      <Box sx={{ mt: 2, pt: 3, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <PortalActivity />
+      </Box>
     </Box>
   );
 }

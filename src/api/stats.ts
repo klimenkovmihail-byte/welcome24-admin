@@ -31,6 +31,34 @@ export interface OverviewResponse {
   monthlyShares:    SharesMonthBucket[];
 }
 
+// Активность портала агентов (DAU/WAU/MAU + детализация).
+export interface PortalActivity {
+  dau: number;
+  wau: number;
+  mau: number;
+  stickiness: number;          // % DAU/MAU
+  totalActiveAgents: number;
+  active7: number;
+  active30: number;
+  sleeping: number;
+  reachability: { telegram: number; max: number; push: number; any: number };
+  dailySeries: { day: string; active: number }[];
+  weeklySeries: { weekStart: string; active: number }[];
+  trackingSince: string;
+}
+export interface PortalActivityAgent {
+  id: number;
+  name: string;
+  city: string;
+  joinDate: string | null;
+  lastLoginAt: string | null;
+  activeDays30: number;
+  aiReq30: number;
+  hasTelegram: boolean;
+  hasMax: boolean;
+  hasPush: boolean;
+}
+
 export const statsApi = {
   overview: (opts?: { year?: string; month?: string }) => {
     const p = new URLSearchParams();
@@ -39,4 +67,6 @@ export const statsApi = {
     const q = p.toString();
     return api.get<OverviewResponse>(`/api/stats/overview${q ? `?${q}` : ''}`);
   },
+  portalActivity:       () => api.get<PortalActivity>('/api/stats/portal-activity'),
+  portalActivityAgents: () => api.get<PortalActivityAgent[]>('/api/stats/portal-activity/agents'),
 };
