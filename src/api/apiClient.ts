@@ -50,30 +50,38 @@ async function request<T>(method: string, path: string, body?: Json): Promise<T>
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  // Авто-ретрай только для GET (повтор POST/PATCH мог бы создать дубль). Render при
-  // деплое/просыпании на ~30-60с отдаёт сетевую ошибку или 502/503/504 — тихо повторяем.
-  const canRetry = method === 'GET';
-  const maxAttempts = canRetry ? 3 : 1;
+  // Сетевой сбой/таймаут (запрос НЕ дошёл) ретраим для ЛЮБОГО метода — безопасно
+  // и нужно для холодного старта Render (иначе первый POST = логин падает). HTTP 5xx
+  // (сервер мог обработать) ретраим только для идемпотентного GET — без дублей POST.
+  const retry5xx = method === 'GET';
+  const maxAttempts = 5;
+  const ATTEMPT_TIMEOUT = 15000;
+  const backoff = (n: number) => Math.min(800 * 2 ** (n - 1), 4000);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let res: Response;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT);
     try {
       res = await fetch(`${API_BASE_URL}${path}`, {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
       });
     } catch (e: unknown) {
-      if (attempt < maxAttempts) { await sleep(700 * attempt); continue; }
+      if (attempt < maxAttempts) { await sleep(backoff(attempt)); continue; }
       throw new ApiError(
         'Не удаётся подключиться к серверу. Проверь что бэкенд запущен на ' + API_BASE_URL,
         0,
         e,
       );
+    } finally {
+      clearTimeout(timer);
     }
 
-    if (canRetry && [502, 503, 504].includes(res.status) && attempt < maxAttempts) {
-      await sleep(700 * attempt);
+    if (retry5xx && [502, 503, 504].includes(res.status) && attempt < maxAttempts) {
+      await sleep(backoff(attempt));
       continue;
     }
 
