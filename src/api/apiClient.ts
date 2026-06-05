@@ -52,8 +52,10 @@ async function request<T>(method: string, path: string, body?: Json): Promise<T>
 
   // Сетевой сбой/таймаут (запрос НЕ дошёл) ретраим для ЛЮБОГО метода — безопасно
   // и нужно для холодного старта Render (иначе первый POST = логин падает). HTTP 5xx
-  // (сервер мог обработать) ретраим только для идемпотентного GET — без дублей POST.
-  const retry5xx = method === 'GET';
+  // (сервер мог обработать) ретраим только для ИДЕМПОТЕНТНЫХ методов — GET/PATCH/PUT/DELETE
+  // (повтор не плодит сущности). POST не ретраим на 5xx, чтобы не создать дубль.
+  // Без этого сохранение (PATCH) падало в простой Render при деплое — «кнопка не работает».
+  const retry5xx = method === 'GET' || method === 'PATCH' || method === 'PUT' || method === 'DELETE';
   const maxAttempts = 5;
   const ATTEMPT_TIMEOUT = 15000;
   const backoff = (n: number) => Math.min(800 * 2 ** (n - 1), 4000);

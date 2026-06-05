@@ -65,6 +65,8 @@ export default function News() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Ошибка сохранения показывается ВНУТРИ диалога (page-level Alert прячется за модалкой).
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [comments, setComments] = useState<ArticleComment[]>([]);
   const [commentsCount, setCommentsCount] = useState<Record<number, number>>({});
@@ -121,7 +123,7 @@ export default function News() {
     return matchQ && matchCat;
   });
 
-  const openCreate = () => { setForm(emptyForm()); setPreview(false); setDialogOpen(true); };
+  const openCreate = () => { setForm(emptyForm()); setPreview(false); setSaveError(null); setDialogOpen(true); };
   const openEdit = (a: Article) => {
     setForm({
       id: a.id, title: a.title, category: a.category, summary: a.summary, content: a.content,
@@ -129,12 +131,14 @@ export default function News() {
       pinned: a.pinned, published: a.published,
     });
     setPreview(false);
+    setSaveError(null);
     setDialogOpen(true);
   };
 
   const handleSave = async (publishOverride?: boolean) => {
     if (!form.title.trim() || saving) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const payload = toPayload(form, publishOverride !== undefined ? { published: publishOverride } : undefined);
       if (form.id != null) {
@@ -145,7 +149,8 @@ export default function News() {
       setDialogOpen(false);
       await loadArticles();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка сохранения');
+      // Показываем ошибку прямо в диалоге, чтобы клик «Сохранить» не выглядел «ничего не делающим».
+      setSaveError(e instanceof Error ? e.message : 'Не удалось сохранить. Проверьте связь и повторите.');
     } finally {
       setSaving(false);
     }
@@ -247,8 +252,14 @@ export default function News() {
                       <Box sx={{ position: 'absolute', top: 0, right: 0, width: 0, height: 0, borderStyle: 'solid', borderWidth: '0 32px 32px 0', borderColor: `transparent #C9A84C transparent transparent` }} />
                     )}
 
-                    <Box sx={{ height: 80, borderRadius: 2, mb: 2, background: `linear-gradient(135deg, ${cc.color}15, ${cc.color}05)`, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${cc.color}15` }}>
+                    <Box sx={{ height: 80, borderRadius: 2, mb: 2, overflow: 'hidden', position: 'relative', background: `linear-gradient(135deg, ${cc.color}15, ${cc.color}05)`, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${cc.color}15` }}>
+                      {/* Иконка-плейсхолдер под картинкой — видна, пока обложка грузится или если её нет/ссылка битая */}
                       <ArticleRoundedIcon sx={{ fontSize: 32, color: cc.color, opacity: 0.5 }} />
+                      {article.coverUrl && (
+                        <Box component="img" src={article.coverUrl} alt=""
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                          sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
                     </Box>
 
                     <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
@@ -324,6 +335,7 @@ export default function News() {
         </DialogTitle>
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 3 }}>
+          {saveError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSaveError(null)}>{saveError}</Alert>}
           {preview ? (
             <Box>
               <Typography variant="caption" sx={{ color: catColor[form.category]?.color || '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{form.category}</Typography>

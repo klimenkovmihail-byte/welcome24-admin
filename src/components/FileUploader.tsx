@@ -9,7 +9,7 @@
  *   <FileUploader value={form.coverUrl} onChange={url => setForm(f => ({...f, coverUrl: url}))} type="cover" />
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, Button, TextField, IconButton, Typography, CircularProgress, Alert } from '@mui/material';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
@@ -44,6 +44,10 @@ export default function FileUploader({
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [imgBroken, setImgBroken] = useState(false);
+
+  // При смене URL даём картинке новый шанс отрисоваться (сбрасываем флаг битой).
+  useEffect(() => { setImgBroken(false); }, [value]);
 
   // Загружаем итоговый файл (или Blob после обрезки) на бэк
   const uploadBlob = async (blob: Blob, filename: string) => {
@@ -110,9 +114,20 @@ export default function FileUploader({
             component="img"
             src={value}
             alt=""
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-            sx={{ width: '100%', maxHeight: 180, objectFit: 'cover', display: 'block' }}
+            onLoad={() => setImgBroken(false)}
+            onError={() => setImgBroken(true)}
+            sx={{ width: '100%', maxHeight: 180, objectFit: 'cover', display: imgBroken ? 'none' : 'block' }}
           />
+          {imgBroken && (
+            <Box sx={{ p: 2, textAlign: 'center' }}>
+              <Typography variant="caption" sx={{ color: '#F59E0B', display: 'block', fontWeight: 600 }}>
+                Не удалось загрузить картинку по этой ссылке
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.5 }}>
+                Нужна прямая ссылка на файл (…/image.jpg). Надёжнее — загрузить картинку кнопкой «Заменить».
+              </Typography>
+            </Box>
+          )}
           <IconButton
             size="small"
             onClick={() => onChange('')}
