@@ -202,7 +202,8 @@ export default function Settings() {
     setError(null);
     try {
       await settingsApi.update({
-        share_price: settings.sharePrice,
+        // share_price НЕ сохраняем: курс — это последняя котировка (раздел «Акции»),
+        // settings.share_price синхронизируется на бэке при изменении котировок.
         total_shares: settings.totalSharesIssued,
         // available_shares больше не хранится в settings — считается live из stats.
         level1_threshold: settings.level1Threshold,
@@ -446,7 +447,8 @@ export default function Settings() {
             <TextField
               fullWidth size="small" label="Текущий курс акции (₽)" type="number"
               value={settings.sharePrice}
-              onChange={e => setSettings(s => ({ ...s, sharePrice: Number(e.target.value) }))}
+              disabled
+              helperText="Курс = последняя котировка. Менять в разделе «Акции» → «Добавить котировку»."
               slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }}
             />
             <TextField

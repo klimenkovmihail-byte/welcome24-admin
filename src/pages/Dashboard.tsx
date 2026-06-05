@@ -115,7 +115,7 @@ export default function Dashboard() {
           <StatCard delay={0.15} icon={<DiamondRoundedIcon />} label="Акции выпущено" value={fmtFull(settings.totalSharesIssued)} sub={`В обращении: ${fmtFull(settings.sharesInCirculation)} шт`} color="#7B2FBE" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatCard delay={0.2} icon={<TrendingUpRoundedIcon />} label="Курс 1 акции" value={`${fmtFull(settings.sharePrice)} ₽`} sub={`Капитализация: ${fmt(settings.sharesInCirculation * settings.sharePrice)} ₽`} color="#22C55E" />
+          <StatCard delay={0.2} icon={<TrendingUpRoundedIcon />} label="Курс 1 акции" value={`${fmtFull(settings.sharePrice)} ₽`} sub={`Капитализация: ${fmt(settings.totalSharesIssued * settings.sharePrice)} ₽`} color="#22C55E" />
         </Grid>
       </Grid>
 
