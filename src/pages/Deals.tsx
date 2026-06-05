@@ -475,12 +475,8 @@ export default function Deals() {
 
   const reloadDeals = useCallback(() => {
     setLoading(true);
-    const filter = { year, month, q: debouncedSearch };
-    return Promise.all([
-      dealsApi.list({ ...filter, limit }),
-      dealsApi.count(filter),
-    ])
-      .then(([rows, cnt]) => { setDeals(rows); setTotal(cnt); })
+    return dealsApi.listPaged({ year, month, q: debouncedSearch, limit })
+      .then(({ deals: rows, total: cnt }) => { setDeals(rows); setTotal(cnt); })
       .catch(err => setError(err?.message || 'Ошибка загрузки сделок'))
       .finally(() => setLoading(false));
   }, [year, month, debouncedSearch, limit]);
@@ -536,9 +532,12 @@ export default function Deals() {
             {yearOptions.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
           </Select>
         </FormControl>
-        <Typography variant="caption" sx={{ color: '#64748B', mr: 1 }}>
-          {total} {pluralDeals(total)}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 1 }}>
+          {loading && <CircularProgress size={14} sx={{ color: '#C9A84C' }} />}
+          <Typography variant="caption" sx={{ color: '#64748B' }}>
+            {total} {pluralDeals(total)}
+          </Typography>
+        </Box>
         <Button
           variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}
           sx={{ ml: 'auto', flexShrink: 0, borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.06)' } }}
@@ -559,13 +558,13 @@ export default function Deals() {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>
       )}
-      {loading && (
+      {loading && deals.length === 0 && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress sx={{ color: '#C9A84C' }} />
         </Box>
       )}
 
-      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: loading ? 'none' : 'block' }}>
+      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: (loading && deals.length === 0) ? 'none' : 'block', opacity: loading ? 0.6 : 1, transition: 'opacity 0.15s' }}>
         <Table>
           <TableHead>
             <TableRow>

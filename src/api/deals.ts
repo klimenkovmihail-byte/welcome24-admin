@@ -74,8 +74,9 @@ export interface DealUpdatePayload {
 
 export interface DealsListParams { year?: string; month?: string; q?: string; limit?: number }
 
-function dealsQuery(p: DealsListParams = {}): string {
+function dealsQuery(p: DealsListParams = {}, paged = false): string {
   const sp = new URLSearchParams();
+  if (paged)                        sp.set('paged', '1');
   if (p.year && p.year !== 'all')   sp.set('year', p.year);
   if (p.month && p.month !== 'all') sp.set('month', p.month);
   if (p.q && p.q.trim())            sp.set('q', p.q.trim());
@@ -86,7 +87,10 @@ function dealsQuery(p: DealsListParams = {}): string {
 
 export const dealsApi = {
   list:    (p: DealsListParams = {}) => api.get<RawDeal[]>(`/api/deals${dealsQuery(p)}`).then(rows => rows.map(normalizeDeal)),
-  count:   (p: DealsListParams = {}) => api.get<{ total: number }>(`/api/deals/count${dealsQuery({ ...p, limit: undefined })}`).then(r => r.total),
+  // Пагинированный список одним запросом: { deals, total } (paged=1 на бэке).
+  listPaged: (p: DealsListParams = {}) =>
+    api.get<{ deals: RawDeal[]; total: number }>(`/api/deals${dealsQuery(p, true)}`)
+      .then(r => ({ deals: r.deals.map(normalizeDeal), total: r.total })),
   create:  (payload: DealCreatePayload) =>
     api.post<RawDeal>('/api/deals', payload as unknown as Record<string, unknown>).then(normalizeDeal),
   update:  (id: number, payload: DealUpdatePayload) =>
