@@ -92,7 +92,8 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
     if (!open) return;
     if (editTarget) {
       const r = ((editTarget as Agent & { role?: Role }).role || 'agent') as Role;
-      const isStaff = r === 'super_admin' || r === 'admin' || r === 'manager' || r === 'lawyer' || r === 'broker' || r === 'listing_manager';
+      // Любая не-агентская роль = тип «Сотрудник» (employee/referral_partner тоже).
+      const isStaff = r !== 'agent';
       setForm({
         kind: isStaff ? 'staff' : 'agent',
         staffRole: isStaff ? (r as 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker' | 'listing_manager' | 'employee' | 'referral_partner') : 'manager',
