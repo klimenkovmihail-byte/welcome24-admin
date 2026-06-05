@@ -28,6 +28,14 @@ import { settingsApi } from '../api/settings';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
+
+// Сегодняшняя дата в ЛОКАЛЬНОЙ зоне (МСК) в формате YYYY-MM-DD.
+// new Date().toISOString() даёт UTC — в ранние часы МСК это ПРЕДЫДУЩИЙ день,
+// из-за чего котировка сохранялась на день раньше выбранного.
+const todayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 // Деньги: «N млн ₽» только от 1 млн, иначе обычные рубли (не «0.02 млн»).
 const fmtMoney = (n: number) =>
   Math.abs(n) >= 1_000_000 ? `${(n / 1e6).toFixed(2)} млн ₽` : `${fmt(Math.round(n))} ₽`;
@@ -90,7 +98,7 @@ export default function Shares() {
   const [form, setForm] = useState<FormState>({ ...emptyForm });
 
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
-  const [quoteForm, setQuoteForm] = useState({ date: new Date().toISOString().slice(0, 10), price: '', note: '' });
+  const [quoteForm, setQuoteForm] = useState({ date: todayLocal(), price: '', note: '' });
 
   const reloadAll = () => Promise.all([
     sharesApi.operations().then(setOps).catch(() => { /* tolerate */ }),
@@ -114,7 +122,7 @@ export default function Shares() {
       await sharesApi.addQuote({ date: quoteForm.date, price: p, note: quoteForm.note || '' });
       await reloadAll();
       setQuoteDialogOpen(false);
-      setQuoteForm({ date: new Date().toISOString().slice(0, 10), price: '', note: '' });
+      setQuoteForm({ date: todayLocal(), price: '', note: '' });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось добавить котировку');
     }
@@ -284,7 +292,7 @@ export default function Shares() {
               <Typography variant="caption" sx={{ color: '#64748B' }}>{quotes.length} записей · обновляется вручную администратором</Typography>
             </Box>
           </Box>
-          <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setQuoteDialogOpen(true)}>
+          <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setQuoteForm({ date: todayLocal(), price: '', note: '' }); setQuoteDialogOpen(true); }}>
             Добавить котировку
           </Button>
         </Box>
