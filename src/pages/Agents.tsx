@@ -503,7 +503,7 @@ export default function Agents() {
                             onChange={e => changeRole(agent.id, e.target.value as Role)}
                             sx={{ fontSize: 11, fontWeight: 700, color: c, '& .MuiSelect-select': { p: 0, pr: '20px !important' }, '& .MuiSvgIcon-root': { color: c, fontSize: 16 } }}
                           >
-                            {(['super_admin', 'admin', 'manager', 'lawyer', 'broker', 'listing_manager', 'agent'] as Role[]).map(opt => (
+                            {(['super_admin', 'admin', 'manager', 'lawyer', 'broker', 'listing_manager', 'employee', 'referral_partner', 'agent'] as Role[]).map(opt => (
                               <MenuItem key={opt} value={opt} sx={{ fontSize: 12, color: ROLE_COLOR[opt], fontWeight: 600 }}>
                                 {ROLE_LABEL[opt]}
                               </MenuItem>
