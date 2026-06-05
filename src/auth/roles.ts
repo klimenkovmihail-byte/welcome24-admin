@@ -2,7 +2,7 @@
 // Бэк уже сам блокирует мутации (requireSuperAdmin / requireStaff / requireAdmin),
 // фронт делает то же самое для UX: прячет пункты сайдбара и блокирует роуты.
 
-export type Role = 'super_admin' | 'admin' | 'manager' | 'agent' | 'lawyer' | 'broker' | 'listing_manager';
+export type Role = 'super_admin' | 'admin' | 'manager' | 'agent' | 'lawyer' | 'broker' | 'listing_manager' | 'employee' | 'referral_partner';
 
 // Какие разделы видны каждой роли.
 // Ключ — путь в App router; значение — список ролей с доступом.
@@ -79,6 +79,8 @@ export const ROLE_LABEL: Record<Role, string> = {
   lawyer:      'Юрист',
   broker:      'Брокер',
   listing_manager: 'Листинг-менеджер',
+  employee:    'Сотрудник',
+  referral_partner: 'Партнёр привлечения',
 };
 
 export const ROLE_COLOR: Record<Role, string> = {
@@ -89,4 +91,6 @@ export const ROLE_COLOR: Record<Role, string> = {
   lawyer:      '#22C55E',
   broker:      '#8B5CF6',
   listing_manager: '#06B6D4',
+  employee:    '#0EA5E9',
+  referral_partner: '#F59E0B',
 };

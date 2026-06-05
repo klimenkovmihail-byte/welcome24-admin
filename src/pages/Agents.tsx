@@ -409,6 +409,8 @@ export default function Agents() {
             <MenuItem value="lawyer"      sx={{ color: ROLE_COLOR.lawyer,      fontWeight: 600 }}>{ROLE_LABEL.lawyer}</MenuItem>
             <MenuItem value="broker"      sx={{ color: ROLE_COLOR.broker,      fontWeight: 600 }}>{ROLE_LABEL.broker}</MenuItem>
             <MenuItem value="listing_manager" sx={{ color: ROLE_COLOR.listing_manager, fontWeight: 600 }}>{ROLE_LABEL.listing_manager}</MenuItem>
+            <MenuItem value="employee"    sx={{ color: ROLE_COLOR.employee,    fontWeight: 600 }}>{ROLE_LABEL.employee}</MenuItem>
+            <MenuItem value="referral_partner" sx={{ color: ROLE_COLOR.referral_partner, fontWeight: 600 }}>{ROLE_LABEL.referral_partner}</MenuItem>
             <MenuItem value="agent"       sx={{ color: ROLE_COLOR.agent,       fontWeight: 600 }}>{ROLE_LABEL.agent}</MenuItem>
           </Select>
         </FormControl>
