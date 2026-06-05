@@ -119,8 +119,9 @@ function RequestsTab() {
     return statusOk && searchOk;
   });
 
-  const take = (id: number) => adRequestsApi.take(id).then(load).catch(e => setError(e?.message));
-  const setStatus = (id: number, status: AdStatus) => adRequestsApi.update(id, { status }).then(load).catch(e => setError(e?.message));
+  // Тихий load (без спиннера) — иначе список размонтируется и скролл прыгает наверх (#4).
+  const take = (id: number) => adRequestsApi.take(id).then(() => load(true)).catch(e => setError(e?.message));
+  const setStatus = (id: number, status: AdStatus) => adRequestsApi.update(id, { status }).then(() => load(true)).catch(e => setError(e?.message));
 
   if (loading) return <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress sx={{ color: GOLD }} /></Box>;
 
@@ -166,7 +167,9 @@ function RequestsTab() {
                   {r.platforms.map(p => <Chip key={p} label={PLATFORM_LABEL[p]} size="small" variant="outlined" sx={{ height: 20, fontSize: 11, color: '#94A3B8', borderColor: 'rgba(148,163,184,0.3)' }} />)}
                 </Stack>
                 <Box sx={{ flex: 1 }} />
-                <Typography sx={{ color: '#CBD5E1', fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtDateTime(r.created_at)}</Typography>
+                <Tooltip title="Последнее действие по заявке">
+                  <Typography sx={{ color: '#CBD5E1', fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtDateTime(r.updated_at || r.created_at)}</Typography>
+                </Tooltip>
                 <Typography sx={{ color: '#64748B', fontSize: 12 }}>{r.agent_name}</Typography>
                 <Chip label={AD_STATUS_RU[r.status]} size="small" sx={{ background: statusColor(r.status) + '22', color: statusColor(r.status), fontWeight: 700 }} />
                 {!r.assignee_id ? (
@@ -181,7 +184,7 @@ function RequestsTab() {
         ))}
       </Stack>
 
-      {detail && <RequestDetail request={detail} onClose={() => { setDetail(null); load(); }} onChanged={load} setStatus={setStatus} take={take} />}
+      {detail && <RequestDetail request={detail} onClose={() => { setDetail(null); load(true); }} onChanged={() => load(true)} setStatus={setStatus} take={take} />}
     </Box>
   );
 }
@@ -298,7 +301,8 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
                 <Stack spacing={0.5}>
                   {events.map(e => (
                     <Typography key={e.id} sx={{ color: '#94A3B8', fontSize: 12.5 }}>
-                      <span style={{ color: '#475569' }}>{fmtDate(e.created_at)}</span> · {e.text}{e.actor_name ? ` (${e.actor_name})` : ''}
+                      <span style={{ color: '#475569' }}>{fmtDateTime(e.created_at)}</span> · {e.text}
+                      {e.actor_name && <span style={{ color: GOLD, fontWeight: 600 }}> — {e.actor_name}</span>}
                     </Typography>
                   ))}
                 </Stack>
