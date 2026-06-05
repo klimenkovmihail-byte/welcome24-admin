@@ -38,7 +38,7 @@ export interface AdMessage {
 export interface AdEvent { id: number; kind: string; text: string; actor_name: string | null; created_at: string; }
 
 export interface AdMeta {
-  kinds: { key: AdKind; label: string }[];
+  kinds: { key: AdKind; label: string; group?: string }[];
   platforms: { key: AdPlatform; label: string }[];
   connectPlatforms: ConnectPlatform[];
   statuses: { key: AdStatus; label: string }[];
@@ -68,7 +68,7 @@ export const PLATFORM_LABEL: Record<string, string> = {
 
 export const adRequestsApi = {
   meta: () => api.get<AdMeta>('/api/ad-requests/meta'),
-  list: () => api.get<AdRequest[]>('/api/ad-requests'),
+  list: (kinds?: AdKind[]) => api.get<AdRequest[]>(`/api/ad-requests${kinds?.length ? `?kinds=${kinds.join(',')}` : ''}`),
   get: (id: number) => api.get<AdRequest>(`/api/ad-requests/${id}`),
   create: (body: { kind: AdKind; objectRef?: string; region?: string; platforms?: AdPlatform[]; comment?: string }) =>
     api.post<AdRequest>('/api/ad-requests', body),

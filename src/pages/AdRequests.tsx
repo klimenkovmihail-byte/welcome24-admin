@@ -70,41 +70,50 @@ export default function AdRequests() {
         </Box>
       </Stack>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, '& .MuiTab-root': { color: '#94A3B8', fontWeight: 700, textTransform: 'none' }, '& .Mui-selected': { color: GOLD + ' !important' }, '& .MuiTabs-indicator': { background: GOLD } }}>
-        <Tab label="Заявки" />
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2, '& .MuiTab-root': { color: '#94A3B8', fontWeight: 700, textTransform: 'none' }, '& .Mui-selected': { color: GOLD + ' !important' }, '& .MuiTabs-indicator': { background: GOLD } }}>
+        <Tab label="Реклама объектов" />
+        <Tab label="Прикрепление к площадкам" />
         <Tab label="Сбор пакета" />
         <Tab label="Прайс-лист" />
         <Tab label="База подключений" />
       </Tabs>
 
-      {tab === 0 && <RequestsTab />}
-      {tab === 1 && <PackagesTab />}
-      {tab === 2 && <PriceListTab />}
-      {tab === 3 && <ConnectionsTab />}
+      {tab === 0 && <RequestsTab kinds={['quota', 'fix']} />}
+      {tab === 1 && <RequestsTab kinds={['connect']} />}
+      {tab === 2 && <PackagesTab />}
+      {tab === 3 && <PriceListTab />}
+      {tab === 4 && <ConnectionsTab />}
     </Box>
   );
 }
 
-/* ============ ВКЛАДКА: ЗАЯВКИ ============ */
-function RequestsTab() {
+/* ============ ВКЛАДКА: ЗАЯВКИ (объектные / прикрепление — по kinds) ============ */
+function RequestsTab({ kinds }: { kinds: AdKind[] }) {
   const [items, setItems] = useState<AdRequest[]>([]);
-  const [analytics, setAnalytics] = useState<AdAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'active' | AdStatus | 'all'>('active');
   const [q, setQ] = useState('');
   const [detail, setDetail] = useState<AdRequest | null>(null);
+  const kindsKey = kinds.join(',');
 
   // silent — без спиннера (для фонового поллинга).
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true);
-    Promise.all([adRequestsApi.list().catch(() => []), adRequestsApi.analytics().catch(() => null)])
-      .then(([l, a]) => { setItems(l); setAnalytics(a); })
+    adRequestsApi.list(kindsKey.split(',') as AdKind[]).then(setItems)
       .catch(e => setError(e?.message || 'Ошибка'))
       .finally(() => { if (!silent) setLoading(false); });
-  }, []);
+  }, [kindsKey]);
   // Поллинг каждые 20с — новые заявки появляются без перезагрузки.
   useEffect(() => { load(); const iv = setInterval(() => load(true), 20000); return () => clearInterval(iv); }, [load]);
+
+  // Счётчики — из загруженного (отфильтрованного по kinds) списка.
+  const analytics = {
+    total: items.length,
+    queue: items.filter(r => !r.assignee_id && r.status !== 'done' && r.status !== 'cancelled').length,
+    in_progress: items.filter(r => r.status === 'in_progress').length,
+    done: items.filter(r => r.status === 'done').length,
+  };
 
   const term = q.trim().toLowerCase();
   const filtered = items.filter(r => {
@@ -128,12 +137,12 @@ function RequestsTab() {
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
-      {analytics && (
+      {(
         <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
           <StatChip label="Всего" value={analytics.total} />
           <StatChip label="В очереди" value={analytics.queue} color="#F59E0B" />
-          <StatChip label="В работе" value={analytics.byStatus.in_progress} color={GOLD} />
-          <StatChip label="Готово" value={analytics.byStatus.done} color="#22C55E" />
+          <StatChip label="В работе" value={analytics.in_progress} color={GOLD} />
+          <StatChip label="Готово" value={analytics.done} color="#22C55E" />
         </Stack>
       )}
       <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: 'wrap' }} useFlexGap>
