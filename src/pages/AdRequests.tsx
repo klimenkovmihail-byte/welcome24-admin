@@ -443,15 +443,23 @@ function PackagesTab() {
 }
 
 /* ---- Детали сбора: сводка-матрица + экспорт + оплата + статус ---- */
+// Дата + 30 дней (окно действия пакета).
+function plus30(s: string): string { const d = new Date(s); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10); }
+
 function DriveDetail({ id, onBack }: { id: number; onBack: () => void }) {
   const [drive, setDrive] = useState<Drive | null>(null);
   const [summary, setSummary] = useState<DriveSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activateDate, setActivateDate] = useState('');
 
   const load = useCallback(() => {
     adPackagesApi.drive(id).then(d => { setDrive(d); setSummary(d.summary); }).catch(e => setError(e?.message));
   }, [id]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (drive?.starts_at) setActivateDate(drive.starts_at); }, [drive?.starts_at]);
+
+  const activate = () => adPackagesApi.activateDrive(id, activateDate).then(load).catch(e => setError(e?.message));
+  const deactivate = () => { setActivateDate(''); adPackagesApi.activateDrive(id, '').then(load).catch(e => setError(e?.message)); };
 
   if (!drive || !summary) return <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress sx={{ color: GOLD }} /></Box>;
   const cats = summary.categories;
@@ -477,6 +485,26 @@ function DriveDetail({ id, onBack }: { id: number; onBack: () => void }) {
         <Button startIcon={<DownloadRoundedIcon />} variant="contained" onClick={() => downloadDriveXlsx(id, `Пакет_${drive.platform_label}_${drive.title}.xlsx`)}
           sx={{ background: GOLD, color: '#0A0E1A', fontWeight: 700, '&:hover': { background: '#E2C97E' } }}>Экспорт xlsx</Button>
       </Stack>
+
+      {/* Активация пакета — дата старта 30-дневного окна списания квот */}
+      <Card sx={{ ...cardSx, mb: 2 }}>
+        <CardContent sx={{ py: 1.5 }}>
+          <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap>
+            <Typography sx={{ color: '#94A3B8', fontWeight: 700 }}>Действующий пакет:</Typography>
+            {drive.starts_at
+              ? <Chip label={`активен ${fmtDate(drive.starts_at)} → действует до ${fmtDate(plus30(drive.starts_at))}`} sx={{ background: 'rgba(34,197,94,0.15)', color: '#22C55E', fontWeight: 700 }} />
+              : <Chip label="не активирован" sx={{ background: 'rgba(148,163,184,0.15)', color: '#94A3B8', fontWeight: 600 }} />}
+            <Box sx={{ flex: 1 }} />
+            <TextField type="date" size="small" value={activateDate} onChange={e => setActivateDate(e.target.value)}
+              sx={{ '& input': { color: '#E2E8F0' }, '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(201,168,76,0.2)' } }} />
+            <Button variant="contained" disabled={!activateDate} onClick={activate} sx={{ background: GOLD, color: '#0A0E1A', fontWeight: 700, '&:hover': { background: '#E2C97E' } }}>
+              {drive.starts_at ? 'Обновить дату' : 'Активировать'}
+            </Button>
+            {drive.starts_at && <Button onClick={deactivate} sx={{ color: '#EF4444' }}>Снять</Button>}
+          </Stack>
+          <Typography sx={{ color: '#64748B', fontSize: 12, mt: 0.5 }}>Дата старта 30-дневного окна. Купленные квоты можно списывать в течение 30 дней с этой даты.</Typography>
+        </CardContent>
+      </Card>
 
       <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
         <StatChip label="Заявок" value={summary.totals.entriesCount} />

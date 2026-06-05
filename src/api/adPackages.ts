@@ -21,6 +21,7 @@ export type DriveStatus = 'open' | 'closed' | 'paid';
 export interface Drive {
   id: number; platform: Platform; platform_label: string; title: string; note: string;
   deadline: string | null; status: DriveStatus; opened_by_name?: string; created_at: string; updated_at: string;
+  starts_at: string | null; // дата активации пакета (30-дневное окно), null = не активирован
   totals?: { qty: number; cost: number; entries: number; paid: number };
   mine?: { qty: number; cost: number; entries: number };
 }
@@ -61,6 +62,9 @@ export const adPackagesApi = {
   updateDrive: (id: number, body: { status?: DriveStatus; title?: string; note?: string; deadline?: string | null }) =>
     api.patch<Drive>(`/api/ad-packages/drives/${id}`, body),
   removeDrive: (id: number) => api.del<{ ok: boolean }>(`/api/ad-packages/drives/${id}`),
+  // Активация пакета: дата старта 30-дневного окна (пустая строка — снять активацию).
+  activateDrive: (id: number, startDate: string) =>
+    api.post<Drive>(`/api/ad-packages/drives/${id}/activate`, { startDate }),
   summary: (id: number) => api.get<DriveSummary>(`/api/ad-packages/drives/${id}/summary`),
   payEntry: (entryId: number, paid: boolean) =>
     api.patch<{ ok: boolean }>(`/api/ad-packages/entries/${entryId}/pay`, { paid }),
