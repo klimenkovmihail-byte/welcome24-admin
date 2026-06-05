@@ -455,35 +455,49 @@ export default function Deals() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [year, setYear] = useState('all');
+  const [month, setMonth] = useState('all');
+  const [limit, setLimit] = useState(25); // последние 25; «Показать ещё» добавляет по 50
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
   // Удалять сделки может только super_admin (необратимо, влияет на комиссию/MLM).
   const canDelete = getCurrentUser()?.role === 'super_admin';
-  const PER_PAGE = 50;
-  const [page, setPage] = useState(1);
+
+  // Дебаунс поиска — серверный запрос не на каждый символ.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const reloadDeals = useCallback(() => {
     setLoading(true);
-    return dealsApi.list()
-      .then(setDeals)
+    const filter = { year, month, q: debouncedSearch };
+    return Promise.all([
+      dealsApi.list({ ...filter, limit }),
+      dealsApi.count(filter),
+    ])
+      .then(([rows, cnt]) => { setDeals(rows); setTotal(cnt); })
       .catch(err => setError(err?.message || 'Ошибка загрузки сделок'))
       .finally(() => setLoading(false));
+  }, [year, month, debouncedSearch, limit]);
+
+  useEffect(() => { reloadDeals(); }, [reloadDeals]);
+  useEffect(() => { agentsApi.list().then(setAgents).catch(() => { /* ignore */ }); }, []);
+
+  // Сервер уже отсортировал по дате DESC и ограничил лимитом — выводим как есть.
+  const filtered = deals;
+  // Годы для фильтра: от текущего до 2024.
+  const yearOptions = useMemo(() => {
+    const cur = new Date().getFullYear();
+    const ys: string[] = [];
+    for (let y = cur; y >= 2024; y--) ys.push(String(y));
+    return ys;
   }, []);
-
-  useEffect(() => {
-    reloadDeals();
-    agentsApi.list().then(setAgents).catch(() => { /* ignore */ });
-  }, [reloadDeals]);
-
-  const filtered = useMemo(() => deals.filter(d => {
-    const q = search.toLowerCase();
-    return !q || d.agentName.toLowerCase().includes(q) || d.clientName.toLowerCase().includes(q) || d.address.toLowerCase().includes(q);
-  }), [deals, search]);
-
-  // Сброс пагинации при смене поиска/данных.
-  useEffect(() => { setPage(1); }, [search, deals]);
+  const RU_MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
   const openCreate = () => { setEditTarget(null); setDialogOpen(true); };
   const openEdit = useCallback((deal: Deal) => { setEditTarget(deal); setDialogOpen(true); }, []);
@@ -505,11 +519,25 @@ export default function Deals() {
       <Box sx={{ display: 'flex', gap: 2, mb: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
         <TextField
           placeholder="Поиск по агенту, городу…"
-          value={search} onChange={e => setSearch(e.target.value)} size="small" sx={{ flex: '1 1 260px' }}
+          value={search} onChange={e => { setSearch(e.target.value); setLimit(25); }} size="small" sx={{ flex: '1 1 220px' }}
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ color: '#64748B', fontSize: 20 }} /></InputAdornment> } }}
         />
+        <FormControl size="small" sx={{ minWidth: 130 }}>
+          <InputLabel>Месяц</InputLabel>
+          <Select value={month} label="Месяц" onChange={e => { setMonth(e.target.value); setLimit(25); }}>
+            <MenuItem value="all">Все</MenuItem>
+            {RU_MONTHS.map((m, i) => <MenuItem key={i} value={String(i + 1).padStart(2, '0')}>{m}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 110 }}>
+          <InputLabel>Год</InputLabel>
+          <Select value={year} label="Год" onChange={e => { setYear(e.target.value); setLimit(25); }}>
+            <MenuItem value="all">Все</MenuItem>
+            {yearOptions.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+          </Select>
+        </FormControl>
         <Typography variant="caption" sx={{ color: '#64748B', mr: 1 }}>
-          {filtered.length} {pluralDeals(filtered.length)}
+          {total} {pluralDeals(total)}
         </Typography>
         <Button
           variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}
@@ -551,7 +579,7 @@ export default function Deals() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.slice(0, page * PER_PAGE).map((deal) => (
+            {filtered.map((deal) => (
               <TableRow key={deal.id} hover>
                 <TableCell>
                   <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
@@ -592,16 +620,16 @@ export default function Deals() {
             ))}
           </TableBody>
         </Table>
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <Box sx={{ py: 6, textAlign: 'center' }}>
             <Typography sx={{ color: '#64748B' }}>Сделки не найдены</Typography>
           </Box>
         )}
-        {filtered.length > page * PER_PAGE && (
+        {deals.length < total && (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-            <Button variant="outlined" onClick={() => setPage(p => p + 1)}
+            <Button variant="outlined" disabled={loading} onClick={() => setLimit(l => l + 50)}
               sx={{ borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C' }}>
-              Показать ещё ({filtered.length - page * PER_PAGE})
+              Показать ещё 50 (показано {deals.length} из {total})
             </Button>
           </Box>
         )}

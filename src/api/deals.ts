@@ -72,8 +72,21 @@ export interface DealUpdatePayload {
   notes?: string;
 }
 
+export interface DealsListParams { year?: string; month?: string; q?: string; limit?: number }
+
+function dealsQuery(p: DealsListParams = {}): string {
+  const sp = new URLSearchParams();
+  if (p.year && p.year !== 'all')   sp.set('year', p.year);
+  if (p.month && p.month !== 'all') sp.set('month', p.month);
+  if (p.q && p.q.trim())            sp.set('q', p.q.trim());
+  if (p.limit)                      sp.set('limit', String(p.limit));
+  const s = sp.toString();
+  return s ? `?${s}` : '';
+}
+
 export const dealsApi = {
-  list:    () => api.get<RawDeal[]>('/api/deals').then(rows => rows.map(normalizeDeal)),
+  list:    (p: DealsListParams = {}) => api.get<RawDeal[]>(`/api/deals${dealsQuery(p)}`).then(rows => rows.map(normalizeDeal)),
+  count:   (p: DealsListParams = {}) => api.get<{ total: number }>(`/api/deals/count${dealsQuery({ ...p, limit: undefined })}`).then(r => r.total),
   create:  (payload: DealCreatePayload) =>
     api.post<RawDeal>('/api/deals', payload as unknown as Record<string, unknown>).then(normalizeDeal),
   update:  (id: number, payload: DealUpdatePayload) =>
