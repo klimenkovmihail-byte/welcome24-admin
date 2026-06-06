@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField,
@@ -116,6 +117,17 @@ export default function Cases() {
     // Отмечаем заявку прочитанной (сбрасываем бейдж) при открытии.
     casesAdminApi.markRead(caseId).then(load).catch(() => {});
   };
+
+  // Deep-link из бота/пуша/колокола: /cases?open=<id>&track=<legal|mortgage> → открыть заявку.
+  const location = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const id = Number(params.get('open'));
+    const track = params.get('track');
+    if (isAdmin && (track === 'legal' || track === 'mortgage')) setAdminTrack(track);
+    if (id) openDetail(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
 
   const bumpTimeline = () => setTimelineKey(k => k + 1);
   const handleTake = (taskId: number) => {
