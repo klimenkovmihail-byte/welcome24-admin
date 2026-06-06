@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField, InputLabel,
@@ -60,6 +61,14 @@ const cardSx = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(201,1
 
 export default function AdRequests() {
   const [tab, setTab] = useState(0);
+  // Deep-link из бота/пуша/колокола: /ad-requests?open=<id> → нужная вкладка + открыть заявку.
+  const location = useLocation();
+  const [openId, setOpenId] = useState(0);
+  useEffect(() => {
+    const id = Number(new URLSearchParams(location.search).get('open'));
+    if (!id) { setOpenId(0); return; }
+    adRequestsApi.get(id).then(r => { setTab(r.kind === 'connect' ? 1 : 0); setOpenId(id); }).catch(() => {});
+  }, [location.search]);
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
@@ -78,8 +87,8 @@ export default function AdRequests() {
         <Tab label="База подключений" />
       </Tabs>
 
-      {tab === 0 && <RequestsTab kinds={['quota', 'fix', 'from_package']} />}
-      {tab === 1 && <RequestsTab kinds={['connect']} />}
+      {tab === 0 && <RequestsTab kinds={['quota', 'fix', 'from_package']} initialOpenId={openId} />}
+      {tab === 1 && <RequestsTab kinds={['connect']} initialOpenId={openId} />}
       {tab === 2 && <PackagesTab />}
       {tab === 3 && <PriceListTab />}
       {tab === 4 && <ConnectionsTab />}
@@ -88,7 +97,7 @@ export default function AdRequests() {
 }
 
 /* ============ ВКЛАДКА: ЗАЯВКИ (объектные / прикрепление — по kinds) ============ */
-function RequestsTab({ kinds }: { kinds: AdKind[] }) {
+function RequestsTab({ kinds, initialOpenId }: { kinds: AdKind[]; initialOpenId?: number }) {
   const [items, setItems] = useState<AdRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +115,8 @@ function RequestsTab({ kinds }: { kinds: AdKind[] }) {
   }, [kindsKey]);
   // Поллинг каждые 20с — новые заявки появляются без перезагрузки.
   useEffect(() => { load(); const iv = setInterval(() => load(true), 20000); return () => clearInterval(iv); }, [load]);
+  // Deep-link: открыть конкретную заявку (бот/пуш/колокол).
+  useEffect(() => { if (initialOpenId) adRequestsApi.get(initialOpenId).then(setDetail).catch(() => {}); }, [initialOpenId]);
 
   // Счётчики — из загруженного (отфильтрованного по kinds) списка.
   const analytics = {
