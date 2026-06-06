@@ -78,7 +78,7 @@ export default function AdRequests() {
         <Tab label="База подключений" />
       </Tabs>
 
-      {tab === 0 && <RequestsTab kinds={['quota', 'fix']} />}
+      {tab === 0 && <RequestsTab kinds={['quota', 'fix', 'from_package']} />}
       {tab === 1 && <RequestsTab kinds={['connect']} />}
       {tab === 2 && <PackagesTab />}
       {tab === 3 && <PriceListTab />}
@@ -289,8 +289,16 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
               <Info label="Подана" value={fmtDateTime(r.created_at)} />
               {r.platforms.length > 0 && <Info label="Площадки" value={r.platforms.map(p => PLATFORM_LABEL[p]).join(', ')} />}
               {r.comment && <Info label="Комментарий" value={r.comment} />}
+              {r.pkg && <Info label="Из пакета" value={`${r.pkg.platform_label} · ${r.pkg.city} · ${r.pkg.category_label} — остаток ${r.pkg.remaining} из ${r.pkg.bought}`} />}
               <Info label="Исполнитель" value={r.assignee_name || 'не взята'} />
             </Stack>
+            {r.pkg && (
+              <Alert severity={r.status === 'done' ? 'success' : 'info'} sx={{ mb: 2, py: 0.5 }}>
+                {r.status === 'done'
+                  ? 'Квота списана из действующего пакета (−1).'
+                  : 'При переводе в «Готово» из пакета спишется 1 квота этой категории.'}
+              </Alert>
+            )}
 
             <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
               {!r.assignee_id && <Button size="small" variant="contained" onClick={() => { take(r.id); setTimeout(reload, 300); }} sx={{ background: GOLD, color: '#0A0E1A', fontWeight: 700 }}>Взять в работу</Button>}

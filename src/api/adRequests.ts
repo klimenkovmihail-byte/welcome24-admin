@@ -4,7 +4,14 @@
  */
 import { api } from './apiClient';
 
-export type AdKind = 'quota' | 'connect' | 'fix';
+export type AdKind = 'quota' | 'connect' | 'fix' | 'from_package';
+
+// Инфо о квоте, из которой списывается заявка from_package.
+export interface PkgQuota {
+  entry_id: number; category_key: string; category_label: string;
+  platform: string; platform_label: string; city: string;
+  bought: number; used: number; remaining: number; starts_at: string; ends_at: string; active: boolean;
+}
 export type AdStatus = 'new' | 'in_progress' | 'done' | 'cancelled';
 export type AdPlatform = 'avito' | 'cian' | 'domclick' | 'yandex';
 export type ConnectPlatform = 'cian' | 'avito' | 'domclick';
@@ -30,6 +37,7 @@ export interface AdRequest {
   updated_at: string;
   unread?: number;
   attachments: AdAttachment[];
+  pkg?: PkgQuota | null; // только для from_package
 }
 export interface AdMessage {
   id: number; request_id: number; sender_id: number | null; sender_name: string | null;
