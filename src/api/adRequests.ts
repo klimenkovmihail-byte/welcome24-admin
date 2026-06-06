@@ -37,7 +37,8 @@ export interface AdRequest {
   updated_at: string;
   unread?: number;
   attachments: AdAttachment[];
-  pkg?: PkgQuota | null; // только для from_package
+  pkg?: PkgQuota | null;   // только для from_package
+  connect_value?: string;  // ЦИАН ID/почта или телефон (для connect)
 }
 export interface AdMessage {
   id: number; request_id: number; sender_id: number | null; sender_name: string | null;

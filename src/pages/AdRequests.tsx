@@ -289,6 +289,7 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
               <Info label="Подана" value={fmtDateTime(r.created_at)} />
               {r.platforms.length > 0 && <Info label="Площадки" value={r.platforms.map(p => PLATFORM_LABEL[p]).join(', ')} />}
               {r.comment && <Info label="Комментарий" value={r.comment} />}
+              {r.connect_value && <Info label={r.platforms[0] === 'cian' ? 'ЦИАН ID / почта' : r.platforms[0] === 'domclick' ? 'Телефон (ДомКлик)' : 'Данные'} value={r.connect_value} />}
               {r.pkg && <Info label="Из пакета" value={`${r.pkg.platform_label} · ${r.pkg.city} · ${r.pkg.category_label} — остаток ${r.pkg.remaining} из ${r.pkg.bought}`} />}
               <Info label="Исполнитель" value={r.assignee_name || 'не взята'} />
             </Stack>
