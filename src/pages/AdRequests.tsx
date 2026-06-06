@@ -272,7 +272,12 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
     try { await adRequestsApi.sendMessage(r.id, { body: text.trim() }); setText(''); reload(); }
     finally { setSending(false); }
   };
-  const doStatus = (s: AdStatus) => { setStatus(r.id, s); setTimeout(() => { reload(); onChanged(); }, 300); };
+  const doStatus = (s: AdStatus) => {
+    setStatus(r.id, s); // обновляет статус + перезагружает список
+    // Терминальный статус — закрываем карточку (не зависаем на закрытой заявке).
+    if (s === 'done' || s === 'cancelled') { onClose(); return; }
+    setTimeout(() => { reload(); onChanged(); }, 300);
+  };
   const removeRequest = async () => {
     if (!window.confirm('Удалить заявку безвозвратно? Чат и история будут стёрты.')) return;
     try { await adRequestsApi.remove(r.id); onChanged(); onClose(); }
