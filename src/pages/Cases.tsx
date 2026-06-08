@@ -376,10 +376,10 @@ export default function Cases() {
                 <IconButton onClick={() => { setDetail(null); load(); }} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
               </Box>
             </DialogTitle>
-            <DialogContent dividers sx={{ borderColor: 'rgba(201,168,76,0.08)', p: 0, overflow: 'hidden', height: { md: 'calc(88vh - 80px)' } }}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' }, height: '100%' }}>
+            <DialogContent dividers sx={{ borderColor: 'rgba(201,168,76,0.08)', p: 0, overflow: { xs: 'auto', md: 'hidden' }, height: { md: 'calc(88vh - 80px)' } }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' }, height: { xs: 'auto', md: '100%' } }}>
               {/* ЛЕВАЯ колонка — детали/задачи/файлы/таймлайн (скроллится) */}
-              <Box sx={{ overflowY: 'auto', p: 3, borderRight: { md: '1px solid rgba(201,168,76,0.08)' } }}>
+              <Box sx={{ overflowY: { xs: 'visible', md: 'auto' }, p: { xs: 2, md: 3 }, borderRight: { md: '1px solid rgba(201,168,76,0.08)' } }}>
               <Stack spacing={2.5}>
                 {/* Объект */}
                 <Box>
@@ -468,10 +468,12 @@ export default function Cases() {
               </Stack>
               </Box>
 
-              {/* ПРАВАЯ колонка — чат во всю высоту */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', p: 2, minHeight: 0 }}>
+              {/* ПРАВАЯ колонка — чат во всю высоту. На мобильном грид-ячейка имеет
+                  авто-высоту, поэтому задаём явную minHeight, иначе fillHeight (height:100%)
+                  схлопывается в 0 и поле ввода исчезает. */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', p: 2, minHeight: 0, borderTop: { xs: '1px solid rgba(201,168,76,0.08)', md: 'none' } }}>
                 <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em', display: 'block', mb: 1 }}>Обсуждение</Typography>
-                <Box sx={{ flex: 1, minHeight: 0 }}>
+                <Box sx={{ flex: 1, minHeight: { xs: 420, md: 0 } }}>
                   <CaseChat caseId={detail.id} myId={getCurrentUser()?.id ?? null} fillHeight />
                 </Box>
               </Box>
