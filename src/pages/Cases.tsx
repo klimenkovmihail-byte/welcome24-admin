@@ -112,7 +112,12 @@ export default function Cases() {
     setDetailLoading(true);
     casesAdminApi.get(caseId)
       .then(setDetail)
-      .catch(e => setError(e?.message || 'Не удалось открыть заявку'))
+      .catch(e => {
+        // 404 = заявку удалили, а карточка в списке устарела. Понятное сообщение
+        // + обновляем список, чтобы «мёртвая» карточка исчезла (а не сырое "not found").
+        if (e?.status === 404) { setError('Заявка не найдена — возможно, она была удалена. Список обновлён.'); load(); }
+        else setError(e?.message || 'Не удалось открыть заявку');
+      })
       .finally(() => setDetailLoading(false));
     // Отмечаем заявку прочитанной (сбрасываем бейдж) при открытии.
     casesAdminApi.markRead(caseId).then(load).catch(() => {});
