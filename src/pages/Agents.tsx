@@ -50,7 +50,7 @@ import AgentFormDialog from './AgentFormDialog';
 // Расширяем тип Agent (role приходит из бэка, добавлен в normalizeAgent).
 type AgentWithRole = Agent & { role?: Role };
 
-const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая'];
+const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая', 'Загородная'];
 
 // Русское склонение: plural(2, 'год','года','лет') → 'года'
 function plural(n: number, one: string, few: string, many: string): string {

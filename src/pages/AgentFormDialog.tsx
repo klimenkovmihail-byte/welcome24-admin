@@ -27,7 +27,7 @@ import type { Agent, AgentLevel, AgentStatus, AgentSocials } from '../types';
 import { agentsApi } from '../api/agents';
 import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
 
-const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая'];
+const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая', 'Загородная'];
 
 const levelColor = (level: AgentLevel) => ({
   1: { bg: 'rgba(100,116,139,0.15)', color: '#94A3B8', label: 'Уровень 1' },
