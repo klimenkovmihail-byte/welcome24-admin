@@ -48,11 +48,10 @@ const opConfig: Record<ShareOperationType, { label: string; color: string; bg: s
 
 // Основания передачи/эмиссии акций.
 // gift = бесплатная (по номиналу 1₽), discount = покупка со скидкой 10%, ''  = ручная цена.
-type TransferReason = '' | 'founder' | 'first_deal_bonus' | 'recruit_bonus' | 'yearly_2m_vkd' | 'discount_purchase';
+type TransferReason = '' | 'first_deal_bonus' | 'recruit_bonus' | 'yearly_2m_vkd' | 'discount_purchase';
 
 const REASON_OPTIONS: Array<{ value: TransferReason; label: string; priceMode: 'gift' | 'discount' | 'manual' }> = [
   { value: '',                   label: 'Без основания (ручная цена)',          priceMode: 'manual' },
-  { value: 'founder',            label: 'Founder-акции (1 ₽)',                  priceMode: 'gift' },
   { value: 'first_deal_bonus',   label: 'Бонус за первую сделку (1 ₽)',         priceMode: 'gift' },
   { value: 'recruit_bonus',      label: 'Бонус за первую сделку рекрута (1 ₽)', priceMode: 'gift' },
   { value: 'yearly_2m_vkd',      label: 'Бонус за 2 млн ВКД за год (1 ₽)',      priceMode: 'gift' },
@@ -65,6 +64,7 @@ type FormState = {
   toAgentId: number | null; toAgentName: string | null;
   quantity: string; pricePerShare: string; notes: string;
   reason: TransferReason;
+  date: string;
 };
 
 const emptyForm: FormState = {
@@ -73,6 +73,7 @@ const emptyForm: FormState = {
   toAgentId: null, toAgentName: null,
   quantity: '', pricePerShare: '', notes: '',
   reason: '',
+  date: '',
 };
 
 export default function Shares() {
@@ -192,6 +193,7 @@ export default function Shares() {
         notes: form.notes,
         reason: form.reason,
         discountPct: form.reason === 'discount_purchase' ? 10 : 0,
+        date: form.date || undefined,
       });
       await reloadAll();
       setDialogOpen(false);
@@ -247,7 +249,7 @@ export default function Shares() {
               sx={{ borderColor: 'rgba(201,168,76,0.4)', color: '#C9A84C', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.08)' } }}>
               Изменить курс
             </Button>
-            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setForm({ ...emptyForm, pricePerShare: String(settings.sharePrice) }); setDialogOpen(true); }}>
+            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setForm({ ...emptyForm, pricePerShare: String(settings.sharePrice), date: todayLocal() }); setDialogOpen(true); }}>
               Новая операция
             </Button>
           </Box>
@@ -666,6 +668,11 @@ export default function Shares() {
                 </Box>
               )}
             </Box>
+
+            <TextField fullWidth label="Дата операции" type="date" value={form.date}
+              onChange={e => setForm(f => ({ ...f, date: e.target.value }))} size="small"
+              slotProps={{ inputLabel: { shrink: true } }}
+              helperText="Дата начисления/передачи акций (по умолчанию — сегодня)" />
 
             <TextField fullWidth label="Примечание" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} size="small" multiline rows={2} />
           </Stack>

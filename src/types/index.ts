@@ -34,6 +34,7 @@ export interface Agent {
   parentId: number | null; // null = Welcome 24 directly
   parentName: string | null;
   joinDate: string;
+  experienceYears?: number;
   specialization: string[];
   vkdYear: number;
   incomeYear: number;

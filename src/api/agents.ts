@@ -70,6 +70,7 @@ export function normalizeAgent(raw: RawAgent): Agent {
     parentName: null, // обогащается на странице из списка по parentId
     joinDate: raw.join_date,
     birthDate: raw.birth_date || undefined,
+    experienceYears: raw.experience_years || 0,
     specialization: raw.specialization || [],
     vkdYear: raw.year_vkd || 0,
     incomeYear: raw.year_income || 0,
@@ -156,6 +157,7 @@ export interface AgentUpdatePayload {
   level?: AgentLevel;
   commission?: 80 | 90 | 95;
   parentId?: number | null;
+  parentChangeDate?: string; // дата закрепления нового ментора
   specialization?: string[];
   socials?: AgentSocials;
   password?: string;

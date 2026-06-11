@@ -27,7 +27,7 @@ import type { Agent, AgentLevel, AgentStatus, AgentSocials } from '../types';
 import { agentsApi } from '../api/agents';
 import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
 
-const SPECIALIZATIONS = ['Жилая', 'Вторичная', 'Коммерческая', 'Загородная', 'Новостройки', 'Аренда'];
+const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая'];
 
 const levelColor = (level: AgentLevel) => ({
   1: { bg: 'rgba(100,116,139,0.15)', color: '#94A3B8', label: 'Уровень 1' },
@@ -51,6 +51,7 @@ type FormState = {
   status: AgentStatus;
   parentType: 'company' | 'agent';
   parentId: number | null; parentName: string | null;
+  parentChangeDate: string; // дата закрепления нового ментора (при редактировании)
   specialization: string[];
   referralLink: string;
   photo: string;
@@ -67,6 +68,7 @@ const emptyForm: FormState = {
   level: 1, commission: 80,
   status: 'active',
   parentType: 'company', parentId: null, parentName: null,
+  parentChangeDate: '',
   specialization: [],
   referralLink: '',
   photo: '', bio: '', socials: {},
@@ -78,11 +80,12 @@ interface Props {
   agents: Agent[];
   editTarget: Agent | null;
   canManageRoles: boolean; // только super_admin видит выбор «Агент / Сотрудник»
+  canManagePassword?: boolean; // super_admin + admin могут менять пароль агенту
   defaultKind?: 'agent' | 'staff'; // дефолт при создании — зависит от текущей вкладки
   onSaved: () => void;
 }
 
-export default function AgentFormDialog({ open, onClose, agents, editTarget, canManageRoles, defaultKind = 'agent', onSaved }: Props) {
+export default function AgentFormDialog({ open, onClose, agents, editTarget, canManageRoles, canManagePassword = false, defaultKind = 'agent', onSaved }: Props) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +107,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
         level: editTarget.level, commission: editTarget.commission, status: editTarget.status,
         parentType: editTarget.parentId ? 'agent' : 'company',
         parentId: editTarget.parentId, parentName: editTarget.parentName,
+        parentChangeDate: '',
         specialization: editTarget.specialization,
         referralLink: (editTarget as Agent & { referralLink?: string }).referralLink || '',
         photo: editTarget.photo || '',
@@ -164,11 +168,12 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
           joinDate: form.joinDate, birthDate: form.birthDate || null,
           level: form.level, commission: form.commission, status: form.status,
           parentId: finalParentId, specialization: form.specialization,
+          parentChangeDate: form.parentChangeDate || undefined,
           referralLink: form.referralLink,
           photo: form.photo || null, bio: form.bio, socials: form.socials,
         };
-        // Передаём пароль только если super_admin его установил при редактировании
-        if (canManageRoles && form.password.trim()) {
+        // Передаём пароль только если super_admin/admin установил его при редактировании
+        if (canManagePassword && form.password.trim()) {
           updatePayload.password = form.password.trim();
         }
         await agentsApi.update(editTarget.id, updatePayload);
@@ -290,7 +295,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               </Button>
             </Stack>
           )}
-          {editTarget && canManageRoles && (
+          {editTarget && canManagePassword && (
             <Box sx={{
               p: 2, borderRadius: 2, background: 'rgba(67,97,238,0.04)',
               border: '1px solid rgba(67,97,238,0.15)',
@@ -371,6 +376,17 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
                       </Box>
                     </Box>
                   )}
+                />
+              )}
+              {editTarget && (
+                <TextField
+                  sx={{ mt: 1.5 }}
+                  fullWidth size="small" type="date"
+                  label="Дата закрепления ментора"
+                  value={form.parentChangeDate}
+                  onChange={e => setForm(f => ({ ...f, parentChangeDate: e.target.value }))}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  helperText="При смене ментора — с этой даты ему идут ВКД и MLM-выплаты с подопечного (пусто = с сегодня)"
                 />
               )}
             </Box>

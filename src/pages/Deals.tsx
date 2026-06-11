@@ -464,8 +464,8 @@ export default function Deals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
-  // Удалять сделки может только super_admin (необратимо, влияет на комиссию/MLM).
-  const canDelete = getCurrentUser()?.role === 'super_admin';
+  // Удалять сделки могут super_admin и admin (необратимо, влияет на комиссию/MLM).
+  const canDelete = ['super_admin', 'admin'].includes(getCurrentUser()?.role ?? '');
 
   // Дебаунс поиска — серверный запрос не на каждый символ.
   useEffect(() => {
@@ -607,7 +607,7 @@ export default function Deals() {
                       </IconButton>
                     </Tooltip>
                     {canDelete && (
-                      <Tooltip title="Удалить сделку (super_admin)">
+                      <Tooltip title="Удалить сделку">
                         <IconButton size="small" onClick={() => handleDelete(deal)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                           <DeleteRoundedIcon fontSize="small" />
                         </IconButton>

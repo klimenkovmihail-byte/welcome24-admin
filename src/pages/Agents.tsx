@@ -50,7 +50,15 @@ import AgentFormDialog from './AgentFormDialog';
 // Расширяем тип Agent (role приходит из бэка, добавлен в normalizeAgent).
 type AgentWithRole = Agent & { role?: Role };
 
-const SPECIALIZATIONS = ['Жилая', 'Вторичная', 'Коммерческая', 'Загородная', 'Новостройки', 'Аренда'];
+const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая'];
+
+// Русское склонение: plural(2, 'год','года','лет') → 'года'
+function plural(n: number, one: string, few: string, many: string): string {
+  const m = n % 10, d = n % 100;
+  if (m === 1 && d !== 11) return one;
+  if (m >= 2 && m <= 4 && (d < 10 || d >= 20)) return few;
+  return many;
+}
 
 const levelColor = (level: AgentLevel) => ({
   1: { bg: 'rgba(100,116,139,0.15)', color: '#94A3B8', label: 'Уровень 1' },
@@ -78,6 +86,7 @@ export default function Agents() {
   const [filterMonth, setFilterMonth] = useState<string>('all'); // '01'..'12' join_date
   const [filterYear, setFilterYear] = useState<string>('all');   // YYYY join_date
   const [filterLevel, setFilterLevel] = useState<AgentLevel | 0>(0);
+  const [filterSpec, setFilterSpec] = useState<string>('all'); // специализация (тип недвижимости)
   // По умолчанию показываем только обычных агентов — сотрудники не «загрязняют» базу.
   // Чтобы увидеть сотрудников, нужно явно переключить фильтр.
   const [filterRole, setFilterRole] = useState<'all' | 'staff' | Role>('agent');
@@ -148,9 +157,10 @@ export default function Agents() {
   const deferredSearch = useDeferredValue(search);
   const filtered = useMemo(() => agents.filter(a => {
     const q = deferredSearch.toLowerCase();
-    const matchQ = !q || (a.name || '').toLowerCase().includes(q) || (a.email || '').toLowerCase().includes(q) || (a.city || '').toLowerCase().includes(q);
+    const matchQ = !q || (a.name || '').toLowerCase().includes(q) || (a.email || '').toLowerCase().includes(q) || (a.city || '').toLowerCase().includes(q) || (a.specialization || []).some(s => s.toLowerCase().includes(q));
     const matchStatus = filterStatus === 'all' || a.status === filterStatus;
     const matchLevel = filterLevel === 0 || a.level === filterLevel;
+    const matchSpec = filterSpec === 'all' || (a.specialization || []).includes(filterSpec);
     const aRole = ((a as AgentWithRole).role || 'agent') as Role;
     // Сначала отсекаем по верхней вкладке. «Сотрудники» = все не-агенты.
     const matchView = view === 'agents' ? aRole === 'agent' : aRole !== 'agent';
@@ -162,9 +172,9 @@ export default function Agents() {
     const jd = (a.joinDate || '');
     const matchYear = filterYear === 'all' || jd.slice(0, 4) === filterYear;
     const matchMonth = filterMonth === 'all' || jd.slice(5, 7) === filterMonth;
-    return matchQ && matchStatus && matchLevel && matchView && matchRole && matchYear && matchMonth;
+    return matchQ && matchStatus && matchLevel && matchSpec && matchView && matchRole && matchYear && matchMonth;
   }).sort((a, b) => (b.joinDate || '').localeCompare(a.joinDate || '')), // новые сверху
-  [agents, deferredSearch, filterStatus, filterLevel, filterRole, view, filterYear, filterMonth]);
+  [agents, deferredSearch, filterStatus, filterLevel, filterSpec, filterRole, view, filterYear, filterMonth]);
 
   // Годы присоединения для фильтра (из данных, по убыванию).
   const joinYears = useMemo(() => {
@@ -174,7 +184,7 @@ export default function Agents() {
   }, [agents]);
 
   // Сброс пагинации при любой смене фильтра/поиска/вкладки.
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [deferredSearch, filterStatus, filterLevel, filterRole, view, filterYear, filterMonth]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [deferredSearch, filterStatus, filterLevel, filterSpec, filterRole, view, filterYear, filterMonth]);
 
   // При переключении вкладки выставляем корректный дефолт фильтра роли:
   // «Агенты» → только агенты, «Сотрудники» → все роли.
@@ -220,6 +230,8 @@ export default function Agents() {
   const currentUser = getCurrentUser();
   const currentRole = (currentUser?.role || 'agent') as Role;
   const canManageRoles = currentRole === 'super_admin';
+  // Менять пароль агенту могут super_admin и admin.
+  const canManagePassword = currentRole === 'super_admin' || currentRole === 'admin';
 
   const changeRole = async (id: number, role: Role) => {
     try {
@@ -396,6 +408,13 @@ export default function Agents() {
             <MenuItem value={3}>Уровень 3 (95%)</MenuItem>
           </Select>
         </FormControl>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>Специализация</InputLabel>
+          <Select value={filterSpec} label="Специализация" onChange={e => setFilterSpec(e.target.value)}>
+            <MenuItem value="all">Все</MenuItem>
+            {SPECIALIZATIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+          </Select>
+        </FormControl>
         <FormControl size="small" sx={{ minWidth: 170 }}>
           <InputLabel>Роль</InputLabel>
           <Select value={filterRole} label="Роль" onChange={e => setFilterRole(e.target.value as 'all' | 'staff' | Role)}>
@@ -462,6 +481,18 @@ export default function Agents() {
                             ? `с ${agent.joinDate} · уволен ${agent.terminatedAt}`
                             : `присоединился ${agent.joinDate}`}
                         </Typography>
+                        {(!!agent.experienceYears || (agent.specialization || []).length > 0) && (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4, mt: 0.4, alignItems: 'center' }}>
+                            {!!agent.experienceYears && (
+                              <Chip label={`${agent.experienceYears} ${plural(agent.experienceYears, 'год', 'года', 'лет')} опыта`} size="small"
+                                sx={{ height: 18, fontSize: 10, fontWeight: 600, background: 'rgba(201,168,76,0.12)', color: '#C9A84C' }} />
+                            )}
+                            {(agent.specialization || []).map(s => (
+                              <Chip key={s} label={s} size="small"
+                                sx={{ height: 18, fontSize: 10, fontWeight: 600, background: 'rgba(67,97,238,0.12)', color: '#4361EE' }} />
+                            ))}
+                          </Box>
+                        )}
                       </Box>
                     </Box>
                   </TableCell>
@@ -605,6 +636,7 @@ export default function Agents() {
         agents={agents}
         editTarget={editTarget}
         canManageRoles={canManageRoles}
+        canManagePassword={canManagePassword}
         defaultKind={isStaffView ? 'staff' : 'agent'}
         onSaved={() => { reloadAgents(); }}
       />
