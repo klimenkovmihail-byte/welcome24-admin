@@ -595,7 +595,7 @@ export default function Shares() {
                   <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.8 }}>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{a.name}</Typography>
-                      <Typography variant="caption" sx={{ color: '#64748B' }}>{fmt(a.shares)} акций</Typography>
+                      <Typography variant="caption" sx={{ color: '#64748B' }}>{fmt(agentShares.get(a.id) || 0)} акций</Typography>
                     </Box>
                   </Box>
                 )}
@@ -614,7 +614,7 @@ export default function Shares() {
                   <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.8 }}>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{a.name}</Typography>
-                      <Typography variant="caption" sx={{ color: '#64748B' }}>{fmt(a.shares)} акций</Typography>
+                      <Typography variant="caption" sx={{ color: '#64748B' }}>{fmt(agentShares.get(a.id) || 0)} акций</Typography>
                     </Box>
                   </Box>
                 )}
