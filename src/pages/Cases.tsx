@@ -452,12 +452,13 @@ export default function Cases() {
                             </Button>
                           )}
                           {t.assignee_id && (
-                            <Tooltip title="Передать задачу специалисту дорожки">
-                              <IconButton size="small" onClick={e => setTransfer({ anchor: e.currentTarget, taskId: t.id, track: t.track })}
-                                sx={{ color: '#8B5CF6' }}>
-                                <SwapHorizRoundedIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                            <Button size="small" variant="outlined"
+                              startIcon={<SwapHorizRoundedIcon sx={{ fontSize: 16 }} />}
+                              onClick={e => setTransfer({ anchor: e.currentTarget, taskId: t.id, track: t.track })}
+                              sx={{ color: '#8B5CF6', borderColor: 'rgba(139,92,246,0.4)', textTransform: 'none', fontSize: 12, py: 0.2,
+                                '&:hover': { borderColor: '#8B5CF6', background: 'rgba(139,92,246,0.08)' } }}>
+                              Передать
+                            </Button>
                           )}
                         </Box>
                         {t.assignee_id && (
@@ -553,15 +554,27 @@ export default function Cases() {
         )}
       </Dialog>
 
-      {/* Меню передачи задачи специалисту той же дорожки */}
+      {/* Меню передачи задачи: специалисты дорожки + админы (кто может вести заявки), кроме текущего */}
       <Menu anchorEl={transfer?.anchor} open={!!transfer} onClose={() => setTransfer(null)}>
         {transfer && (() => {
-          const wantRole = transfer.track === 'legal' ? 'lawyer' : 'broker';
-          const specs = allAgents.filter(a => roleOf(a) === wantRole);
-          if (!specs.length) return <MenuItem disabled>Нет специалистов дорожки</MenuItem>;
-          return specs.map(a => (
-            <MenuItem key={a.id} onClick={() => handleTransfer(transfer.taskId, a.id)}>{a.name}</MenuItem>
-          ));
+          const trackRole = transfer.track === 'legal' ? 'lawyer' : 'broker';
+          const trackLabel = transfer.track === 'legal' ? 'юрист' : 'брокер';
+          const curAssignee = detail?.tasks.find(t => t.id === transfer.taskId)?.assignee_id;
+          const candidates = allAgents.filter(a => {
+            const r = roleOf(a);
+            return (r === trackRole || r === 'admin' || r === 'super_admin') && a.id !== curAssignee;
+          });
+          if (!candidates.length) return <MenuItem disabled>Нет других {trackLabel}ов / админов</MenuItem>;
+          return candidates.map(a => {
+            const r = roleOf(a);
+            const tag = r === trackRole ? trackLabel : (r === 'super_admin' ? 'супер-админ' : 'админ');
+            return (
+              <MenuItem key={a.id} onClick={() => handleTransfer(transfer.taskId, a.id)}>
+                {a.name}
+                <Typography component="span" variant="caption" sx={{ color: '#64748B', ml: 1 }}>· {tag}</Typography>
+              </MenuItem>
+            );
+          });
         })()}
       </Menu>
     </Box>
