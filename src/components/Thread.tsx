@@ -1,17 +1,26 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Box, Typography, TextField, IconButton, CircularProgress, Chip, Link } from '@mui/material';
+import { Box, Typography, TextField, IconButton, CircularProgress, Chip, Link, Menu, MenuItem, ListItemIcon } from '@mui/material';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded';
+import ReplyRoundedIcon from '@mui/icons-material/ReplyRounded';
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import DoneRoundedIcon from '@mui/icons-material/DoneRounded';
+import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded';
 import { api, API_BASE_URL, getToken } from '../api/apiClient';
 import { sseSubscribe, sseConnected } from '../lib/sse';
 
-// Единый чат заявки (Фаза Б): один компонент вместо копий CaseChat + инлайн-чатов
+// Единый чат заявки (Фазы Б–Г): один компонент вместо копий CaseChat + инлайн-чатов
 // рекламы. Параметризуется доменным путём apiBase ('/cases/14' | '/ad-requests/31') —
-// после Фазы А оба домена отдают одинаковый формат messages/read.
+// оба домена отдают одинаковый формат messages/read/typing.
 // Свои сообщения справа, чужие слева; цвет имени/рамки — по роли отправителя.
+// Фаза Г: ответы (reply), правка/удаление своих, копирование, галочки прочтения
+// ✓/✓✓ (по thread_reads собеседников), «печатает…» через SSE.
 
 export interface ThreadMessage {
   id: number;
@@ -22,6 +31,13 @@ export interface ThreadMessage {
   attachment_url: string | null;
   attachment_name: string | null;
   created_at: string;
+  reply_to_id?: number | null;
+  reply_body?: string | null;
+  reply_attachment_name?: string | null;
+  reply_sender_name?: string | null;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  read_by_others?: number;
 }
 type Msg = ThreadMessage & { _status?: 'sending' | 'failed' };
 
@@ -71,8 +87,15 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   const [attachError, setAttachError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [live, setLive] = useState(sseConnected()); // живой SSE → редкий фолбэк-поллинг
+  const [readUpTo, setReadUpTo] = useState(0);      // мои сообщения с id ≤ — прочитаны собеседником (✓✓)
+  const [typingBy, setTypingBy] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<Msg | null>(null);
+  const [editing, setEditing] = useState<Msg | null>(null);
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; msg: Msg } | null>(null);
   const tmpRef = useRef(-1); // отрицательные id для временных сообщений
   const lastIdRef = useRef(0);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSentRef = useRef(0);
   // Актуальный apiBase: при смене заявки без размонтирования (deep-link ?open=N)
   // поздний ответ старого чата не должен дописываться в новый.
   const baseRef = useRef(apiBase);
@@ -89,6 +112,11 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     });
   };
 
+  const bumpReadUpTo = (fresh: ThreadMessage[]) => {
+    const mx = fresh.reduce((x, m) => (m.read_by_others ? Math.max(x, m.id) : x), 0);
+    if (mx) setReadUpTo(prev => Math.max(prev, mx));
+  };
+
   const poll = useCallback(async () => {
     try {
       const fresh = await api.get<ThreadMessage[]>(`${apiBase}/messages?after=${lastIdRef.current}`);
@@ -96,15 +124,28 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
       if (fresh.length) {
         lastIdRef.current = Math.max(lastIdRef.current, fresh[fresh.length - 1].id);
         appendUnique(fresh);
+        bumpReadUpTo(fresh);
         setTimeout(scrollDown, 50);
         api.post(`${apiBase}/read`, { lastId: lastIdRef.current }).catch(() => {});
       }
     } catch { /* tolerate */ }
   }, [apiBase]);
 
+  // Полная перезагрузка треда — для правок/удалений (курсорный poll старое не вернёт).
+  const reload = useCallback(async () => {
+    try {
+      const fresh = await api.get<ThreadMessage[]>(`${apiBase}/messages?after=0`);
+      if (baseRef.current !== apiBase) return;
+      lastIdRef.current = fresh.length ? fresh[fresh.length - 1].id : 0;
+      setMessages(fresh);
+      bumpReadUpTo(fresh);
+    } catch { /* tolerate */ }
+  }, [apiBase]);
+
   useEffect(() => {
     baseRef.current = apiBase;
     setMessages([]); lastIdRef.current = 0; setLoading(true);
+    setReadUpTo(0); setTypingBy(null); setReplyTo(null); setEditing(null);
     poll().finally(() => setLoading(false));
   }, [poll, apiBase]);
 
@@ -114,16 +155,32 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     return () => clearInterval(t);
   }, [poll, pollMs, live]);
 
-  // SSE: «звонок» о событии в ЭТОМ треде → мгновенный poll (данные тянет
-  // обычный курсорный GET со своим ACL); $status управляет частотой фоллбэка.
+  // SSE: события ЭТОГО треда → мгновенная реакция; $status управляет частотой фоллбэка.
   useEffect(() => {
     const offThread = sseSubscribe('thread', d => {
       const path = d.subjectType === 'case' ? `/cases/${d.subjectId}` : `/ad-requests/${d.subjectId}`;
-      if (path === apiBase) poll();
+      if (path !== apiBase) return;
+      if (d.event === 'read') {
+        if (d.byAgentId !== myId) setReadUpTo(prev => Math.max(prev, Number(d.lastReadId) || 0));
+      } else if (d.event === 'typing') {
+        if (d.byAgentId !== myId) {
+          setTypingBy(String(d.byName || 'участник'));
+          if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+          typingTimerRef.current = setTimeout(() => setTypingBy(null), 4000);
+        }
+      } else if (d.event === 'refresh') {
+        reload();
+      } else {
+        setTypingBy(null); // сообщение пришло — индикатор печати гасим
+        poll();
+      }
     });
     const offStatus = sseSubscribe('$status', s => setLive(!!s.connected));
-    return () => { offThread(); offStatus(); };
-  }, [apiBase, poll]);
+    return () => {
+      offThread(); offStatus();
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, [apiBase, poll, reload, myId]);
 
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -136,10 +193,11 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   };
 
   // Доставка с повтором: меняет временное сообщение на настоящее либо метит «не доставлено».
-  const deliver = async (tmpId: number, body: string, att: { url: string; name: string } | null) => {
+  const deliver = async (tmpId: number, body: string, att: { url: string; name: string } | null, replyToId: number | null) => {
     setBusy(true);
     try {
-      const msg = await api.post<ThreadMessage>(`${apiBase}/messages`, { body, attachmentUrl: att?.url, attachmentName: att?.name });
+      const msg = await api.post<ThreadMessage>(`${apiBase}/messages`,
+        { body, attachmentUrl: att?.url, attachmentName: att?.name, replyToId });
       lastIdRef.current = Math.max(lastIdRef.current, msg.id);
       setMessages(prev => {
         const rest = prev.filter(m => m.id !== tmpId);
@@ -156,22 +214,65 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     // busy в guard'е: Enter не проверяет disabled кнопки → без него дубли при автоповторе клавиши.
     if ((!body && !pending) || busy) return;
     const att = pending;
+    const rep = replyTo;
     const tmpId = tmpRef.current--;
     const optimistic: Msg = {
       id: tmpId, sender_id: myId, sender_name: 'Вы', sender_role: myRole,
       body, attachment_url: att?.url ?? null, attachment_name: att?.name ?? null,
       created_at: nowStamp(), _status: 'sending',
+      reply_to_id: rep?.id ?? null, reply_body: rep ? (rep.body || null) : null,
+      reply_attachment_name: rep?.attachment_name ?? null, reply_sender_name: rep?.sender_name ?? null,
     };
     setMessages(prev => [...prev, optimistic]);
-    setText(''); setPending(null);
+    setText(''); setPending(null); setReplyTo(null);
     setTimeout(scrollDown, 50);
-    deliver(tmpId, body, att);
+    deliver(tmpId, body, att, rep?.id ?? null);
   };
 
   const retry = (m: Msg) => {
     setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, _status: 'sending' } : x)));
-    deliver(m.id, m.body, m.attachment_url ? { url: m.attachment_url, name: m.attachment_name || 'файл' } : null);
+    deliver(m.id, m.body, m.attachment_url ? { url: m.attachment_url, name: m.attachment_name || 'файл' } : null, m.reply_to_id ?? null);
   };
+
+  // Сохранение правки своего сообщения (режим редактирования занимает поле ввода).
+  const saveEdit = async () => {
+    if (!editing) return;
+    const body = text.trim();
+    if (!body || busy) return;
+    setBusy(true);
+    try {
+      const updated = await api.patch<ThreadMessage>(`${apiBase}/messages/${editing.id}`, { body });
+      setMessages(prev => prev.map(m => (m.id === editing.id ? { ...m, ...updated } : m)));
+      setEditing(null); setText('');
+    } catch {
+      setAttachError('Не удалось сохранить правку — попробуйте ещё раз.');
+    } finally { setBusy(false); }
+  };
+
+  const removeMsg = async (m: Msg) => {
+    if (!window.confirm('Удалить сообщение? Текст и вложение будут стёрты у всех.')) return;
+    try {
+      const updated = await api.del<ThreadMessage>(`${apiBase}/messages/${m.id}`);
+      setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, ...updated } : x)));
+    } catch { /* tolerate */ }
+  };
+
+  const copyMsg = (m: Msg) => { navigator.clipboard?.writeText(m.body || '').catch(() => {}); };
+
+  // «Печатает…»: сигналим собеседникам не чаще раза в 2.5с (и не в режиме правки).
+  const onType = (v: string) => {
+    setText(v);
+    const now = Date.now();
+    if (!editing && v && now - lastTypingSentRef.current > 2500) {
+      lastTypingSentRef.current = now;
+      api.post(`${apiBase}/typing`).catch(() => {});
+    }
+  };
+
+  const startEdit = (m: Msg) => { setEditing(m); setReplyTo(null); setText(m.body); };
+  const cancelEdit = () => { setEditing(null); setText(''); };
+
+  const openMenu = (e: React.MouseEvent<HTMLElement>, msg: Msg) => { e.stopPropagation(); setMenu({ anchor: e.currentTarget as HTMLElement, msg }); };
 
   return (
     <Box sx={fillHeight ? { display: 'flex', flexDirection: 'column', height: '100%' } : undefined}>
@@ -184,41 +285,94 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
           const mine = m.sender_id != null && m.sender_id === myId;
           const c = roleColor(m.sender_role);
           const img = isImage(m.attachment_url);
+          const deleted = !!m.deleted_at;
           return (
             <Box key={m.id} sx={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '82%' }}>
-              <Box sx={{ px: 1.5, py: 0.8, borderRadius: 2, background: `${c}1A`, border: `1px solid ${c}38`, opacity: m._status === 'sending' ? 0.65 : 1 }}>
-                <Typography variant="caption" sx={{ color: c, fontWeight: 700, display: 'block' }}>
+              <Box sx={{ position: 'relative', px: 1.5, py: 0.8, borderRadius: 2, background: `${c}1A`, border: `1px solid ${c}38`, opacity: m._status === 'sending' ? 0.65 : 1, '&:hover .msg-menu': { opacity: 1 } }}>
+                {!deleted && !m._status && (
+                  <IconButton className="msg-menu" size="small" onClick={e => openMenu(e, m)}
+                    sx={{ position: 'absolute', top: 2, right: 2, p: 0.2, color: '#64748B', opacity: { xs: 0.5, md: 0 }, transition: 'opacity .15s' }}>
+                    <MoreHorizRoundedIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                )}
+                <Typography variant="caption" sx={{ color: c, fontWeight: 700, display: 'block', pr: 2.5 }}>
                   {m.sender_name || 'участник'}{mine && !m._status ? ' (вы)' : ''}
                 </Typography>
-                {m.body && m.body !== '[object Object]' && <Typography variant="body2" sx={{ color: '#E2E8F0', whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
-                {m.attachment_url && (img ? (
-                  <Box component="img" src={m.attachment_url} alt={m.attachment_name || ''} loading="lazy"
-                    onClick={() => setLightbox(m.attachment_url!)}
-                    sx={{ mt: m.body ? 0.5 : 0, display: 'block', maxWidth: 240, maxHeight: 240, borderRadius: 1.5, cursor: 'zoom-in', objectFit: 'cover' }} />
-                ) : (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: m.body ? 0.5 : 0 }}>
-                    <DescriptionRoundedIcon sx={{ fontSize: 16, color: c }} />
-                    <Link href={m.attachment_url} target="_blank" rel="noopener" sx={{ color: c, fontSize: 13, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                      {m.attachment_name || 'файл'}
-                    </Link>
+                {m.reply_to_id != null && !deleted && (
+                  <Box sx={{ borderLeft: `2px solid ${c}88`, pl: 1, my: 0.4, opacity: 0.85 }}>
+                    <Typography variant="caption" sx={{ color: c, fontWeight: 700, display: 'block', fontSize: 10.5 }}>
+                      {m.reply_sender_name || 'участник'}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>
+                      {m.reply_body || (m.reply_attachment_name ? `📎 ${m.reply_attachment_name}` : 'Сообщение удалено')}
+                    </Typography>
                   </Box>
-                ))}
+                )}
+                {deleted ? (
+                  <Typography variant="body2" sx={{ color: '#64748B', fontStyle: 'italic' }}>Сообщение удалено</Typography>
+                ) : (
+                  <>
+                    {m.body && m.body !== '[object Object]' && <Typography variant="body2" sx={{ color: '#E2E8F0', whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
+                    {m.attachment_url && (img ? (
+                      <Box component="img" src={m.attachment_url} alt={m.attachment_name || ''} loading="lazy"
+                        onClick={() => setLightbox(m.attachment_url!)}
+                        sx={{ mt: m.body ? 0.5 : 0, display: 'block', maxWidth: 240, maxHeight: 240, borderRadius: 1.5, cursor: 'zoom-in', objectFit: 'cover' }} />
+                    ) : (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: m.body ? 0.5 : 0 }}>
+                        <DescriptionRoundedIcon sx={{ fontSize: 16, color: c }} />
+                        <Link href={m.attachment_url} target="_blank" rel="noopener" sx={{ color: c, fontSize: 13, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                          {m.attachment_name || 'файл'}
+                        </Link>
+                      </Box>
+                    ))}
+                  </>
+                )}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.2 }}>
                   <Typography variant="caption" sx={{ color: '#475569', fontSize: 10 }}>{fmtTime(m.created_at)}</Typography>
+                  {m.edited_at && !deleted && <Typography variant="caption" sx={{ color: '#475569', fontSize: 10 }}>· изменено</Typography>}
                   {m._status === 'sending' && <Typography variant="caption" sx={{ color: '#64748B', fontSize: 10 }}>· отправка…</Typography>}
                   {m._status === 'failed' && (
                     <Box component="span" onClick={() => retry(m)} sx={{ cursor: 'pointer', color: '#EF4444', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
                       · не доставлено <ReplayRoundedIcon sx={{ fontSize: 12 }} />
                     </Box>
                   )}
+                  {mine && !m._status && !deleted && (
+                    m.id <= readUpTo
+                      ? <DoneAllRoundedIcon sx={{ fontSize: 13, color: '#C9A84C' }} titleAccess="Прочитано" />
+                      : <DoneRoundedIcon sx={{ fontSize: 13, color: '#64748B' }} titleAccess="Доставлено" />
+                  )}
                 </Box>
               </Box>
             </Box>
           );
         })}
+        {typingBy && (
+          <Typography variant="caption" sx={{ color: '#64748B', fontStyle: 'italic', pl: 0.5 }}>
+            {typingBy} печатает…
+          </Typography>
+        )}
         <div ref={bottomRef} />
       </Box>
 
+      {replyTo && !editing && (
+        <Box sx={{ mt: 1, px: 1.2, py: 0.6, borderRadius: 1.5, background: 'rgba(201,168,76,0.08)', borderLeft: '2px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ReplyRoundedIcon sx={{ fontSize: 16, color: '#C9A84C' }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: '#C9A84C', fontWeight: 700, display: 'block' }}>{replyTo.sender_name || 'участник'}</Typography>
+            <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {replyTo.body || (replyTo.attachment_name ? `📎 ${replyTo.attachment_name}` : '')}
+            </Typography>
+          </Box>
+          <IconButton size="small" onClick={() => setReplyTo(null)} sx={{ color: '#64748B' }}><CloseRoundedIcon sx={{ fontSize: 16 }} /></IconButton>
+        </Box>
+      )}
+      {editing && (
+        <Box sx={{ mt: 1, px: 1.2, py: 0.6, borderRadius: 1.5, background: 'rgba(96,165,250,0.08)', borderLeft: '2px solid #60A5FA', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <EditRoundedIcon sx={{ fontSize: 16, color: '#60A5FA' }} />
+          <Typography variant="caption" sx={{ flex: 1, color: '#94A3B8' }}>Редактирование сообщения</Typography>
+          <IconButton size="small" onClick={cancelEdit} sx={{ color: '#64748B' }}><CloseRoundedIcon sx={{ fontSize: 16 }} /></IconButton>
+        </Box>
+      )}
       {pending && (
         <Chip icon={<DescriptionRoundedIcon />} label={pending.name} onDelete={() => setPending(null)} deleteIcon={<CloseRoundedIcon />}
           sx={{ mt: 1, maxWidth: '100%', background: 'rgba(201,168,76,0.12)', color: '#E2C97E', '& .MuiChip-icon': { color: '#C9A84C' } }} />
@@ -227,17 +381,42 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
         <Typography variant="caption" sx={{ color: '#EF4444', mt: 1, display: 'block' }}>{attachError}</Typography>
       )}
       <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center' }}>
-        <IconButton component="label" disabled={busy} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+        <IconButton component="label" disabled={busy || !!editing} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
           <AttachFileRoundedIcon />
           <input type="file" hidden onChange={handleAttach} />
         </IconButton>
-        <TextField size="small" fullWidth placeholder="Написать сообщение…" value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
-        <IconButton onClick={send} disabled={busy || (!text.trim() && !pending)} sx={{ color: '#C9A84C' }}>
-          {busy ? <CircularProgress size={18} /> : <SendRoundedIcon />}
+        <TextField size="small" fullWidth placeholder={editing ? 'Исправьте текст…' : 'Написать сообщение…'} value={text}
+          onChange={e => onType(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); editing ? saveEdit() : send(); }
+            if (e.key === 'Escape' && editing) cancelEdit();
+          }} />
+        <IconButton onClick={editing ? saveEdit : send} disabled={busy || (!text.trim() && !pending)} sx={{ color: editing ? '#60A5FA' : '#C9A84C' }}>
+          {busy ? <CircularProgress size={18} /> : editing ? <DoneRoundedIcon /> : <SendRoundedIcon />}
         </IconButton>
       </Box>
+
+      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}
+        slotProps={{ paper: { sx: { background: '#0F172A', border: '1px solid rgba(201,168,76,0.2)' } } }}>
+        <MenuItem onClick={() => { if (menu) { setReplyTo(menu.msg); setEditing(null); } setMenu(null); }}>
+          <ListItemIcon><ReplyRoundedIcon sx={{ fontSize: 18, color: '#94A3B8' }} /></ListItemIcon>Ответить
+        </MenuItem>
+        {!!menu?.msg.body && (
+          <MenuItem onClick={() => { if (menu) copyMsg(menu.msg); setMenu(null); }}>
+            <ListItemIcon><ContentCopyRoundedIcon sx={{ fontSize: 18, color: '#94A3B8' }} /></ListItemIcon>Копировать
+          </MenuItem>
+        )}
+        {menu && menu.msg.sender_id === myId && !!menu.msg.body && (
+          <MenuItem onClick={() => { startEdit(menu.msg); setMenu(null); }}>
+            <ListItemIcon><EditRoundedIcon sx={{ fontSize: 18, color: '#94A3B8' }} /></ListItemIcon>Изменить
+          </MenuItem>
+        )}
+        {menu && menu.msg.sender_id === myId && (
+          <MenuItem onClick={() => { removeMsg(menu.msg); setMenu(null); }} sx={{ color: '#EF4444' }}>
+            <ListItemIcon><DeleteOutlineRoundedIcon sx={{ fontSize: 18, color: '#EF4444' }} /></ListItemIcon>Удалить
+          </MenuItem>
+        )}
+      </Menu>
 
       {lightbox && (
         <Box onClick={() => setLightbox(null)} sx={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, cursor: 'zoom-out' }}>

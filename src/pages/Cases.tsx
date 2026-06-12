@@ -39,11 +39,11 @@ function statusColor(status: string): string {
   }
 }
 
-// Дата ДД.ММ.ГГ из строки SQLite (UTC).
+// Дата+время ДД.ММ.ГГ ЧЧ:ММ из строки SQLite (UTC) — по просьбе CEO не только дата.
 function fmtDate(s?: string): string {
   if (!s) return '—';
   const d = new Date(s.replace(' ', 'T') + 'Z');
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 // «Зависла»: в работе и без движения > 7 дней.
 function isStale(t: { status: string; updated_at?: string; assignee_id?: number | null }): boolean {
@@ -421,7 +421,7 @@ export default function Cases() {
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{detail.client_name}</Typography>
                 <Typography variant="caption" sx={{ color: '#64748B' }}>
-                  Заявка от {detail.agent_name || 'агента'} · {new Date(detail.created_at).toLocaleDateString('ru-RU')}
+                  Заявка от {detail.agent_name || 'агента'} · {fmtDate(detail.created_at)}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
