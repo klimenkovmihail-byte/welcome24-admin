@@ -10,10 +10,8 @@ import { motion } from 'framer-motion';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
-import IntegrationInstructionsRoundedIcon from '@mui/icons-material/IntegrationInstructionsRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
-import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import EmojiEventsRoundedIcon from '@mui/icons-material/EmojiEventsRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -474,67 +472,6 @@ export default function Settings() {
               </Typography>
             </Box>
           </Box>
-        </Stack>
-      </Section>
-
-      {/* Notifications — раздел в разработке, тоглы заблокированы */}
-      <Section title="Уведомления" subtitle="Настройка push-уведомлений администратора" icon={<NotificationsRoundedIcon />} delay={0.15}>
-        <Box sx={{ mb: 2 }}>
-          <Chip
-            label="В разработке"
-            size="small"
-            sx={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontWeight: 700, border: '1px solid rgba(245,158,11,0.25)' }}
-          />
-        </Box>
-        <Stack spacing={1.5} sx={{ opacity: 0.5, pointerEvents: 'none' }}>
-          {[
-            { key: 'newAgent', label: 'Новый агент зарегистрирован', desc: 'При добавлении нового агента в систему' },
-            { key: 'newDeal', label: 'Новая сделка добавлена', desc: 'При создании сделки агентом' },
-            { key: 'paidDeal', label: 'Сделка выплачена', desc: 'При изменении статуса на «Выплачено»' },
-            { key: 'shareOp', label: 'Операция с акциями', desc: 'При эмиссии, передаче или выкупе акций' },
-          ].map(n => (
-            <Box key={n.key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1.5, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <Box>
-                <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{n.label}</Typography>
-                <Typography variant="caption" sx={{ color: '#64748B' }}>{n.desc}</Typography>
-              </Box>
-              <Switch checked={false} disabled size="small" />
-            </Box>
-          ))}
-        </Stack>
-      </Section>
-
-      {/* Integrations — раздел в разработке */}
-      <Section title="Интеграции" subtitle="Подключение внешних сервисов" icon={<IntegrationInstructionsRoundedIcon />} delay={0.2}>
-        <Box sx={{ mb: 2 }}>
-          <Chip
-            label="В разработке"
-            size="small"
-            sx={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontWeight: 700, border: '1px solid rgba(245,158,11,0.25)' }}
-          />
-        </Box>
-        <Stack spacing={2} sx={{ opacity: 0.5, pointerEvents: 'none' }}>
-          {[
-            { key: 'telegram', label: 'Telegram Bot', desc: 'Уведомления в Telegram-канал администратора', color: '#2AABEE' },
-            { key: 'crm', label: 'CRM Система', desc: 'Синхронизация сделок с внешней CRM', color: '#4361EE' },
-            { key: 'email', label: 'Email рассылки', desc: 'Автоматические email-уведомления агентам', color: '#22C55E' },
-          ].map(int => (
-            <Box key={int.key} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, borderRadius: 2.5, border: '1px solid rgba(255,255,255,0.06)' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Box sx={{ width: 36, height: 36, borderRadius: 2, background: `${int.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', background: int.color }} />
-                </Box>
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{int.label}</Typography>
-                  <Typography variant="caption" sx={{ color: '#64748B' }}>{int.desc}</Typography>
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Chip label="Скоро" size="small" sx={{ background: 'rgba(100,116,139,0.12)', color: '#64748B', fontWeight: 600, fontSize: 11 }} />
-                <Switch checked={false} disabled size="small" />
-              </Box>
-            </Box>
-          ))}
         </Stack>
       </Section>
 
