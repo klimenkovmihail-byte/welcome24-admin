@@ -43,7 +43,7 @@ function setConnected(v: boolean) {
 async function connect() {
   if (!getToken()) { scheduleReconnect(); return; } // ещё не залогинен — подождём
   try {
-    const { ticket } = await api.post<{ ticket: string }>('/events/ticket');
+    const { ticket } = await api.post<{ ticket: string }>('/api/events/ticket');
     const src = new EventSource(`${API_BASE_URL}/api/events?ticket=${encodeURIComponent(ticket)}`);
     es = src;
     src.onopen = () => { retryMs = 1000; setConnected(true); };

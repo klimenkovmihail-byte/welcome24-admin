@@ -79,6 +79,8 @@ async function uploadFile(file: File): Promise<{ url: string; name: string }> {
 }
 
 export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, maxHeight = 260, pollMs = 5000, emptyText = 'Сообщений пока нет.' }: Props) {
+  // api-клиент ждёт путь С префиксом /api (как все api-модули) — apiBase доменный ('/cases/14').
+  const base = `/api${apiBase}`;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState('');
   const [pending, setPending] = useState<{ url: string; name: string } | null>(null);
@@ -119,14 +121,14 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
 
   const poll = useCallback(async () => {
     try {
-      const fresh = await api.get<ThreadMessage[]>(`${apiBase}/messages?after=${lastIdRef.current}`);
+      const fresh = await api.get<ThreadMessage[]>(`${base}/messages?after=${lastIdRef.current}`);
       if (baseRef.current !== apiBase) return; // переключились на другую заявку
       if (fresh.length) {
         lastIdRef.current = Math.max(lastIdRef.current, fresh[fresh.length - 1].id);
         appendUnique(fresh);
         bumpReadUpTo(fresh);
         setTimeout(scrollDown, 50);
-        api.post(`${apiBase}/read`, { lastId: lastIdRef.current }).catch(() => {});
+        api.post(`${base}/read`, { lastId: lastIdRef.current }).catch(() => {});
       }
     } catch { /* tolerate */ }
   }, [apiBase]);
@@ -134,7 +136,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   // Полная перезагрузка треда — для правок/удалений (курсорный poll старое не вернёт).
   const reload = useCallback(async () => {
     try {
-      const fresh = await api.get<ThreadMessage[]>(`${apiBase}/messages?after=0`);
+      const fresh = await api.get<ThreadMessage[]>(`${base}/messages?after=0`);
       if (baseRef.current !== apiBase) return;
       lastIdRef.current = fresh.length ? fresh[fresh.length - 1].id : 0;
       setMessages(fresh);
@@ -196,7 +198,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   const deliver = async (tmpId: number, body: string, att: { url: string; name: string } | null, replyToId: number | null) => {
     setBusy(true);
     try {
-      const msg = await api.post<ThreadMessage>(`${apiBase}/messages`,
+      const msg = await api.post<ThreadMessage>(`${base}/messages`,
         { body, attachmentUrl: att?.url, attachmentName: att?.name, replyToId });
       lastIdRef.current = Math.max(lastIdRef.current, msg.id);
       setMessages(prev => {
@@ -241,7 +243,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     if (!body || busy) return;
     setBusy(true);
     try {
-      const updated = await api.patch<ThreadMessage>(`${apiBase}/messages/${editing.id}`, { body });
+      const updated = await api.patch<ThreadMessage>(`${base}/messages/${editing.id}`, { body });
       setMessages(prev => prev.map(m => (m.id === editing.id ? { ...m, ...updated } : m)));
       setEditing(null); setText('');
     } catch {
@@ -252,7 +254,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   const removeMsg = async (m: Msg) => {
     if (!window.confirm('Удалить сообщение? Текст и вложение будут стёрты у всех.')) return;
     try {
-      const updated = await api.del<ThreadMessage>(`${apiBase}/messages/${m.id}`);
+      const updated = await api.del<ThreadMessage>(`${base}/messages/${m.id}`);
       setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, ...updated } : x)));
     } catch { /* tolerate */ }
   };
@@ -265,7 +267,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     const now = Date.now();
     if (!editing && v && now - lastTypingSentRef.current > 2500) {
       lastTypingSentRef.current = now;
-      api.post(`${apiBase}/typing`).catch(() => {});
+      api.post(`${base}/typing`).catch(() => {});
     }
   };
 

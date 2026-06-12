@@ -65,7 +65,7 @@ export default function Inbox() {
   // Один серверный агрегат вместо склейки трёх запросов (роль учитывает бэк).
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true);
-    api.get<{ queue: InboxItem[]; mine: InboxItem[] }>('/inbox')
+    api.get<{ queue: InboxItem[]; mine: InboxItem[] }>('/api/inbox')
       .then(d => { setQueueItems(d.queue); setMineItems(d.mine); })
       .catch(e => setError(e?.message || 'Ошибка'))
       .finally(() => setLoading(false));
