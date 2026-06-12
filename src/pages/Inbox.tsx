@@ -7,6 +7,7 @@ import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
 import { casesAdminApi, STATUS_RU as CASE_STATUS } from '../api/cases';
 import { adRequestsApi, KIND_LABEL } from '../api/adRequests';
 import { api } from '../api/apiClient';
+import { sseSubscribe } from '../lib/sse';
 
 const AD_ST: Record<string, string> = { new: 'Новая', in_progress: 'В работе', done: 'Готово', cancelled: 'Отменена' };
 const stColor = (s: string) =>
@@ -73,7 +74,14 @@ export default function Inbox() {
   useEffect(() => {
     load();
     const iv = setInterval(() => { if (!document.hidden) load(true); }, 30000);
-    return () => clearInterval(iv);
+    // SSE: любое событие тредов (сообщение/взятие/статус) → живой инбокс
+    // (с дебаунсом — пачка событий не даёт шквала запросов). Интервал — фоллбэк.
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const off = sseSubscribe('thread', () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => load(true), 400);
+    });
+    return () => { clearInterval(iv); off(); if (t) clearTimeout(t); };
   }, [load]);
 
   const toRow = (it: InboxItem, group: 'queue' | 'mine'): Row => it.domain === 'case' ? {

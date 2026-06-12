@@ -8,6 +8,7 @@ import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import { motion, AnimatePresence } from 'framer-motion';
 import NotificationsRoundedIcon from '@mui/icons-material/NotificationsRounded';
 import { notificationsApi } from '../../api/notifications';
+import { sseSubscribe } from '../../lib/sse';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
 import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded';
@@ -133,9 +134,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         .catch(() => { /* tolerate */ });
     };
     load();
-    // Живой колокол: новые заявки/сообщения появляются без перезагрузки. Пауза при скрытой вкладке.
+    // Живой колокол: SSE будит мгновенно, интервал — фоллбэк. Пауза при скрытой вкладке.
     const iv = setInterval(() => { if (!document.hidden) load(); }, 30000);
-    return () => { cancelled = true; clearInterval(iv); };
+    const off = sseSubscribe('notify', load);
+    return () => { cancelled = true; clearInterval(iv); off(); };
   }, []);
 
   const unreadCount = notifs.filter(n => n.unread).length;

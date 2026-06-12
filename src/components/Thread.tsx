@@ -6,6 +6,7 @@ import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
 import { api, API_BASE_URL, getToken } from '../api/apiClient';
+import { sseSubscribe, sseConnected } from '../lib/sse';
 
 // Единый чат заявки (Фаза Б): один компонент вместо копий CaseChat + инлайн-чатов
 // рекламы. Параметризуется доменным путём apiBase ('/cases/14' | '/ad-requests/31') —
@@ -69,6 +70,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   const [loading, setLoading] = useState(true);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [live, setLive] = useState(sseConnected()); // живой SSE → редкий фолбэк-поллинг
   const tmpRef = useRef(-1); // отрицательные id для временных сообщений
   const lastIdRef = useRef(0);
   // Актуальный apiBase: при смене заявки без размонтирования (deep-link ?open=N)
@@ -104,9 +106,24 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     baseRef.current = apiBase;
     setMessages([]); lastIdRef.current = 0; setLoading(true);
     poll().finally(() => setLoading(false));
-    const t = setInterval(poll, pollMs);
+  }, [poll, apiBase]);
+
+  // Фоллбэк-поллинг отдельным эффектом: смена частоты (live) не сбрасывает чат.
+  useEffect(() => {
+    const t = setInterval(poll, live ? 30_000 : pollMs);
     return () => clearInterval(t);
-  }, [poll, apiBase, pollMs]);
+  }, [poll, pollMs, live]);
+
+  // SSE: «звонок» о событии в ЭТОМ треде → мгновенный poll (данные тянет
+  // обычный курсорный GET со своим ACL); $status управляет частотой фоллбэка.
+  useEffect(() => {
+    const offThread = sseSubscribe('thread', d => {
+      const path = d.subjectType === 'case' ? `/cases/${d.subjectId}` : `/ad-requests/${d.subjectId}`;
+      if (path === apiBase) poll();
+    });
+    const offStatus = sseSubscribe('$status', s => setLive(!!s.connected));
+    return () => { offThread(); offStatus(); };
+  }, [apiBase, poll]);
 
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
