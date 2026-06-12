@@ -202,9 +202,9 @@ export default function Settings() {
     setError(null);
     try {
       await settingsApi.update({
-        // share_price НЕ сохраняем: курс — это последняя котировка (раздел «Акции»),
-        // settings.share_price синхронизируется на бэке при изменении котировок.
-        total_shares: settings.totalSharesIssued,
+        // share_price и total_shares здесь НЕ сохраняем: курс = последняя котировка,
+        // а потолок эмиссии редактируется ТОЛЬКО в разделе «Акции» (единый источник —
+        // иначе сохранение Settings затирало бы потолок устаревшим значением формы).
         // available_shares больше не хранится в settings — считается live из stats.
         level1_threshold: settings.level1Threshold,
         level2_threshold: settings.level2Threshold,
@@ -454,7 +454,8 @@ export default function Settings() {
             <TextField
               fullWidth size="small" label="Всего акций выпущено" type="number"
               value={settings.totalSharesIssued}
-              onChange={e => setSettings(s => ({ ...s, totalSharesIssued: Number(e.target.value) }))}
+              disabled
+              helperText="Потолок эмиссии. Менять в разделе «Акции» (единый источник правды)."
             />
           </Box>
           <Box sx={{ p: 2, borderRadius: 2.5, background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.1)', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
