@@ -13,10 +13,24 @@ const stColor = (s: string) =>
   ['done', 'approved', 'issued', 'act'].includes(s) ? '#22C55E'
     : ['cancelled', 'rejected'].includes(s) ? '#EF4444'
     : ['new', 'consultation'].includes(s) ? '#94A3B8' : '#4361EE';
-const age = (iso?: string) => {
+// SQLite UTC ('YYYY-MM-DD HH:MM:SS') → мс. Без 'Z' браузер парсит как локальное — добавляем.
+const tsMs = (iso?: string) => (iso ? new Date(iso.replace(' ', 'T') + 'Z').getTime() : 0);
+// Относительный возраст: «только что / N мин / N ч / N дн».
+const ago = (iso?: string) => {
   if (!iso) return '';
-  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-  return d <= 0 ? 'сегодня' : d === 1 ? '1 день' : `${d} дн`;
+  const min = Math.floor((Date.now() - tsMs(iso)) / 60000);
+  if (min < 1) return 'только что';
+  if (min < 60) return `${min} мин`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} ч`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? '1 день' : `${d} дн`;
+};
+// SLA-цвет по времени ожидания (для очереди): зелёный < 4ч, жёлтый < 24ч, красный дальше.
+const slaColor = (iso?: string) => {
+  if (!iso) return '#64748B';
+  const h = (Date.now() - tsMs(iso)) / 3600000;
+  return h >= 24 ? '#EF4444' : h >= 4 ? '#F59E0B' : '#22C55E';
 };
 
 interface Row {
@@ -61,13 +75,14 @@ export default function Inbox() {
   const adMine = ads.filter(a => a.assignee_id === myId && a.status !== 'done' && a.status !== 'cancelled');
 
   const caseRow = (t: QueueTask, group: 'queue' | 'mine'): Row => ({
-    key: `c${t.task_id}`, kind: 'case', group, takeId: t.task_id, openPath: '/cases',
+    key: `c${t.task_id}`, kind: 'case', group, takeId: t.task_id,
+    openPath: `/cases?open=${t.case_id}&track=${t.track}`,
     source: t.track === 'legal' ? 'Юрист' : 'Ипотека', title: t.client_name || 'Заявка',
     sub: t.object_address || t.city || '', status: t.status, agent: t.agent_name || '',
     unread: t.unread || 0, updated: t.created_at,
   });
   const adRow = (a: AdRequest, group: 'queue' | 'mine'): Row => ({
-    key: `a${a.id}`, kind: 'ad', group, takeId: a.id, openPath: '/ad-requests',
+    key: `a${a.id}`, kind: 'ad', group, takeId: a.id, openPath: `/ad-requests?open=${a.id}`,
     source: 'Реклама', title: a.kind_label || 'Заявка в рекламу',
     sub: [a.object_ref, a.region].filter(Boolean).join(' · '), status: a.status, agent: a.agent_name || '',
     unread: a.unread || 0, updated: a.created_at,
@@ -93,6 +108,8 @@ export default function Inbox() {
     <Paper onClick={() => navigate(r.openPath)} sx={{
       p: 1.5, borderRadius: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1.5,
       border: r.unread > 0 ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(201,168,76,0.1)',
+      // Очередь горит: левый акцент по SLA (зелёный/жёлтый/красный по времени ожидания).
+      borderLeft: r.group === 'queue' ? `3px solid ${slaColor(r.updated)}` : undefined,
       transition: 'all .2s', '&:hover': { borderColor: 'rgba(201,168,76,0.4)' },
     }}>
       <SourceIcon r={r} />
@@ -102,7 +119,7 @@ export default function Inbox() {
           <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</Typography>
         </Stack>
         {r.sub && <Typography variant="caption" sx={{ color: '#64748B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sub}</Typography>}
-        <Typography variant="caption" sx={{ color: '#475569' }}>{r.agent && `${r.agent} · `}{age(r.updated)}</Typography>
+        <Typography variant="caption" sx={{ color: r.group === 'queue' ? slaColor(r.updated) : '#475569', fontWeight: r.group === 'queue' ? 700 : 400 }}>{r.agent && `${r.agent} · `}{ago(r.updated)}</Typography>
       </Box>
       <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
         {r.unread > 0 && <Box sx={{ minWidth: 22, height: 22, px: 0.6, borderRadius: 11, background: '#EF4444', color: '#fff', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{r.unread}</Box>}

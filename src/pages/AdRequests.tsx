@@ -14,6 +14,7 @@ import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
+import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
 import {
   adRequestsApi, type AdRequest, type AdStatus, type AdMessage, type AdEvent,
   type RosterAgent, type PlatformStats, type AdAnalytics, type ConnectPlatform,
@@ -56,6 +57,13 @@ async function uploadFile(file: File): Promise<{ url: string; name: string; size
   const data = await res.json();
   return { url: data.url, name: file.name, size: file.size };
 }
+
+// Картинка → превью + лайтбокс; прочие файлы — ссылкой.
+const isImg = (url?: string | null) => !!url && /\.(jpe?g|png|gif|webp|avif|bmp)(\?|$)/i.test(url);
+// Локальная метка времени в формате сервера ('YYYY-MM-DD HH:MM:SS', UTC).
+const nowStamp = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+// Локальный статус доставки оптимистичных сообщений.
+type AdMsg = AdMessage & { _status?: 'sending' | 'failed' };
 
 const cardSx = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(201,168,76,0.12)', borderRadius: 3 } as const;
 
@@ -226,22 +234,45 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
   setStatus: (id: number, s: AdStatus) => void; take: (id: number) => void;
 }) {
   const [r, setR] = useState(request);
-  const [messages, setMessages] = useState<AdMessage[]>([]);
+  const [messages, setMessages] = useState<AdMsg[]>([]);
   const [events, setEvents] = useState<AdEvent[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const lastIdRef = useRef(0);
+  const tmpRef = useRef(-1); // отрицательные id для временных сообщений
   const user = getCurrentUser();
 
+  // Новые сообщения с дедупом по id (курсорный поллинг может перекрываться с send).
+  const mergeFresh = (fresh: AdMessage[]) => {
+    if (!fresh.length) return;
+    lastIdRef.current = fresh.reduce((mx, m) => Math.max(mx, m.id), lastIdRef.current);
+    setMessages(prev => {
+      const seen = new Set(prev.map(m => m.id));
+      const add = fresh.filter(m => !seen.has(m.id));
+      return add.length ? [...prev, ...add] : prev;
+    });
+  };
+
+  // Метаданные заявки + таймлайн (без чата — чат тянется курсорно отдельно).
   const reload = useCallback(() => {
     adRequestsApi.get(r.id).then(setR).catch(() => {});
-    adRequestsApi.messages(r.id).then(setMessages).catch(() => {});
     adRequestsApi.events(r.id).then(setEvents).catch(() => {});
   }, [r.id]);
-  useEffect(() => { reload(); adRequestsApi.markRead(r.id).catch(() => {}); }, [reload, r.id]);
-  // Поллинг чата — новые сообщения подтягиваются без переоткрытия.
   useEffect(() => {
-    const iv = setInterval(() => { adRequestsApi.messages(r.id).then(setMessages).catch(() => {}); }, 4000);
+    reload();
+    adRequestsApi.markRead(r.id).catch(() => {});
+    // Первичная загрузка чата целиком + установка курсора.
+    adRequestsApi.messages(r.id).then(fresh => {
+      setMessages(fresh);
+      lastIdRef.current = fresh.reduce((mx, m) => Math.max(mx, m.id), 0);
+    }).catch(() => {});
+  }, [reload, r.id]);
+  // Курсорный поллинг чата: тянем только новое (after=lastId), не весь список каждые 4с.
+  useEffect(() => {
+    const iv = setInterval(() => { adRequestsApi.messages(r.id, lastIdRef.current).then(mergeFresh).catch(() => {}); }, 4000);
     return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.id]);
   // Автоскролл вниз при новых сообщениях.
   // Автоскролл вниз — только при первом открытии или новом сообщении, и только если
@@ -259,18 +290,51 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
   }, [messages]);
 
   const [uploading, setUploading] = useState(false);
+
+  // Доставка с повтором: меняем временное сообщение на настоящее либо метим «не доставлено».
+  const deliver = async (tmpId: number, body: string, att: { url: string; name: string } | null) => {
+    setSending(true);
+    try {
+      const msg = await adRequestsApi.sendMessage(r.id, { body, attachmentUrl: att?.url, attachmentName: att?.name });
+      lastIdRef.current = Math.max(lastIdRef.current, msg.id);
+      setMessages(prev => {
+        const rest = prev.filter(m => m.id !== tmpId);
+        return rest.some(m => m.id === msg.id) ? rest : [...rest, msg]; // poll мог опередить
+      });
+    } catch {
+      setMessages(prev => prev.map(m => (m.id === tmpId ? { ...m, _status: 'failed' } : m)));
+    } finally { setSending(false); }
+  };
+  // Мгновенно показываем сообщение со статусом «отправка…», возвращаем его временный id.
+  const pushOptimistic = (body: string, att: { url: string; name: string } | null): number => {
+    const tmpId = tmpRef.current--;
+    setMessages(prev => [...prev, {
+      id: tmpId, request_id: r.id, sender_id: user?.id ?? null, sender_name: 'Вы', sender_role: user?.role ?? null,
+      body, attachment_url: att?.url ?? null, attachment_name: att?.name ?? null, created_at: nowStamp(), _status: 'sending',
+    }]);
+    return tmpId;
+  };
+
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    try { const up = await uploadFile(file); await adRequestsApi.sendMessage(r.id, { attachmentUrl: up.url, attachmentName: up.name }); reload(); }
-    catch { /* tolerate */ } finally { setUploading(false); e.target.value = ''; }
+    try {
+      const up = await uploadFile(file);
+      const att = { url: up.url, name: up.name };
+      deliver(pushOptimistic('', att), '', att);
+    } catch { /* tolerate */ } finally { setUploading(false); e.target.value = ''; }
   };
-  const send = async () => {
-    if (!text.trim()) return;
-    setSending(true);
-    try { await adRequestsApi.sendMessage(r.id, { body: text.trim() }); setText(''); reload(); }
-    finally { setSending(false); }
+  const send = () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    const tmpId = pushOptimistic(body, null);
+    setText('');
+    deliver(tmpId, body, null);
+  };
+  const retry = (m: AdMsg) => {
+    setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, _status: 'sending' } : x)));
+    deliver(m.id, m.body, m.attachment_url ? { url: m.attachment_url, name: m.attachment_name || 'файл' } : null);
   };
   const doStatus = (s: AdStatus) => {
     setStatus(r.id, s); // обновляет статус + перезагружает список
@@ -352,17 +416,30 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
               {messages.map(m => {
                 const mine = m.sender_id === user?.id;
                 const c = roleColor(m.sender_role);
+                const img = isImg(m.attachment_url);
                 return (
                   <Box key={m.id} sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', mb: 0.8 }}>
-                    <Box sx={{ maxWidth: '80%', background: c + '2E', border: `1px solid ${c}44`, borderRadius: 2, px: 1.3, py: 0.7 }}>
+                    <Box sx={{ maxWidth: '80%', background: c + '2E', border: `1px solid ${c}44`, borderRadius: 2, px: 1.3, py: 0.7, opacity: m._status === 'sending' ? 0.65 : 1 }}>
                       {!mine && <Typography sx={{ color: c, fontSize: 11, fontWeight: 700 }}>{m.sender_name}</Typography>}
                       {m.body && <Typography sx={{ color: '#E2E8F0', fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
-                      {m.attachment_url && (
+                      {m.attachment_url && (img ? (
+                        <Box component="img" src={m.attachment_url} alt={m.attachment_name || ''} loading="lazy"
+                          onClick={() => setLightbox(m.attachment_url!)}
+                          sx={{ mt: 0.3, display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 1.5, cursor: 'zoom-in', objectFit: 'cover' }} />
+                      ) : (
                         <Link href={m.attachment_url} target="_blank" rel="noopener" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color: '#E2C97E', fontSize: 13, textDecoration: 'none', mt: 0.3, '&:hover': { textDecoration: 'underline' } }}>
                           <AttachFileRoundedIcon sx={{ fontSize: 14 }} /> {m.attachment_name || 'файл'}
                         </Link>
-                      )}
-                      <Typography sx={{ color: '#475569', fontSize: 10, textAlign: 'right' }}>{fmtDate(m.created_at)}</Typography>
+                      ))}
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5, mt: 0.2 }}>
+                        {m._status === 'sending' && <Typography sx={{ color: '#64748B', fontSize: 10 }}>отправка…</Typography>}
+                        {m._status === 'failed' && (
+                          <Box component="span" onClick={() => retry(m)} sx={{ cursor: 'pointer', color: '#EF4444', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
+                            не доставлено <ReplayRoundedIcon sx={{ fontSize: 12 }} />
+                          </Box>
+                        )}
+                        <Typography sx={{ color: '#475569', fontSize: 10 }}>{fmtDate(m.created_at)}</Typography>
+                      </Box>
                     </Box>
                   </Box>
                 );
@@ -383,6 +460,14 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
           </Box>
         </Stack>
       </DialogContent>
+      {lightbox && (
+        <Box onClick={() => setLightbox(null)} sx={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, cursor: 'zoom-out' }}>
+          <Box component="img" src={lightbox} sx={{ maxWidth: '92vw', maxHeight: '92vh', borderRadius: 2, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }} />
+          <IconButton onClick={() => setLightbox(null)} sx={{ position: 'absolute', top: 16, right: 16, color: '#fff', background: 'rgba(0,0,0,0.4)', '&:hover': { background: 'rgba(0,0,0,0.6)' } }}>
+            <CloseRoundedIcon />
+          </IconButton>
+        </Box>
+      )}
     </Dialog>
   );
 }
