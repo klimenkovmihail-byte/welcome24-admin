@@ -4,7 +4,10 @@ import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField,
   Dialog, DialogTitle, DialogContent, IconButton, Link, Badge, Tooltip,
+  Menu, Autocomplete, Avatar,
 } from '@mui/material';
+import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded';
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
@@ -23,6 +26,9 @@ import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
 import CasesAnalytics from '../components/CasesAnalytics';
 import CaseTimeline from '../components/CaseTimeline';
+import { agentsApi } from '../api/agents';
+import type { Agent } from '../types';
+import type { Role } from '../auth/roles';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -94,6 +100,32 @@ export default function Cases() {
   const [stateFilter, setStateFilter] = useState<'active' | 'done' | 'stale' | 'all'>('active');
   const [specialistFilter, setSpecialistFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'new' | 'stale'>('new');
+
+  // Список агентов (для добавления второго агента и передачи задачи специалисту).
+  const [allAgents, setAllAgents] = useState<Agent[]>([]);
+  useEffect(() => { agentsApi.list().then(setAllAgents).catch(() => { /* tolerate */ }); }, []);
+  const roleOf = (a: Agent) => (a as Agent & { role?: Role }).role || 'agent';
+  // Передача задачи: меню выбора специалиста той же дорожки.
+  const [transfer, setTransfer] = useState<{ anchor: HTMLElement; taskId: number; track: TaskTrack } | null>(null);
+
+  const handleTransfer = (taskId: number, agentId: number) => {
+    setTransfer(null);
+    casesAdminApi.updateTask(taskId, { assigneeId: agentId })
+      .then(u => { if (detail) setDetail(u); load(); bumpTimeline(); })
+      .catch(e => setError(e?.message || 'Не удалось передать задачу'));
+  };
+  const handleAddParticipant = (agentId: number) => {
+    if (!detail) return;
+    casesAdminApi.addParticipant(detail.id, agentId)
+      .then(u => { setDetail(u); bumpTimeline(); })
+      .catch(e => setError(e?.message || 'Не удалось добавить агента'));
+  };
+  const handleRemoveParticipant = (agentId: number) => {
+    if (!detail) return;
+    casesAdminApi.removeParticipant(detail.id, agentId)
+      .then(u => { setDetail(u); bumpTimeline(); })
+      .catch(e => setError(e?.message || 'Не удалось убрать агента'));
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -419,6 +451,14 @@ export default function Cases() {
                               Взять
                             </Button>
                           )}
+                          {t.assignee_id && (
+                            <Tooltip title="Передать задачу специалисту дорожки">
+                              <IconButton size="small" onClick={e => setTransfer({ anchor: e.currentTarget, taskId: t.id, track: t.track })}
+                                sx={{ color: '#8B5CF6' }}>
+                                <SwapHorizRoundedIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                         </Box>
                         {t.assignee_id && (
                           <CaseStatusStepper track={t.track} status={t.status} onChange={(s) => handleStatus(t.id, s)} />
@@ -430,6 +470,31 @@ export default function Cases() {
                       </Box>
                     ))}
                   </Stack>
+                </Box>
+
+                <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)' }} />
+
+                {/* Агенты по заявке (создатель + доп. для совместной сделки) */}
+                <Box>
+                  <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em' }}>Агенты по заявке</Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.8, alignItems: 'center' }}>
+                    <Chip size="small" avatar={<Avatar sx={{ bgcolor: 'rgba(201,168,76,0.2)', color: '#C9A84C', fontSize: 11 }}>{(detail.agent_name || 'А')[0]}</Avatar>}
+                      label={`${detail.agent_name || 'агент'} · создатель`}
+                      sx={{ background: 'rgba(201,168,76,0.12)', color: '#E2C97E', fontWeight: 600 }} />
+                    {(detail.participants || []).map(p => (
+                      <Chip key={p.agent_id} size="small" label={p.agent_name || `агент #${p.agent_id}`}
+                        onDelete={() => handleRemoveParticipant(p.agent_id)}
+                        sx={{ background: 'rgba(67,97,238,0.12)', color: '#93B4FF' }} />
+                    ))}
+                  </Box>
+                  <Autocomplete
+                    size="small" sx={{ mt: 1, maxWidth: 340 }}
+                    options={allAgents.filter(a => roleOf(a) === 'agent' && a.id !== detail.agent_id && !(detail.participants || []).some(p => p.agent_id === a.id))}
+                    getOptionLabel={a => a.name}
+                    value={null} blurOnSelect clearOnBlur
+                    onChange={(_, v) => { if (v) handleAddParticipant(v.id); }}
+                    renderInput={params => <TextField {...params} label="Добавить агента (совместная сделка)" placeholder="ФИО агента" />}
+                  />
                 </Box>
 
                 <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)' }} />
@@ -487,6 +552,18 @@ export default function Cases() {
           </>
         )}
       </Dialog>
+
+      {/* Меню передачи задачи специалисту той же дорожки */}
+      <Menu anchorEl={transfer?.anchor} open={!!transfer} onClose={() => setTransfer(null)}>
+        {transfer && (() => {
+          const wantRole = transfer.track === 'legal' ? 'lawyer' : 'broker';
+          const specs = allAgents.filter(a => roleOf(a) === wantRole);
+          if (!specs.length) return <MenuItem disabled>Нет специалистов дорожки</MenuItem>;
+          return specs.map(a => (
+            <MenuItem key={a.id} onClick={() => handleTransfer(transfer.taskId, a.id)}>{a.name}</MenuItem>
+          ));
+        })()}
+      </Menu>
     </Box>
   );
 }
