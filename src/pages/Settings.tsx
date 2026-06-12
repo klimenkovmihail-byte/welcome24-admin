@@ -370,10 +370,6 @@ export default function Settings() {
           <Typography variant="caption" sx={{ color: '#94A3B8' }}>
             {achievements.filter(a => a.active).length} активны · {achievements.length} всего
           </Typography>
-          <Button size="small" variant="outlined" startIcon={<EditRoundedIcon sx={{ fontSize: 14 }} />}
-            sx={{ borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C' }}>
-            Добавить ачивку
-          </Button>
         </Box>
         <Box sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
           <Table size="small">
@@ -434,7 +430,7 @@ export default function Settings() {
         </Box>
         {editAch && (
           <Alert severity="info" sx={{ mt: 2, borderRadius: 2 }}>
-            Откроется диалог редактирования ачивки <b>{editAch.title}</b> (заглушка — клик «Сохранить» вернёт настройку из state).
+            Редактирование параметров ачивки <b>{editAch.title}</b> появится позже. Пока ачивку можно включать/выключать переключателем «Активна».
             <Button size="small" sx={{ ml: 2 }} onClick={() => setEditAch(null)}>Закрыть</Button>
           </Alert>
         )}
