@@ -5,26 +5,49 @@ import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
-import { casesAdminApi, type CaseMessage } from '../api/cases';
-import { API_BASE_URL, getToken } from '../api/apiClient';
+import { api, API_BASE_URL, getToken } from '../api/apiClient';
 
-// Локальный статус доставки для оптимистичных (ещё не подтверждённых) сообщений.
-type Msg = CaseMessage & { _status?: 'sending' | 'failed' };
+// Единый чат заявки (Фаза Б): один компонент вместо копий CaseChat + инлайн-чатов
+// рекламы. Параметризуется доменным путём apiBase ('/cases/14' | '/ad-requests/31') —
+// после Фазы А оба домена отдают одинаковый формат messages/read.
+// Свои сообщения справа, чужие слева; цвет имени/рамки — по роли отправителя.
 
-// Цвет/подпись по роли отправителя. Агент — золото справа, бэк-офис — слева.
-function roleStyle(role: string | null) {
-  switch (role) {
-    case 'agent':       return { side: 'right' as const, name: '#C9A84C', bg: 'rgba(201,168,76,0.10)', border: 'rgba(201,168,76,0.22)' };
-    case 'lawyer':      return { side: 'left' as const,  name: '#22C55E', bg: 'rgba(34,197,94,0.10)',  border: 'rgba(34,197,94,0.22)' };
-    case 'broker':      return { side: 'left' as const,  name: '#8B5CF6', bg: 'rgba(139,92,246,0.10)', border: 'rgba(139,92,246,0.22)' };
-    default:            return { side: 'left' as const,  name: '#60A5FA', bg: 'rgba(67,97,238,0.10)',  border: 'rgba(67,97,238,0.22)' }; // admin/super_admin
-  }
+export interface ThreadMessage {
+  id: number;
+  sender_id: number | null;
+  sender_name: string | null;
+  sender_role: string | null;
+  body: string;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  created_at: string;
+}
+type Msg = ThreadMessage & { _status?: 'sending' | 'failed' };
+
+interface Props {
+  apiBase: string;            // доменный путь заявки, напр. '/cases/14'
+  myId: number | null;
+  myRole?: string;
+  fillHeight?: boolean;       // растянуть на высоту контейнера (вместо maxHeight)
+  maxHeight?: number;
+  pollMs?: number;
+  emptyText?: string;
 }
 
-// Картинка → показываем превью + лайтбокс; прочие файлы — ссылкой.
+// Цвет участника по роли (агент золото, юрист зелёный, брокер фиолет,
+// листинг-менеджер циан, админ синий, прочее серо-голубой).
+const ROLE_COLOR: Record<string, string> = {
+  agent: '#C9A84C', lawyer: '#22C55E', broker: '#8B5CF6',
+  listing_manager: '#06B6D4', admin: '#60A5FA', super_admin: '#60A5FA', manager: '#60A5FA',
+};
+const roleColor = (r?: string | null) => ROLE_COLOR[r || ''] || '#94A3B8';
+
+// Картинка → превью + лайтбокс; прочие файлы — ссылкой.
 const isImage = (url?: string | null) => !!url && /\.(jpe?g|png|gif|webp|avif|bmp)(\?|$)/i.test(url);
 // Локальная метка времени в формате сервера ('YYYY-MM-DD HH:MM:SS', UTC).
 const nowStamp = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+const fmtTime = (s: string) =>
+  new Date(s.replace(' ', 'T') + 'Z').toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 async function uploadFile(file: File): Promise<{ url: string; name: string }> {
   const fd = new FormData();
@@ -38,9 +61,7 @@ async function uploadFile(file: File): Promise<{ url: string; name: string }> {
   return { url: data.url, name: file.name };
 }
 
-/** Чат заявки: агент справа (золото), бэк-офис слева (цвет по роли).
- *  Файл прикрепляется к сообщению; картинки показываются превью с лайтбоксом. */
-export default function CaseChat({ caseId, myId, myRole, fillHeight }: { caseId: number; myId: number | null; myRole?: string; fillHeight?: boolean }) {
+export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, maxHeight = 260, pollMs = 5000, emptyText = 'Сообщений пока нет.' }: Props) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState('');
   const [pending, setPending] = useState<{ url: string; name: string } | null>(null);
@@ -48,17 +69,17 @@ export default function CaseChat({ caseId, myId, myRole, fillHeight }: { caseId:
   const [loading, setLoading] = useState(true);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
-  const lastIdRef = useRef(0);
-  // Актуальный caseId: при смене заявки без размонтирования (deep-link ?open=N)
-  // поздний ответ старого чата не должен дописываться в новый.
-  const caseIdRef = useRef(caseId);
   const tmpRef = useRef(-1); // отрицательные id для временных сообщений
+  const lastIdRef = useRef(0);
+  // Актуальный apiBase: при смене заявки без размонтирования (deep-link ?open=N)
+  // поздний ответ старого чата не должен дописываться в новый.
+  const baseRef = useRef(apiBase);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollDown = () => bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
 
-  // Дедупликация по id: перекрывающиеся ответы поллинга (медленная сеть,
-  // интервал 5с) и гонка poll↔send давали задвоенные сообщения.
-  const appendUnique = (fresh: CaseMessage[]) => {
+  // Дедупликация по id: перекрывающиеся ответы поллинга (медленная сеть)
+  // и гонка poll↔send давали задвоенные сообщения.
+  const appendUnique = (fresh: ThreadMessage[]) => {
     setMessages(prev => {
       const seen = new Set(prev.map(m => m.id));
       const add = fresh.filter(m => !seen.has(m.id));
@@ -68,24 +89,24 @@ export default function CaseChat({ caseId, myId, myRole, fillHeight }: { caseId:
 
   const poll = useCallback(async () => {
     try {
-      const fresh = await casesAdminApi.messages(caseId, lastIdRef.current);
-      if (caseIdRef.current !== caseId) return; // переключились на другую заявку
+      const fresh = await api.get<ThreadMessage[]>(`${apiBase}/messages?after=${lastIdRef.current}`);
+      if (baseRef.current !== apiBase) return; // переключились на другую заявку
       if (fresh.length) {
         lastIdRef.current = Math.max(lastIdRef.current, fresh[fresh.length - 1].id);
         appendUnique(fresh);
         setTimeout(scrollDown, 50);
-        casesAdminApi.markRead(caseId, lastIdRef.current).catch(() => {});
+        api.post(`${apiBase}/read`, { lastId: lastIdRef.current }).catch(() => {});
       }
     } catch { /* tolerate */ }
-  }, [caseId]);
+  }, [apiBase]);
 
   useEffect(() => {
-    caseIdRef.current = caseId;
+    baseRef.current = apiBase;
     setMessages([]); lastIdRef.current = 0; setLoading(true);
     poll().finally(() => setLoading(false));
-    const t = setInterval(poll, 5000);
+    const t = setInterval(poll, pollMs);
     return () => clearInterval(t);
-  }, [poll, caseId]);
+  }, [poll, apiBase, pollMs]);
 
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -101,7 +122,7 @@ export default function CaseChat({ caseId, myId, myRole, fillHeight }: { caseId:
   const deliver = async (tmpId: number, body: string, att: { url: string; name: string } | null) => {
     setBusy(true);
     try {
-      const msg = await casesAdminApi.sendMessage(caseId, { body, attachmentUrl: att?.url, attachmentName: att?.name });
+      const msg = await api.post<ThreadMessage>(`${apiBase}/messages`, { body, attachmentUrl: att?.url, attachmentName: att?.name });
       lastIdRef.current = Math.max(lastIdRef.current, msg.id);
       setMessages(prev => {
         const rest = prev.filter(m => m.id !== tmpId);
@@ -115,11 +136,12 @@ export default function CaseChat({ caseId, myId, myRole, fillHeight }: { caseId:
   // Оптимистичная отправка: сообщение появляется мгновенно со статусом «отправка…».
   const send = () => {
     const body = text.trim();
+    // busy в guard'е: Enter не проверяет disabled кнопки → без него дубли при автоповторе клавиши.
     if ((!body && !pending) || busy) return;
     const att = pending;
     const tmpId = tmpRef.current--;
     const optimistic: Msg = {
-      id: tmpId, case_id: caseId, sender_id: myId, sender_name: 'Вы', sender_role: myRole ?? null,
+      id: tmpId, sender_id: myId, sender_name: 'Вы', sender_role: myRole,
       body, attachment_url: att?.url ?? null, attachment_name: att?.name ?? null,
       created_at: nowStamp(), _status: 'sending',
     };
@@ -136,19 +158,20 @@ export default function CaseChat({ caseId, myId, myRole, fillHeight }: { caseId:
 
   return (
     <Box sx={fillHeight ? { display: 'flex', flexDirection: 'column', height: '100%' } : undefined}>
-      <Box sx={{ ...(fillHeight ? { flex: 1, minHeight: 0 } : { maxHeight: 280 }), overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1, p: 1, borderRadius: 2, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <Box sx={{ ...(fillHeight ? { flex: 1, minHeight: 0 } : { maxHeight }), overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1, p: 1, borderRadius: 2, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)' }}>
         {loading ? (
           <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} sx={{ color: '#C9A84C' }} /></Box>
         ) : messages.length === 0 ? (
-          <Typography variant="caption" sx={{ color: '#64748B', textAlign: 'center', py: 2 }}>Сообщений пока нет.</Typography>
+          <Typography variant="caption" sx={{ color: '#64748B', textAlign: 'center', py: 2 }}>{emptyText}</Typography>
         ) : messages.map(m => {
-          const st = roleStyle(m.sender_role);
+          const mine = m.sender_id != null && m.sender_id === myId;
+          const c = roleColor(m.sender_role);
           const img = isImage(m.attachment_url);
           return (
-            <Box key={m.id} sx={{ alignSelf: st.side === 'right' ? 'flex-end' : 'flex-start', maxWidth: '82%' }}>
-              <Box sx={{ px: 1.5, py: 0.8, borderRadius: 2, background: st.bg, border: `1px solid ${st.border}`, opacity: m._status === 'sending' ? 0.65 : 1 }}>
-                <Typography variant="caption" sx={{ color: st.name, fontWeight: 700, display: 'block' }}>
-                  {m.sender_name || 'участник'}{m.sender_id === myId && !m._status ? ' (вы)' : ''}
+            <Box key={m.id} sx={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '82%' }}>
+              <Box sx={{ px: 1.5, py: 0.8, borderRadius: 2, background: `${c}1A`, border: `1px solid ${c}38`, opacity: m._status === 'sending' ? 0.65 : 1 }}>
+                <Typography variant="caption" sx={{ color: c, fontWeight: 700, display: 'block' }}>
+                  {m.sender_name || 'участник'}{mine && !m._status ? ' (вы)' : ''}
                 </Typography>
                 {m.body && m.body !== '[object Object]' && <Typography variant="body2" sx={{ color: '#E2E8F0', whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
                 {m.attachment_url && (img ? (
@@ -157,16 +180,14 @@ export default function CaseChat({ caseId, myId, myRole, fillHeight }: { caseId:
                     sx={{ mt: m.body ? 0.5 : 0, display: 'block', maxWidth: 240, maxHeight: 240, borderRadius: 1.5, cursor: 'zoom-in', objectFit: 'cover' }} />
                 ) : (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: m.body ? 0.5 : 0 }}>
-                    <DescriptionRoundedIcon sx={{ fontSize: 16, color: st.name }} />
-                    <Link href={m.attachment_url} target="_blank" rel="noopener" sx={{ color: st.name, fontSize: 13, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                    <DescriptionRoundedIcon sx={{ fontSize: 16, color: c }} />
+                    <Link href={m.attachment_url} target="_blank" rel="noopener" sx={{ color: c, fontSize: 13, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
                       {m.attachment_name || 'файл'}
                     </Link>
                   </Box>
                 ))}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.2 }}>
-                  <Typography variant="caption" sx={{ color: '#475569', fontSize: 10 }}>
-                    {new Date(m.created_at.replace(' ', 'T') + 'Z').toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#475569', fontSize: 10 }}>{fmtTime(m.created_at)}</Typography>
                   {m._status === 'sending' && <Typography variant="caption" sx={{ color: '#64748B', fontSize: 10 }}>· отправка…</Typography>}
                   {m._status === 'failed' && (
                     <Box component="span" onClick={() => retry(m)} sx={{ cursor: 'pointer', color: '#EF4444', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>

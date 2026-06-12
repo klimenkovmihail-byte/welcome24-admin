@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField, InputLabel,
   Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Switch, Tooltip, Badge,
-  Table, TableHead, TableRow, TableCell, TableBody, InputAdornment, Link,
+  Table, TableHead, TableRow, TableCell, TableBody, InputAdornment,
 } from '@mui/material';
 import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
@@ -12,11 +12,8 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
-import SendRoundedIcon from '@mui/icons-material/SendRounded';
-import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
-import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
 import {
-  adRequestsApi, type AdRequest, type AdStatus, type AdMessage, type AdEvent,
+  adRequestsApi, type AdRequest, type AdStatus, type AdEvent,
   type RosterAgent, type PlatformStats, type AdAnalytics, type ConnectPlatform,
   KIND_LABEL, AD_STATUS_RU, PLATFORM_LABEL,
 } from '../api/adRequests';
@@ -25,16 +22,9 @@ import {
   type Platform, type Drive, type DriveSummary, type AdCategory,
 } from '../api/adPackages';
 import { getCurrentUser } from '../auth/auth';
-import { API_BASE_URL, getToken } from '../api/apiClient';
+import Thread from '../components/Thread';
 
 const GOLD = '#C9A84C';
-// Цвет участника чата по роли (агент золото, юрист зелёный, брокер фиолет,
-// листинг-менеджер циан, админ синий).
-const ROLE_COLOR: Record<string, string> = {
-  agent: '#C9A84C', lawyer: '#22C55E', broker: '#8B5CF6',
-  listing_manager: '#06B6D4', admin: '#4361EE', super_admin: '#4361EE', manager: '#4361EE',
-};
-const roleColor = (r?: string | null) => ROLE_COLOR[r || ''] || '#94A3B8';
 const money = (n: number) => Number(n || 0).toLocaleString('ru-RU');
 function fmtDate(s?: string | null): string {
   if (!s) return '—';
@@ -49,22 +39,6 @@ function fmtDateTime(s?: string | null): string {
 function statusColor(s: AdStatus): string {
   return s === 'done' ? '#22C55E' : s === 'cancelled' ? '#EF4444' : s === 'in_progress' ? GOLD : '#64748B';
 }
-async function uploadFile(file: File): Promise<{ url: string; name: string; size: number }> {
-  const fd = new FormData();
-  fd.append('file', file); fd.append('type', 'doc');
-  const res = await fetch(`${API_BASE_URL}/api/upload`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: fd });
-  if (!res.ok) throw new Error('Не удалось загрузить файл');
-  const data = await res.json();
-  return { url: data.url, name: file.name, size: file.size };
-}
-
-// Картинка → превью + лайтбокс; прочие файлы — ссылкой.
-const isImg = (url?: string | null) => !!url && /\.(jpe?g|png|gif|webp|avif|bmp)(\?|$)/i.test(url);
-// Локальная метка времени в формате сервера ('YYYY-MM-DD HH:MM:SS', UTC).
-const nowStamp = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
-// Локальный статус доставки оптимистичных сообщений.
-type AdMsg = AdMessage & { _status?: 'sending' | 'failed' };
-
 const cardSx = { background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(201,168,76,0.12)', borderRadius: 3 } as const;
 
 export default function AdRequests() {
@@ -234,108 +208,15 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
   setStatus: (id: number, s: AdStatus) => void; take: (id: number) => void;
 }) {
   const [r, setR] = useState(request);
-  const [messages, setMessages] = useState<AdMsg[]>([]);
   const [events, setEvents] = useState<AdEvent[]>([]);
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [lightbox, setLightbox] = useState<string | null>(null);
-  const lastIdRef = useRef(0);
-  const tmpRef = useRef(-1); // отрицательные id для временных сообщений
   const user = getCurrentUser();
 
-  // Новые сообщения с дедупом по id (курсорный поллинг может перекрываться с send).
-  const mergeFresh = (fresh: AdMessage[]) => {
-    if (!fresh.length) return;
-    lastIdRef.current = fresh.reduce((mx, m) => Math.max(mx, m.id), lastIdRef.current);
-    setMessages(prev => {
-      const seen = new Set(prev.map(m => m.id));
-      const add = fresh.filter(m => !seen.has(m.id));
-      return add.length ? [...prev, ...add] : prev;
-    });
-  };
-
-  // Метаданные заявки + таймлайн (без чата — чат тянется курсорно отдельно).
+  // Метаданные заявки + таймлайн; сам чат (история/поллинг/отправка/прочтение) — единый <Thread>.
   const reload = useCallback(() => {
     adRequestsApi.get(r.id).then(setR).catch(() => {});
     adRequestsApi.events(r.id).then(setEvents).catch(() => {});
   }, [r.id]);
-  useEffect(() => {
-    reload();
-    adRequestsApi.markRead(r.id).catch(() => {});
-    // Первичная загрузка чата целиком + установка курсора.
-    adRequestsApi.messages(r.id).then(fresh => {
-      setMessages(fresh);
-      lastIdRef.current = fresh.reduce((mx, m) => Math.max(mx, m.id), 0);
-    }).catch(() => {});
-  }, [reload, r.id]);
-  // Курсорный поллинг чата: тянем только новое (after=lastId), не весь список каждые 4с.
-  useEffect(() => {
-    const iv = setInterval(() => { adRequestsApi.messages(r.id, lastIdRef.current).then(mergeFresh).catch(() => {}); }, 4000);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [r.id]);
-  // Автоскролл вниз при новых сообщениях.
-  // Автоскролл вниз — только при первом открытии или новом сообщении, и только если
-  // пользователь уже внизу. Если он прокрутил вверх (читает историю) — не дёргаем.
-  const chatRef = useRef<HTMLDivElement>(null);
-  const prevCount = useRef(0);
-  useEffect(() => {
-    const el = chatRef.current;
-    if (!el) return;
-    const first = prevCount.current === 0;
-    const grew = messages.length > prevCount.current;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (first || (grew && nearBottom)) el.scrollTop = el.scrollHeight;
-    prevCount.current = messages.length;
-  }, [messages]);
-
-  const [uploading, setUploading] = useState(false);
-
-  // Доставка с повтором: меняем временное сообщение на настоящее либо метим «не доставлено».
-  const deliver = async (tmpId: number, body: string, att: { url: string; name: string } | null) => {
-    setSending(true);
-    try {
-      const msg = await adRequestsApi.sendMessage(r.id, { body, attachmentUrl: att?.url, attachmentName: att?.name });
-      lastIdRef.current = Math.max(lastIdRef.current, msg.id);
-      setMessages(prev => {
-        const rest = prev.filter(m => m.id !== tmpId);
-        return rest.some(m => m.id === msg.id) ? rest : [...rest, msg]; // poll мог опередить
-      });
-    } catch {
-      setMessages(prev => prev.map(m => (m.id === tmpId ? { ...m, _status: 'failed' } : m)));
-    } finally { setSending(false); }
-  };
-  // Мгновенно показываем сообщение со статусом «отправка…», возвращаем его временный id.
-  const pushOptimistic = (body: string, att: { url: string; name: string } | null): number => {
-    const tmpId = tmpRef.current--;
-    setMessages(prev => [...prev, {
-      id: tmpId, request_id: r.id, sender_id: user?.id ?? null, sender_name: 'Вы', sender_role: user?.role ?? null,
-      body, attachment_url: att?.url ?? null, attachment_name: att?.name ?? null, created_at: nowStamp(), _status: 'sending',
-    }]);
-    return tmpId;
-  };
-
-  const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const up = await uploadFile(file);
-      const att = { url: up.url, name: up.name };
-      deliver(pushOptimistic('', att), '', att);
-    } catch { /* tolerate */ } finally { setUploading(false); e.target.value = ''; }
-  };
-  const send = () => {
-    const body = text.trim();
-    if (!body || sending) return;
-    const tmpId = pushOptimistic(body, null);
-    setText('');
-    deliver(tmpId, body, null);
-  };
-  const retry = (m: AdMsg) => {
-    setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, _status: 'sending' } : x)));
-    deliver(m.id, m.body, m.attachment_url ? { url: m.attachment_url, name: m.attachment_name || 'файл' } : null);
-  };
+  useEffect(() => { reload(); }, [reload]);
   const doStatus = (s: AdStatus) => {
     setStatus(r.id, s); // обновляет статус + перезагружает список
     // Терминальный статус — закрываем карточку (не зависаем на закрытой заявке).
@@ -408,66 +289,14 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
             )}
           </Box>
 
-          {/* Правая колонка — чат */}
+          {/* Правая колонка — чат (единый Thread) */}
           <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 320 }}>
             <Typography sx={{ color: '#64748B', fontSize: 12, mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Чат с агентом</Typography>
-            <Box ref={chatRef} sx={{ flex: 1, overflowY: 'auto', maxHeight: 320, background: 'rgba(2,6,23,0.5)', borderRadius: 2, p: 1.5, mb: 1 }}>
-              {messages.length === 0 && <Typography sx={{ color: '#475569', fontSize: 13, textAlign: 'center', py: 2 }}>Сообщений нет</Typography>}
-              {messages.map(m => {
-                const mine = m.sender_id === user?.id;
-                const c = roleColor(m.sender_role);
-                const img = isImg(m.attachment_url);
-                return (
-                  <Box key={m.id} sx={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', mb: 0.8 }}>
-                    <Box sx={{ maxWidth: '80%', background: c + '2E', border: `1px solid ${c}44`, borderRadius: 2, px: 1.3, py: 0.7, opacity: m._status === 'sending' ? 0.65 : 1 }}>
-                      {!mine && <Typography sx={{ color: c, fontSize: 11, fontWeight: 700 }}>{m.sender_name}</Typography>}
-                      {m.body && <Typography sx={{ color: '#E2E8F0', fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
-                      {m.attachment_url && (img ? (
-                        <Box component="img" src={m.attachment_url} alt={m.attachment_name || ''} loading="lazy"
-                          onClick={() => setLightbox(m.attachment_url!)}
-                          sx={{ mt: 0.3, display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 1.5, cursor: 'zoom-in', objectFit: 'cover' }} />
-                      ) : (
-                        <Link href={m.attachment_url} target="_blank" rel="noopener" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color: '#E2C97E', fontSize: 13, textDecoration: 'none', mt: 0.3, '&:hover': { textDecoration: 'underline' } }}>
-                          <AttachFileRoundedIcon sx={{ fontSize: 14 }} /> {m.attachment_name || 'файл'}
-                        </Link>
-                      ))}
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5, mt: 0.2 }}>
-                        {m._status === 'sending' && <Typography sx={{ color: '#64748B', fontSize: 10 }}>отправка…</Typography>}
-                        {m._status === 'failed' && (
-                          <Box component="span" onClick={() => retry(m)} sx={{ cursor: 'pointer', color: '#EF4444', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
-                            не доставлено <ReplayRoundedIcon sx={{ fontSize: 12 }} />
-                          </Box>
-                        )}
-                        <Typography sx={{ color: '#475569', fontSize: 10 }}>{fmtDate(m.created_at)}</Typography>
-                      </Box>
-                    </Box>
-                  </Box>
-                );
-              })}
-            </Box>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Tooltip title="Прикрепить файл (чек, скрин)">
-                <IconButton component="label" disabled={uploading} sx={{ color: '#94A3B8', '&:hover': { color: GOLD } }}>
-                  {uploading ? <CircularProgress size={18} sx={{ color: GOLD }} /> : <AttachFileRoundedIcon />}
-                  <input type="file" hidden onChange={handleAttach} />
-                </IconButton>
-              </Tooltip>
-              <TextField size="small" fullWidth placeholder="Сообщение…" value={text} onChange={e => setText(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                sx={{ '& .MuiOutlinedInput-root': { color: '#E2E8F0', '& fieldset': { borderColor: 'rgba(201,168,76,0.2)' } } }} />
-              <IconButton onClick={send} disabled={sending || !text.trim()} sx={{ color: GOLD }}><SendRoundedIcon /></IconButton>
-            </Stack>
+            <Thread apiBase={`/ad-requests/${r.id}`} myId={user?.id ?? null} myRole={user?.role}
+              maxHeight={320} emptyText="Сообщений нет" />
           </Box>
         </Stack>
       </DialogContent>
-      {lightbox && (
-        <Box onClick={() => setLightbox(null)} sx={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, cursor: 'zoom-out' }}>
-          <Box component="img" src={lightbox} sx={{ maxWidth: '92vw', maxHeight: '92vh', borderRadius: 2, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }} />
-          <IconButton onClick={() => setLightbox(null)} sx={{ position: 'absolute', top: 16, right: 16, color: '#fff', background: 'rgba(0,0,0,0.4)', '&:hover': { background: 'rgba(0,0,0,0.6)' } }}>
-            <CloseRoundedIcon />
-          </IconButton>
-        </Box>
-      )}
     </Dialog>
   );
 }

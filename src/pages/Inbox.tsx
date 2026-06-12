@@ -4,9 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
 import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
-import { casesAdminApi, STATUS_RU as CASE_STATUS, type QueueTask } from '../api/cases';
-import { adRequestsApi, type AdRequest } from '../api/adRequests';
-import { getCurrentUser } from '../auth/auth';
+import { casesAdminApi, STATUS_RU as CASE_STATUS } from '../api/cases';
+import { adRequestsApi, KIND_LABEL } from '../api/adRequests';
+import { api } from '../api/apiClient';
 
 const AD_ST: Record<string, string> = { new: 'Новая', in_progress: 'В работе', done: 'Готово', cancelled: 'Отменена' };
 const stColor = (s: string) =>
@@ -36,34 +36,39 @@ const slaColor = (iso?: string) => {
 interface Row {
   key: string; kind: 'case' | 'ad'; group: 'queue' | 'mine'; takeId: number; openPath: string;
   source: string; title: string; sub: string; status: string; agent: string; unread: number; updated?: string;
+  preview?: string;     // «Автор: последнее сообщение» из единого треда
+}
+
+// Элемент серверного инбокса (GET /api/inbox, Фаза Б) — cases-задача или рекламная заявка.
+interface InboxItem {
+  domain: 'case' | 'ad';
+  // case
+  task_id?: number; case_id?: number; track?: 'legal' | 'mortgage';
+  client_name?: string; object_address?: string; city?: string;
+  // ad
+  id?: number; kind?: string; object_ref?: string; region?: string;
+  // общее
+  status: string; agent_name?: string; assignee_name?: string;
+  created_at?: string; updated_at?: string; unread?: number;
+  last_message?: string | null; last_sender?: string | null; last_message_at?: string | null;
 }
 
 export default function Inbox() {
   const navigate = useNavigate();
-  const user = getCurrentUser();
-  const role = String(user?.role || '');
-  const myId = typeof user?.id === 'number' ? user.id : -1;
-  const canSeeCases = ['super_admin', 'admin', 'lawyer', 'broker'].includes(role);
-  const canSeeAds = ['super_admin', 'admin', 'listing_manager'].includes(role);
 
-  const [caseQueue, setCaseQueue] = useState<QueueTask[]>([]);
-  const [caseMine, setCaseMine] = useState<QueueTask[]>([]);
-  const [ads, setAds] = useState<AdRequest[]>([]);
+  const [queueItems, setQueueItems] = useState<InboxItem[]>([]);
+  const [mineItems, setMineItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Один серверный агрегат вместо склейки трёх запросов (роль учитывает бэк).
   const load = useCallback((silent = false) => {
     if (!silent) setLoading(true);
-    const jobs: Promise<void>[] = [];
-    if (canSeeCases) {
-      jobs.push(casesAdminApi.queue().then(setCaseQueue).catch(() => {}));
-      jobs.push(casesAdminApi.assigned().then(setCaseMine).catch(() => {}));
-    }
-    if (canSeeAds) {
-      jobs.push(adRequestsApi.list().then(setAds).catch(() => {}));
-    }
-    Promise.all(jobs).catch(e => setError(e?.message || 'Ошибка')).finally(() => setLoading(false));
-  }, [canSeeCases, canSeeAds]);
+    api.get<{ queue: InboxItem[]; mine: InboxItem[] }>('/inbox')
+      .then(d => { setQueueItems(d.queue); setMineItems(d.mine); })
+      .catch(e => setError(e?.message || 'Ошибка'))
+      .finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
     load();
@@ -71,27 +76,23 @@ export default function Inbox() {
     return () => clearInterval(iv);
   }, [load]);
 
-  const adQueue = ads.filter(a => !a.assignee_id && (a.status === 'new' || a.status === 'in_progress'));
-  const adMine = ads.filter(a => a.assignee_id === myId && a.status !== 'done' && a.status !== 'cancelled');
+  const toRow = (it: InboxItem, group: 'queue' | 'mine'): Row => it.domain === 'case' ? {
+    key: `c${it.task_id}`, kind: 'case', group, takeId: it.task_id!,
+    openPath: `/cases?open=${it.case_id}&track=${it.track}`,
+    source: it.track === 'legal' ? 'Юрист' : 'Ипотека', title: it.client_name || 'Заявка',
+    sub: it.object_address || it.city || '', status: it.status, agent: it.agent_name || '',
+    unread: it.unread || 0, updated: it.created_at,
+    preview: it.last_message ? `${it.last_sender || 'участник'}: ${it.last_message}` : undefined,
+  } : {
+    key: `a${it.id}`, kind: 'ad', group, takeId: it.id!, openPath: `/ad-requests?open=${it.id}`,
+    source: 'Реклама', title: KIND_LABEL[it.kind || ''] || 'Заявка в рекламу',
+    sub: [it.object_ref, it.region].filter(Boolean).join(' · '), status: it.status, agent: it.agent_name || '',
+    unread: it.unread || 0, updated: it.created_at,
+    preview: it.last_message ? `${it.last_sender || 'участник'}: ${it.last_message}` : undefined,
+  };
 
-  const caseRow = (t: QueueTask, group: 'queue' | 'mine'): Row => ({
-    key: `c${t.task_id}`, kind: 'case', group, takeId: t.task_id,
-    openPath: `/cases?open=${t.case_id}&track=${t.track}`,
-    source: t.track === 'legal' ? 'Юрист' : 'Ипотека', title: t.client_name || 'Заявка',
-    sub: t.object_address || t.city || '', status: t.status, agent: t.agent_name || '',
-    unread: t.unread || 0, updated: t.created_at,
-  });
-  const adRow = (a: AdRequest, group: 'queue' | 'mine'): Row => ({
-    key: `a${a.id}`, kind: 'ad', group, takeId: a.id, openPath: `/ad-requests?open=${a.id}`,
-    source: 'Реклама', title: a.kind_label || 'Заявка в рекламу',
-    sub: [a.object_ref, a.region].filter(Boolean).join(' · '), status: a.status, agent: a.agent_name || '',
-    unread: a.unread || 0, updated: a.created_at,
-  });
-
-  const queue: Row[] = [...caseQueue.map(t => caseRow(t, 'queue')), ...adQueue.map(a => adRow(a, 'queue'))]
-    .sort((x, y) => (x.updated || '').localeCompare(y.updated || '')); // старые сверху — горят
-  const mine: Row[] = [...caseMine.map(t => caseRow(t, 'mine')), ...adMine.map(a => adRow(a, 'mine'))]
-    .sort((x, y) => (y.updated || '').localeCompare(x.updated || ''));
+  const queue: Row[] = queueItems.map(it => toRow(it, 'queue'));   // сервер сортирует: старые сверху — горят
+  const mine: Row[] = mineItems.map(it => toRow(it, 'mine'));
 
   const take = (r: Row) => {
     const p = r.kind === 'case' ? casesAdminApi.take(r.takeId) : adRequestsApi.take(r.takeId);
@@ -119,6 +120,11 @@ export default function Inbox() {
           <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title}</Typography>
         </Stack>
         {r.sub && <Typography variant="caption" sx={{ color: '#64748B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.sub}</Typography>}
+        {r.preview && (
+          <Typography variant="caption" sx={{ color: r.unread > 0 ? '#E2E8F0' : '#94A3B8', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontStyle: 'italic' }}>
+            {r.preview}
+          </Typography>
+        )}
         <Typography variant="caption" sx={{ color: r.group === 'queue' ? slaColor(r.updated) : '#475569', fontWeight: r.group === 'queue' ? 700 : 400 }}>{r.agent && `${r.agent} · `}{ago(r.updated)}</Typography>
       </Box>
       <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>

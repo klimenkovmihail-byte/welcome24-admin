@@ -21,7 +21,7 @@ import {
 } from '../api/cases';
 import { getCurrentUser } from '../auth/auth';
 import { API_BASE_URL, getToken } from '../api/apiClient';
-import CaseChat from '../components/CaseChat';
+import Thread from '../components/Thread';
 import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
 import CasesAnalytics from '../components/CasesAnalytics';
@@ -592,7 +592,7 @@ export default function Cases() {
               <Box sx={{ display: 'flex', flexDirection: 'column', p: 2, minHeight: 0, borderTop: { xs: '1px solid rgba(201,168,76,0.08)', md: 'none' } }}>
                 <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em', display: 'block', mb: 1 }}>Обсуждение</Typography>
                 <Box sx={{ flex: 1, minHeight: { xs: 420, md: 0 } }}>
-                  <CaseChat caseId={detail.id} myId={getCurrentUser()?.id ?? null} myRole={getCurrentUser()?.role} fillHeight />
+                  <Thread apiBase={`/cases/${detail.id}`} myId={getCurrentUser()?.id ?? null} myRole={getCurrentUser()?.role} fillHeight />
                 </Box>
               </Box>
               </Box>
