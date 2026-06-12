@@ -4,7 +4,7 @@ import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField,
   Dialog, DialogTitle, DialogContent, IconButton, Link, Badge, Tooltip,
-  Menu, Autocomplete, Avatar,
+  Menu, Autocomplete, Avatar, InputAdornment,
 } from '@mui/material';
 import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
@@ -58,6 +58,23 @@ const trackIcon = (track: string) =>
   track === 'mortgage'
     ? <AccountBalanceRoundedIcon sx={{ fontSize: 18, color: '#8B5CF6' }} />
     : <GavelRoundedIcon sx={{ fontSize: 18, color: '#C9A84C' }} />;
+
+// Поле доли участника в %. Коммит по blur/Enter, иначе сетевой вызов на каждый символ.
+function ShareField({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const [v, setV] = useState(String(value));
+  useEffect(() => { setV(String(value)); }, [value]);
+  const commit = () => {
+    const n = Math.round(Number(v));
+    if (Number.isFinite(n) && n >= 0 && n <= 100 && n !== value) onCommit(n);
+    else setV(String(value));
+  };
+  return (
+    <TextField value={v} onChange={e => setV(e.target.value.replace(/[^\d]/g, ''))} onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+      size="small" sx={{ width: 78, '& input': { py: 0.5, textAlign: 'right' } }}
+      InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }} />
+  );
+}
 
 // Загрузка файла в Yandex Storage через /api/upload (как в портале).
 async function uploadFile(file: File): Promise<{ url: string; name: string; size: number }> {
@@ -125,6 +142,12 @@ export default function Cases() {
     casesAdminApi.removeParticipant(detail.id, agentId)
       .then(u => { setDetail(u); bumpTimeline(); })
       .catch(e => setError(e?.message || 'Не удалось убрать агента'));
+  };
+  const handleShare = (agentId: number, sharePct: number) => {
+    if (!detail) return;
+    casesAdminApi.updateParticipantShare(detail.id, agentId, sharePct)
+      .then(u => { setDetail(u); bumpTimeline(); })
+      .catch(e => setError(e?.message || 'Не удалось изменить долю'));
   };
 
   const load = useCallback(() => {
@@ -475,19 +498,44 @@ export default function Cases() {
 
                 <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)' }} />
 
-                {/* Агенты по заявке (создатель + доп. для совместной сделки) */}
+                {/* Агенты по заявке (создатель + доп. для совместной сделки) + доли комиссии */}
                 <Box>
                   <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.06em' }}>Агенты по заявке</Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.8, alignItems: 'center' }}>
-                    <Chip size="small" avatar={<Avatar sx={{ bgcolor: 'rgba(201,168,76,0.2)', color: '#C9A84C', fontSize: 11 }}>{(detail.agent_name || 'А')[0]}</Avatar>}
-                      label={`${detail.agent_name || 'агент'} · создатель`}
-                      sx={{ background: 'rgba(201,168,76,0.12)', color: '#E2C97E', fontWeight: 600 }} />
-                    {(detail.participants || []).map(p => (
-                      <Chip key={p.agent_id} size="small" label={p.agent_name || `агент #${p.agent_id}`}
-                        onDelete={() => handleRemoveParticipant(p.agent_id)}
-                        sx={{ background: 'rgba(67,97,238,0.12)', color: '#93B4FF' }} />
-                    ))}
-                  </Box>
+                  {(() => {
+                    const ps = detail.participants || [];
+                    const sumP = ps.reduce((s, p) => s + Number(p.share_pct || 0), 0);
+                    const mainShare = Math.max(0, 100 - sumP);
+                    const joint = ps.length > 0;
+                    const over = sumP > 100;
+                    return (
+                      <>
+                        <Stack spacing={0.8} sx={{ mt: 0.8 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                            <Chip size="small" avatar={<Avatar sx={{ bgcolor: 'rgba(201,168,76,0.2)', color: '#C9A84C', fontSize: 11 }}>{(detail.agent_name || 'А')[0]}</Avatar>}
+                              label={`${detail.agent_name || 'агент'} · создатель`}
+                              sx={{ background: 'rgba(201,168,76,0.12)', color: '#E2C97E', fontWeight: 600 }} />
+                            {joint && <Chip size="small" label={`${mainShare}%`}
+                              sx={{ background: over ? 'rgba(239,68,68,0.15)' : 'rgba(201,168,76,0.18)', color: over ? '#FCA5A5' : '#E2C97E', fontWeight: 700 }} />}
+                          </Box>
+                          {ps.map(p => (
+                            <Box key={p.agent_id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                              <Chip size="small" label={p.agent_name || `агент #${p.agent_id}`}
+                                onDelete={() => handleRemoveParticipant(p.agent_id)}
+                                sx={{ background: 'rgba(67,97,238,0.12)', color: '#93B4FF' }} />
+                              <ShareField value={Number(p.share_pct || 0)} onCommit={v => handleShare(p.agent_id, v)} />
+                            </Box>
+                          ))}
+                        </Stack>
+                        {joint && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.6, color: over ? '#FCA5A5' : '#64748B' }}>
+                            {over
+                              ? `Сумма долей участников ${sumP}% превышает 100% — уменьшите.`
+                              : 'Комиссия делится по долям; каждый агент — по своему % уровня. Доля растит его уровень и MLM.'}
+                          </Typography>
+                        )}
+                      </>
+                    );
+                  })()}
                   <Autocomplete
                     size="small" sx={{ mt: 1, maxWidth: 340 }}
                     options={allAgents.filter(a => roleOf(a) === 'agent' && a.id !== detail.agent_id && !(detail.participants || []).some(p => p.agent_id === a.id))}

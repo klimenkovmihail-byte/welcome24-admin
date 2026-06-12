@@ -46,7 +46,7 @@ export interface CaseItem {
   updated_at: string;
   tasks: CaseTask[];
   attachments: CaseAttachment[];
-  participants?: { agent_id: number; agent_name: string | null; added_by: number | null; created_at: string }[];
+  participants?: { agent_id: number; agent_name: string | null; added_by: number | null; created_at: string; share_pct: number | null }[];
 }
 
 export interface QueueTask {
@@ -119,9 +119,11 @@ export const casesAdminApi = {
     api.post<{ ok: boolean }>(`/api/cases/${caseId}/read`, lastId ? { lastId } : {}),
   events: (caseId: number) => api.get<CaseEvent[]>(`/api/cases/${caseId}/events`),
   remove: (caseId: number) => api.del<{ ok: boolean }>(`/api/cases/${caseId}`),
-  // Доп. агенты-участники (совместная сделка / co-broking).
-  addParticipant: (caseId: number, agentId: number) =>
-    api.post<CaseItem>(`/api/cases/${caseId}/participants`, { agentId }),
+  // Доп. агенты-участники (совместная сделка / co-broking) + доли комиссии.
+  addParticipant: (caseId: number, agentId: number, sharePct?: number) =>
+    api.post<CaseItem>(`/api/cases/${caseId}/participants`, sharePct == null ? { agentId } : { agentId, sharePct }),
+  updateParticipantShare: (caseId: number, agentId: number, sharePct: number) =>
+    api.patch<CaseItem>(`/api/cases/${caseId}/participants/${agentId}`, { sharePct }),
   removeParticipant: (caseId: number, agentId: number) =>
     api.del<CaseItem>(`/api/cases/${caseId}/participants/${agentId}`),
 };
