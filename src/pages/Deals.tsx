@@ -17,7 +17,7 @@ import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import type { Deal, Agent } from '../types';
 import { dealsApi } from '../api/deals';
-import { agentsApi } from '../api/agents';
+import { useAgents } from '../hooks/useAgents';
 import { api, API_BASE_URL, getToken } from '../api/apiClient';
 import { getCurrentUser } from '../auth/auth';
 
@@ -451,7 +451,7 @@ function ImportDealsDialog({ open, onClose, onImported }: ImportDialogProps) {
 // ============================================================
 export default function Deals() {
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const { data: agents = [] } = useAgents(); // общий кэш агентов
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -482,7 +482,6 @@ export default function Deals() {
   }, [year, month, debouncedSearch, limit]);
 
   useEffect(() => { reloadDeals(); }, [reloadDeals]);
-  useEffect(() => { agentsApi.list().then(setAgents).catch(() => { /* ignore */ }); }, []);
 
   // Сервер уже отсортировал по дате DESC и ограничил лимитом — выводим как есть.
   const filtered = deals;

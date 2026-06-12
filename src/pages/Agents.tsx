@@ -44,6 +44,8 @@ import { ROLE_LABEL, ROLE_COLOR, SECTION_LIST, ROLE_ACCESS, type Role } from '..
 import type { Agent, AgentLevel, AgentStatus } from '../types';
 import { agentsApi, enrichAgents, enrichSharesFromHolders, type MentorHistoryEntry } from '../api/agents';
 import { sharesApi } from '../api/shares';
+import { queryClient } from '../lib/queryClient';
+import { AGENTS_QUERY_KEY } from '../hooks/useAgents';
 import { CircularProgress } from '@mui/material';
 import AgentFormDialog from './AgentFormDialog';
 
@@ -108,7 +110,12 @@ export default function Agents() {
       agentsApi.list(),
       sharesApi.holders().catch(() => []),
     ])
-      .then(([list, holders]) => setAgents(enrichSharesFromHolders(list, holders)))
+      .then(([list, holders]) => {
+        setAgents(enrichSharesFromHolders(list, holders));
+        // Делимся свежим списком с общим кэшем — Cases/Deals/Shares остаются
+        // актуальны после добавления/правки агента без отдельного запроса.
+        queryClient.setQueryData(AGENTS_QUERY_KEY, list);
+      })
       .catch(err => setError(err?.message || 'Ошибка загрузки агентов'))
       .finally(() => setLoading(false));
   };

@@ -26,7 +26,7 @@ import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
 import CasesAnalytics from '../components/CasesAnalytics';
 import CaseTimeline from '../components/CaseTimeline';
-import { agentsApi } from '../api/agents';
+import { useAgents } from '../hooks/useAgents';
 import type { Agent } from '../types';
 import type { Role } from '../auth/roles';
 
@@ -119,8 +119,7 @@ export default function Cases() {
   const [sortBy, setSortBy] = useState<'new' | 'stale'>('new');
 
   // Список агентов (для добавления второго агента и передачи задачи специалисту).
-  const [allAgents, setAllAgents] = useState<Agent[]>([]);
-  useEffect(() => { agentsApi.list().then(setAllAgents).catch(() => { /* tolerate */ }); }, []);
+  const { data: allAgents = [] } = useAgents(); // общий кэш — один фетч на все экраны
   const roleOf = (a: Agent) => (a as Agent & { role?: Role }).role || 'agent';
   // Передача задачи: меню выбора специалиста той же дорожки.
   const [transfer, setTransfer] = useState<{ anchor: HTMLElement; taskId: number; track: TaskTrack } | null>(null);

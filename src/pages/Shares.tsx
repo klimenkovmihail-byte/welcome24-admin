@@ -23,7 +23,7 @@ import { companySettings as initialSettings } from '../data/mockData';
 import type { ShareOperationType, Agent } from '../types';
 import { sharesApi, type ShareOperation, type ShareQuote, type ShareHolder } from '../api/shares';
 import TablePagination from '@mui/material/TablePagination';
-import { agentsApi } from '../api/agents';
+import { useAgents } from '../hooks/useAgents';
 import { settingsApi } from '../api/settings';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 
@@ -79,7 +79,7 @@ const emptyForm: FormState = {
 export default function Shares() {
   const [ops, setOps] = useState<ShareOperation[]>([]);
   const [holders, setHolders] = useState<ShareHolder[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const { data: agents = [] } = useAgents(); // общий кэш агентов
   const [quotes, setQuotes] = useState<ShareQuote[]>([]);
   const [opsPage, setOpsPage] = useState(0);
   const [opsRowsPerPage, setOpsRowsPerPage] = useState(20);
@@ -108,7 +108,6 @@ export default function Shares() {
       setQuotes(qs);
       if (qs.length) setSettings(s => ({ ...s, sharePrice: qs[qs.length - 1].price }));
     }).catch(() => { /* tolerate */ }),
-    agentsApi.list().then(setAgents).catch(() => { /* tolerate */ }),
     settingsApi.get().then(s => {
       setSettings(prev => ({ ...prev, totalSharesIssued: s.totalSharesIssued || prev.totalSharesIssued }));
     }).catch(() => { /* tolerate */ }),
