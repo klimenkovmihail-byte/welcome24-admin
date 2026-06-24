@@ -425,8 +425,8 @@ export default function Cases() {
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {isSuperAdmin && (
-                  <Tooltip title="Удалить заявку полностью (super_admin)">
+                {(isSuperAdmin || (getCurrentUser()?.role === 'broker' && detail.tasks.some(t => t.assignee_id === getCurrentUser()?.id))) && (
+                  <Tooltip title="Удалить заявку полностью">
                     <IconButton onClick={() => handleDeleteCase(detail.id, detail.client_name)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                       <DeleteOutlineRoundedIcon />
                     </IconButton>
