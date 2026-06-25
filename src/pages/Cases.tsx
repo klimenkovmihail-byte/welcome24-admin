@@ -21,6 +21,7 @@ import {
 } from '../api/cases';
 import { getCurrentUser } from '../auth/auth';
 import { API_BASE_URL, getToken } from '../api/apiClient';
+import DealParticipants from '../components/DealParticipants';
 import Thread from '../components/Thread';
 import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
@@ -547,6 +548,17 @@ export default function Cases() {
 
                 <Divider sx={{ borderColor: 'rgba(201,168,76,0.08)' }} />
 
+                {/* Ипотека: документы по участникам сделки (вид брокера) */}
+                {detail.tasks.some(t => t.track === 'mortgage') && (
+                  <>
+                    <DealParticipants caseItem={detail}
+                      myId={getCurrentUser()?.id ?? null}
+                      isAdmin={['admin', 'super_admin'].includes(getCurrentUser()?.role ?? '')}
+                      onChanged={(c) => setDetail(c)} />
+                    <Divider sx={{ borderColor: 'rgba(139,92,246,0.12)' }} />
+                  </>
+                )}
+
                 {/* Вложения */}
                 <Box>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -556,11 +568,11 @@ export default function Cases() {
                       <input type="file" hidden onChange={handleUpload} />
                     </Button>
                   </Box>
-                  {detail.attachments.length === 0 ? (
+                  {(detail.attachments || []).filter(a => a.participant_id == null).length === 0 ? (
                     <Typography variant="caption" sx={{ color: '#64748B' }}>Файлов пока нет.</Typography>
                   ) : (
                     <Stack spacing={0.5} sx={{ mt: 0.5 }}>
-                      {detail.attachments.map(at => (
+                      {(detail.attachments || []).filter(a => a.participant_id == null).map(at => (
                         <Box key={at.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 1.5, background: 'rgba(255,255,255,0.03)' }}>
                           <DescriptionRoundedIcon sx={{ fontSize: 18, color: '#94A3B8' }} />
                           <Link href={at.url} target="_blank" rel="noopener" sx={{ color: '#E2C97E', flex: 1, fontSize: 13, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
