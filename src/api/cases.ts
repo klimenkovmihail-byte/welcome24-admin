@@ -30,7 +30,17 @@ export interface CaseAttachment {
   name: string;
   url: string;
   size: number;
+  participant_id: number | null;  // привязка к участнику сделки (ипотека), null = общий файл
+  category: string | null;        // категория документа
   created_at: string;
+}
+
+// Участник СДЕЛКИ (заёмщик) — ипотечные заявки, до 5; отличать от co-broking агентов.
+export interface DealParticipant {
+  id: number;
+  name: string;
+  phones: string;
+  email: string;
 }
 
 export interface CaseItem {
@@ -47,6 +57,7 @@ export interface CaseItem {
   tasks: CaseTask[];
   attachments: CaseAttachment[];
   participants?: { agent_id: number; agent_name: string | null; added_by: number | null; created_at: string; share_pct: number | null }[];
+  dealParticipants?: DealParticipant[];
 }
 
 export interface QueueTask {
@@ -108,10 +119,15 @@ export const casesAdminApi = {
   commissionSuggestion: (caseId: number, date?: string) =>
     api.get<{ ytdVkdBefore: number; commission: number; level: number }>(`/api/cases/${caseId}/commission-suggestion${date ? `?date=${date}` : ''}`),
   analytics: (period = 'all') => api.get<CaseAnalytics>(`/api/cases/analytics?period=${period}`),
-  addAttachment: (caseId: number, body: { name: string; url: string; size?: number }) =>
-    api.post<CaseItem>(`/api/cases/${caseId}/attachments`, body),
   deleteAttachment: (caseId: number, attId: number) =>
     api.del<CaseItem>(`/api/cases/${caseId}/attachments/${attId}`),
+  // Ипотека: участники сделки (заёмщики) — до 5.
+  addDealParticipant: (caseId: number, name = '') =>
+    api.post<CaseItem>(`/api/cases/${caseId}/deal-participants`, { name }),
+  updateDealParticipant: (caseId: number, pid: number, body: { name?: string; phones?: string; email?: string }) =>
+    api.patch<CaseItem>(`/api/cases/${caseId}/deal-participants/${pid}`, body),
+  deleteDealParticipant: (caseId: number, pid: number) =>
+    api.del<CaseItem>(`/api/cases/${caseId}/deal-participants/${pid}`),
   messages: (caseId: number, after = 0) =>
     api.get<CaseMessage[]>(`/api/cases/${caseId}/messages?after=${after}`),
   sendMessage: (caseId: number, payload: { body?: string; attachmentUrl?: string; attachmentName?: string }) =>
