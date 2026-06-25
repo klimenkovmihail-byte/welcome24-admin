@@ -20,8 +20,8 @@ import {
   TYPE_LABEL, STATUS_RU, TRACK_STATUSES,
 } from '../api/cases';
 import { getCurrentUser } from '../auth/auth';
-import { API_BASE_URL, getToken } from '../api/apiClient';
 import DealParticipants from '../components/DealParticipants';
+import { uploadCaseAttachment, openCaseAttachment } from '../lib/attachments';
 import Thread from '../components/Thread';
 import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
@@ -75,21 +75,6 @@ function ShareField({ value, onCommit }: { value: number; onCommit: (v: number) 
       size="small" sx={{ width: 78, '& input': { py: 0.5, textAlign: 'right' } }}
       InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }} />
   );
-}
-
-// Загрузка файла в Yandex Storage через /api/upload (как в портале).
-async function uploadFile(file: File): Promise<{ url: string; name: string; size: number }> {
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('type', 'doc');
-  const res = await fetch(`${API_BASE_URL}/api/upload`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${getToken()}` },
-    body: fd,
-  });
-  if (!res.ok) throw new Error('Не удалось загрузить файл');
-  const data = await res.json();
-  return { url: data.url, name: file.name, size: file.size };
 }
 
 export default function Cases() {
@@ -206,8 +191,7 @@ export default function Cases() {
     if (!file || !detail) return;
     setUploading(true);
     try {
-      const meta = await uploadFile(file);
-      const updated = await casesAdminApi.addAttachment(detail.id, meta);
+      const updated = await uploadCaseAttachment(detail.id, file);
       setDetail(updated);
       bumpTimeline();
     } catch (err) {
@@ -575,7 +559,9 @@ export default function Cases() {
                       {(detail.attachments || []).filter(a => a.participant_id == null).map(at => (
                         <Box key={at.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 1.5, background: 'rgba(255,255,255,0.03)' }}>
                           <DescriptionRoundedIcon sx={{ fontSize: 18, color: '#94A3B8' }} />
-                          <Link href={at.url} target="_blank" rel="noopener" sx={{ color: '#E2C97E', flex: 1, fontSize: 13, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                          <Link component="button" type="button"
+                            onClick={() => { openCaseAttachment(detail.id, at).catch(e => setError(e instanceof Error ? e.message : 'Не удалось открыть файл')); }}
+                            sx={{ color: '#E2C97E', flex: 1, fontSize: 13, textAlign: 'left', textDecoration: 'none', background: 'none', border: 0, cursor: 'pointer', p: 0, '&:hover': { textDecoration: 'underline' } }}>
                             {at.name}
                           </Link>
                           <Typography variant="caption" sx={{ color: '#64748B' }}>{at.uploader_name}</Typography>

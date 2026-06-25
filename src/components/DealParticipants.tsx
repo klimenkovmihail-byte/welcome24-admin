@@ -11,7 +11,7 @@ import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import { casesAdminApi, type CaseItem, type DealParticipant } from '../api/cases';
-import { API_BASE_URL, getToken } from '../api/apiClient';
+import { uploadCaseAttachment, openCaseAttachment } from '../lib/attachments';
 
 const MAX_PARTICIPANTS = 5;
 const DOC_CATEGORIES = [
@@ -21,21 +21,6 @@ const DOC_CATEGORIES = [
   { key: 'income', label: 'Доходы' },
   { key: 'credit', label: 'Кредитная история' },
 ];
-
-async function uploadOne(file: File): Promise<{ url: string; name: string; size: number }> {
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('type', 'doc');
-  const res = await fetch(`${API_BASE_URL}/api/upload`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: fd });
-  if (!res.ok) {
-    let msg = `Не удалось загрузить файл (${res.status}).`;
-    try { const e = await res.json(); if (e?.error) msg = String(e.error); }
-    catch { if (res.status === 413) msg = 'Файл слишком большой — уменьшите или сожмите.'; }
-    throw new Error(msg);
-  }
-  const d = await res.json();
-  return { url: d.url, name: file.name, size: file.size };
-}
 
 export default function DealParticipants({ caseItem, myId, isAdmin, onChanged }: {
   caseItem: CaseItem; myId: number | null; isAdmin: boolean; onChanged: (c: CaseItem) => void;
@@ -76,7 +61,7 @@ export default function DealParticipants({ caseItem, myId, isAdmin, onChanged }:
               onUpload={async (category, files) => {
                 if (!files.length) return;
                 setBusy(true); setErr(null);
-                try { let cur = caseItem; for (const f of files) { const up = await uploadOne(f); cur = await casesAdminApi.addAttachment(caseItem.id, { name: up.name, url: up.url, size: up.size, participantId: p.id, category }); } onChanged(cur); }
+                try { let cur = caseItem; for (const f of files) cur = await uploadCaseAttachment(caseItem.id, f, { participantId: p.id, category }); onChanged(cur); }
                 catch (e) { setErr(e instanceof Error ? e.message : 'Не удалось загрузить файл'); }
                 finally { setBusy(false); }
               }}
@@ -133,7 +118,9 @@ function ParticipantCard({ caseItem, p, index, myId, isAdmin, busy, onPatch, onR
                     {files.map(at => (
                       <Box key={at.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <DescriptionRoundedIcon sx={{ fontSize: 15, color: '#94A3B8' }} />
-                        <Link href={at.url} target="_blank" rel="noopener" sx={{ color: '#E2C97E', flex: 1, fontSize: 12.5, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', '&:hover': { textDecoration: 'underline' } }}>
+                        <Link component="button" type="button"
+                          onClick={() => { openCaseAttachment(caseItem.id, at).catch(() => {}); }}
+                          sx={{ color: '#E2C97E', flex: 1, fontSize: 12.5, textAlign: 'left', textDecoration: 'none', background: 'none', border: 0, cursor: 'pointer', p: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', '&:hover': { textDecoration: 'underline' } }}>
                           {at.name}
                         </Link>
                         {(at.uploader_id === myId || isAdmin) && (
