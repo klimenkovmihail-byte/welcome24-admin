@@ -119,8 +119,6 @@ export const casesAdminApi = {
   commissionSuggestion: (caseId: number, date?: string) =>
     api.get<{ ytdVkdBefore: number; commission: number; level: number }>(`/api/cases/${caseId}/commission-suggestion${date ? `?date=${date}` : ''}`),
   analytics: (period = 'all') => api.get<CaseAnalytics>(`/api/cases/analytics?period=${period}`),
-  addAttachment: (caseId: number, body: { name: string; url: string; size?: number; participantId?: number; category?: string }) =>
-    api.post<CaseItem>(`/api/cases/${caseId}/attachments`, body),
   deleteAttachment: (caseId: number, attId: number) =>
     api.del<CaseItem>(`/api/cases/${caseId}/attachments/${attId}`),
   // Ипотека: участники сделки (заёмщики) — до 5.
