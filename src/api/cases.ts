@@ -4,7 +4,7 @@
 import { api } from './apiClient';
 
 export type TaskTrack = 'legal' | 'mortgage';
-export type TaskType = 'doc_check' | 'contract' | 'deposit' | 'dkp' | 'mortgage';
+export type TaskType = 'doc_check' | 'contract' | 'deposit' | 'dkp' | 'other' | 'mortgage';
 
 export interface CaseTask {
   id: number;
@@ -75,6 +75,7 @@ export const TYPE_LABEL: Record<TaskType, string> = {
   contract: 'Договор',
   deposit: 'Задаток / аванс',
   dkp: 'ДКП',
+  other: 'Другое',
   mortgage: 'Ипотека',
 };
 
