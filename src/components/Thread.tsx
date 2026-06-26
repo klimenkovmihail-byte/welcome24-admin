@@ -39,7 +39,9 @@ export interface ThreadMessage {
   deleted_at?: string | null;
   read_by_others?: number;
 }
-type Msg = ThreadMessage & { _status?: 'sending' | 'failed' };
+// Вложение: публичное (url, реклама) ИЛИ приватное (s3Key в welcome24-docs, чат заявки).
+type Att = { url?: string; s3Key?: string; contentType?: string; name: string };
+type Msg = ThreadMessage & { _status?: 'sending' | 'failed'; _att?: Att };
 
 interface Props {
   apiBase: string;            // доменный путь заявки, напр. '/cases/14'
@@ -49,6 +51,7 @@ interface Props {
   maxHeight?: number;
   pollMs?: number;
   emptyText?: string;
+  privateFiles?: boolean;     // чат заявки: грузим в приватный бакет (ПДн), отдаём presigned-ссылкой
 }
 
 // Цвет участника по роли (агент золото, юрист зелёный, брокер фиолет,
@@ -66,9 +69,18 @@ const nowStamp = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
 const fmtTime = (s: string) =>
   new Date(s.replace(' ', 'T') + 'Z').toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-async function uploadFile(file: File): Promise<{ url: string; name: string }> {
+async function uploadFile(file: File, base: string, privateFiles: boolean): Promise<Att> {
   const fd = new FormData();
   fd.append('file', file);
+  if (privateFiles) {
+    // Чат заявки: приватная загрузка в welcome24-docs, возвращаем s3Key (не публичный url).
+    const res = await fetch(`${API_BASE_URL}${base}/chat-upload`, {
+      method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: fd,
+    });
+    if (!res.ok) { let m = 'Не удалось загрузить файл'; try { const e = await res.json(); if (e?.error) m = String(e.error); } catch { /* */ } throw new Error(m); }
+    const d = await res.json();
+    return { s3Key: d.s3Key, contentType: d.contentType, name: d.name || file.name };
+  }
   fd.append('type', 'doc');
   const res = await fetch(`${API_BASE_URL}/api/upload`, {
     method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: fd,
@@ -78,12 +90,12 @@ async function uploadFile(file: File): Promise<{ url: string; name: string }> {
   return { url: data.url, name: file.name };
 }
 
-export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, maxHeight = 260, pollMs = 5000, emptyText = 'Сообщений пока нет.' }: Props) {
+export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, maxHeight = 260, pollMs = 5000, emptyText = 'Сообщений пока нет.', privateFiles = false }: Props) {
   // api-клиент ждёт путь С префиксом /api (как все api-модули) — apiBase доменный ('/cases/14').
   const base = `/api${apiBase}`;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState('');
-  const [pending, setPending] = useState<{ url: string; name: string } | null>(null);
+  const [pending, setPending] = useState<Att | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -189,17 +201,17 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     if (!file) return;
     setBusy(true);
     setAttachError(null);
-    try { setPending(await uploadFile(file)); }
+    try { setPending(await uploadFile(file, base, privateFiles)); }
     catch { setAttachError('Не удалось загрузить файл — попробуйте ещё раз.'); }
     finally { setBusy(false); e.target.value = ''; }
   };
 
   // Доставка с повтором: меняет временное сообщение на настоящее либо метит «не доставлено».
-  const deliver = async (tmpId: number, body: string, att: { url: string; name: string } | null, replyToId: number | null) => {
+  const deliver = async (tmpId: number, body: string, att: Att | null, replyToId: number | null) => {
     setBusy(true);
     try {
       const msg = await api.post<ThreadMessage>(`${base}/messages`,
-        { body, attachmentUrl: att?.url, attachmentName: att?.name, replyToId });
+        { body, attachmentUrl: att?.url, attachmentS3Key: att?.s3Key, attachmentContentType: att?.contentType, attachmentName: att?.name, replyToId });
       lastIdRef.current = Math.max(lastIdRef.current, msg.id);
       setMessages(prev => {
         const rest = prev.filter(m => m.id !== tmpId);
@@ -220,7 +232,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     const tmpId = tmpRef.current--;
     const optimistic: Msg = {
       id: tmpId, sender_id: myId, sender_name: 'Вы', sender_role: myRole,
-      body, attachment_url: att?.url ?? null, attachment_name: att?.name ?? null,
+      body, attachment_url: att?.url ?? null, attachment_name: att?.name ?? null, _att: att ?? undefined,
       created_at: nowStamp(), _status: 'sending',
       reply_to_id: rep?.id ?? null, reply_body: rep ? (rep.body || null) : null,
       reply_attachment_name: rep?.attachment_name ?? null, reply_sender_name: rep?.sender_name ?? null,
@@ -233,7 +245,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
 
   const retry = (m: Msg) => {
     setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, _status: 'sending' } : x)));
-    deliver(m.id, m.body, m.attachment_url ? { url: m.attachment_url, name: m.attachment_name || 'файл' } : null, m.reply_to_id ?? null);
+    deliver(m.id, m.body, m._att ?? (m.attachment_url ? { url: m.attachment_url, name: m.attachment_name || 'файл' } : null), m.reply_to_id ?? null);
   };
 
   // Сохранение правки своего сообщения (режим редактирования занимает поле ввода).

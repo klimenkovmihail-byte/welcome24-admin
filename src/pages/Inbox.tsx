@@ -200,7 +200,7 @@ export default function Inbox() {
         </Typography>
       </Box>
       <Box sx={{ flex: 1, minHeight: 0 }}>
-        <Thread apiBase={r.apiBase} myId={myId} myRole={user?.role} fillHeight />
+        <Thread apiBase={r.apiBase} myId={myId} myRole={user?.role} fillHeight privateFiles={r.apiBase.startsWith('/cases/')} />
       </Box>
     </Box>
   );

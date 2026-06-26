@@ -31,32 +31,22 @@ export async function uploadCaseAttachment(
   return res.json();
 }
 
-// Открыть файл заявки в новой вкладке.
+// Открыть файл заявки в новой вкладке. Приватные файлы отдаются presigned-ссылкой
+// (клиент качает напрямую из Object Storage — масштаб/скорость); вкладку открываем
+// СИНХРОННО в рамках клика (иначе попап-блокер срежет после await).
 export async function openCaseAttachment(
   caseId: number,
-  att: Pick<CaseAttachment, 'id' | 'url' | 'name'>,
+  att: Pick<CaseAttachment, 'id' | 'url'>,
 ): Promise<void> {
-  // Старый публичный файл — открываем напрямую (синхронно, попап не режется).
-  if (att.url) { window.open(att.url, '_blank', 'noopener'); return; }
-  // Приватный: вкладку открываем СИНХРОННО в рамках клика (иначе попап-блокер
-  // срежет открытие после await), blob-URL подставляем после загрузки.
+  if (att.url) { window.open(att.url, '_blank', 'noopener'); return; }   // legacy публичный
   const w = window.open('', '_blank');
   try {
-    const res = await fetch(`${API_BASE_URL}/api/cases/${caseId}/attachments/${att.id}/download`, {
+    const res = await fetch(`${API_BASE_URL}/api/cases/${caseId}/attachments/${att.id}/url`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
     if (!res.ok) throw new Error('Не удалось открыть файл');
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    if (w) {
-      w.location.href = url;
-    } else {
-      // Попап всё же заблокирован — отдаём файлом через скачивание.
-      const a = document.createElement('a');
-      a.href = url; a.download = att.name || 'document';
-      document.body.appendChild(a); a.click(); a.remove();
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    const { url } = await res.json();
+    if (w) w.location.href = url; else window.open(url, '_blank', 'noopener');
   } catch (e) {
     if (w) w.close();
     throw e;
