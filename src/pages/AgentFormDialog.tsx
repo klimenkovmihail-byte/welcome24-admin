@@ -134,29 +134,24 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
   const createIssue = useMemo<string | null>(() => {
     if (editTarget) return null; // правки существующих не ограничиваем
     const name = form.name.trim().replace(/\s+/g, ' ');
-    const email = form.email.trim().toLowerCase();
     if (!name) return 'Введите ФИО';
     if (name.split(' ').filter(Boolean).length < 3) return 'Укажите полное ФИО: Фамилия, Имя и Отчество';
-    if (!email) return 'Введите почту';
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return 'Некорректная почта';
     if (!form.phone.trim()) return 'Введите телефон';
     if (!form.birthDate) return 'Укажите дату рождения';
-    if (!form.password.trim()) return 'Задайте пароль';
+    // Email и пароль агент задаёт сам при «первом входе» (самоактивация по телефону) — не требуем.
     const norm = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const digits = (s: string) => (s || '').replace(/\D/g, '').replace(/^8/, '7');
     const dupName = agents.find(x => norm(x.name) === norm(name));
     if (dupName) return `Уже есть «${dupName.name}» — отличите отчеством или это дубль`;
-    const dupEmail = agents.find(x => ((x as { email?: string }).email || '').toLowerCase() === email);
-    if (dupEmail) return `Почта занята: ${dupEmail.name}`;
+    const np = digits(form.phone);
+    const dupPhone = agents.find(x => { const xp = digits((x as { phone?: string }).phone || ''); return xp && xp === np; });
+    if (dupPhone) return `Телефон уже занят: ${dupPhone.name}`;
     return null;
-  }, [editTarget, form.name, form.email, form.phone, form.birthDate, form.password, agents]);
+  }, [editTarget, form.name, form.phone, form.birthDate, agents]);
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.email.trim()) return;
+    if (!form.name.trim()) return;
     if (createIssue) { setError(createIssue); return; }
-    if (!editTarget && !form.password.trim()) {
-      setError('Введите пароль');
-      return;
-    }
     const parentId = form.parentType === 'company' ? null : form.parentId;
     // Если тип — «Сотрудник», MLM-привязки нет.
     const finalParentId = form.kind === 'staff' ? null : parentId;
@@ -268,32 +263,13 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
 
           <TextField fullWidth label="ФИО" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} size="small" />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField fullWidth label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} size="small" />
+            {editTarget && <TextField fullWidth label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} size="small" />}
             <TextField fullWidth label="Телефон" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} size="small" />
           </Box>
           {!editTarget && (
-            <Stack direction="row" spacing={1} alignItems="flex-start">
-              <TextField
-                fullWidth size="small" type="text"
-                label="Пароль (минимум 6 символов)"
-                value={form.password}
-                onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                helperText="Виден вам — скопируйте и передайте агенту. Сменит позже в кабинете."
-                autoComplete="off"
-                slotProps={{ input: { autoComplete: 'new-password' } }}
-              />
-              <Button
-                variant="outlined" size="small"
-                onClick={() => {
-                  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-                  const pwd = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-                  setForm(f => ({ ...f, password: pwd }));
-                }}
-                sx={{ flexShrink: 0, whiteSpace: 'nowrap', mt: 0.25 }}
-              >
-                Сгенерировать
-              </Button>
-            </Stack>
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              Email и пароль агент задаёт сам при первом входе в портал (вход по телефону-звонком). Выдавать пароль вручную не нужно.
+            </Alert>
           )}
           {editTarget && canManagePassword && (
             <Box sx={{
@@ -335,7 +311,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               )}
             </Box>
           )}
-          <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />
+          {editTarget && <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />}
           <Box sx={{ display: 'flex', gap: 2 }}>
             <TextField fullWidth label="Дата присоединения" type="date" value={form.joinDate}
               onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} size="small"
