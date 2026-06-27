@@ -32,8 +32,9 @@ function detectPortalUrl(): string {
   if (host.includes('welcome24-admin')) {
     return `${window.location.protocol}//${host.replace('welcome24-admin', 'welcome24-platform')}`;
   }
-  if (host.includes('admin.welcome24')) {
-    return `${window.location.protocol}//${host.replace('admin.welcome24', 'app.welcome24')}`;
+  // admin.w24.agency → app.w24.agency, admin.welcome24.ru → app.welcome24.ru
+  if (host.startsWith('admin.')) {
+    return `${window.location.protocol}//${host.replace(/^admin\./, 'app.')}`;
   }
   return 'https://welcome24-platform.vercel.app';
 }
