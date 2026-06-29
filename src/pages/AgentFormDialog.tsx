@@ -482,7 +482,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>
         <Button onClick={onClose} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-        <Button variant="contained" onClick={handleSave} disabled={saving || !!createIssue || !form.name.trim() || !form.email.trim() || (!editTarget && !form.password.trim())}>
+        <Button variant="contained" onClick={handleSave} disabled={saving || !!createIssue || !form.name.trim() || (!!editTarget && !form.email.trim())}>
           {saving ? 'Сохранение…' : editTarget ? 'Сохранить' : (isStaff ? 'Создать сотрудника' : 'Создать агента')}
         </Button>
       </DialogActions>
