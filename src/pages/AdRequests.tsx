@@ -19,7 +19,7 @@ import {
 } from '../api/adRequests';
 import {
   adPackagesApi, downloadDriveXlsx, PLATFORMS, PKG_PLATFORM_LABEL,
-  type Platform, type Drive, type DriveSummary, type AdCategory,
+  type Platform, type Drive, type DriveSummary, type AdCategory, type ActiveTableRow,
 } from '../api/adPackages';
 import { getCurrentUser } from '../auth/auth';
 import Thread from '../components/Thread';
@@ -65,6 +65,7 @@ export default function AdRequests() {
         <Tab label="Реклама объектов" />
         <Tab label="Прикрепление к площадкам" />
         <Tab label="Сбор пакета" />
+        <Tab label="Действующий пакет" />
         <Tab label="Прайс-лист" />
         <Tab label="База подключений" />
       </Tabs>
@@ -72,8 +73,9 @@ export default function AdRequests() {
       {tab === 0 && <RequestsTab kinds={['quota', 'fix', 'from_package']} initialOpenId={openId} />}
       {tab === 1 && <RequestsTab kinds={['connect']} initialOpenId={openId} />}
       {tab === 2 && <PackagesTab />}
-      {tab === 3 && <PriceListTab />}
-      {tab === 4 && <ConnectionsTab />}
+      {tab === 3 && <ActivePackageTab />}
+      {tab === 4 && <PriceListTab />}
+      {tab === 5 && <ConnectionsTab />}
     </Box>
   );
 }
@@ -502,6 +504,106 @@ function DriveDetail({ id, onBack }: { id: number; onBack: () => void }) {
           )}
         </CardContent>
       </Card>
+    </Box>
+  );
+}
+
+/* ============ ВКЛАДКА: ДЕЙСТВУЮЩИЙ ПАКЕТ ============ */
+/* Самозаполняемая таблица остатков квот: строки = агенты (+ регион из объектов),
+   столбцы = виды объектов площадки. Ячейка = остаток/куплено + № объектов. Read-only. */
+function ActivePackageTab() {
+  const [platform, setPlatform] = useState<Platform>('avito');
+  const [rows, setRows] = useState<ActiveTableRow[]>([]);
+  const [cats, setCats] = useState<AdCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      adPackagesApi.activeTable(platform).catch(() => [] as ActiveTableRow[]),
+      adPackagesApi.categories(platform, true).catch(() => [] as AdCategory[]),
+    ])
+      .then(([r, c]) => { setRows(r); setCats(c.filter(x => x.active)); })
+      .catch(e => setError(e?.message || 'Ошибка'))
+      .finally(() => setLoading(false));
+  }, [platform]);
+  useEffect(() => { load(); }, [load]);
+
+  // Группировка active-table: агент → { регион, вид → строка }.
+  const agents = (() => {
+    const map = new Map<number, {
+      agent_id: number; agent_name: string; region: string;
+      byCat: Record<string, ActiveTableRow>;
+    }>();
+    for (const r of rows) {
+      let a = map.get(r.agent_id);
+      if (!a) { a = { agent_id: r.agent_id, agent_name: r.agent_name, region: '', byCat: {} }; map.set(r.agent_id, a); }
+      a.byCat[r.category_key] = r;
+      // Регион — первый непустой из объектов заявок агента.
+      if (!a.region) { const reg = r.objects.find(o => o.region)?.region; if (reg) a.region = reg; }
+    }
+    return Array.from(map.values()).sort((x, y) => x.agent_name.localeCompare(y.agent_name, 'ru'));
+  })();
+
+  return (
+    <Box>
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
+      {/* Под-вкладки по площадкам */}
+      <Tabs value={platform} onChange={(_, v) => setPlatform(v as Platform)}
+        sx={{ mb: 2, minHeight: 40, '& .MuiTab-root': { color: '#94A3B8', fontWeight: 700, textTransform: 'none', minHeight: 40 }, '& .Mui-selected': { color: GOLD + ' !important' }, '& .MuiTabs-indicator': { background: GOLD } }}>
+        {PLATFORMS.map(p => <Tab key={p} value={p} label={PKG_PLATFORM_LABEL[p]} />)}
+      </Tabs>
+      <Typography sx={{ color: '#64748B', fontSize: 13, mb: 2 }}>
+        Остаток квот по агентам и видам объектов · заполняется автоматически из заявок «из пакета»
+      </Typography>
+
+      {loading ? <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress sx={{ color: GOLD }} /></Box> : (
+        agents.length === 0 ? (
+          <Typography sx={{ color: '#64748B', py: 6, textAlign: 'center' }}>Нет действующих пакетов</Typography>
+        ) : (
+          <Card sx={{ ...cardSx, overflow: 'auto' }}>
+            <CardContent sx={{ p: 0 }}>
+              <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(148,163,184,0.1)', verticalAlign: 'top' } }}>
+                <TableHead><TableRow>
+                  <TableCell sx={{ color: '#94A3B8', fontWeight: 700, position: 'sticky', left: 0, background: '#0B1120', zIndex: 1 }}>Агент</TableCell>
+                  <TableCell sx={{ color: '#94A3B8', fontWeight: 700 }}>Регион</TableCell>
+                  {cats.map(c => <TableCell key={c.key} align="center" sx={{ color: '#94A3B8', fontWeight: 700, fontSize: 11, minWidth: 120 }}>{c.label}</TableCell>)}
+                </TableRow></TableHead>
+                <TableBody>
+                  {agents.map(a => (
+                    <TableRow key={a.agent_id} hover>
+                      <TableCell sx={{ color: '#E2E8F0', fontWeight: 600, position: 'sticky', left: 0, background: '#0B1120', zIndex: 1 }}>{a.agent_name}</TableCell>
+                      <TableCell sx={{ color: '#94A3B8' }}>{a.region || '—'}</TableCell>
+                      {cats.map(c => {
+                        const cell = a.byCat[c.key];
+                        if (!cell) return <TableCell key={c.key} align="center" sx={{ color: '#334155' }}>·</TableCell>;
+                        const out = cell.remaining <= 0;
+                        return (
+                          <TableCell key={c.key} align="center">
+                            <Typography sx={{ fontWeight: 800, fontSize: 14, color: out ? '#EF4444' : '#22C55E' }}>
+                              {cell.remaining}<span style={{ color: '#64748B', fontWeight: 600 }}> / {cell.bought}</span>
+                            </Typography>
+                            {cell.objects.length > 0 && (
+                              <Stack direction="row" spacing={0.3} flexWrap="wrap" justifyContent="center" useFlexGap sx={{ mt: 0.5 }}>
+                                {cell.objects.map((o, i) => (
+                                  <Chip key={`${o.object_ref}-${i}`} label={o.object_ref} size="small"
+                                    sx={{ height: 18, fontSize: 10, background: 'rgba(201,168,76,0.12)', color: GOLD, '& .MuiChip-label': { px: 0.6 } }} />
+                                ))}
+                              </Stack>
+                            )}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )
+      )}
     </Box>
   );
 }

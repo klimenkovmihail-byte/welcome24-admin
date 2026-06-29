@@ -40,6 +40,17 @@ export interface DriveSummary {
 }
 export interface DriveDetailManage extends Drive { scope: 'manage'; summary: DriveSummary; }
 
+// «Действующий пакет» — самозаполняемая таблица остатков по агентам/видам.
+export interface ActiveTableObject { object_ref: string; property_id: number | null; region: string | null; via?: string; }
+export interface ActiveTableRow {
+  entry_id: number; agent_id: number; agent_name: string;
+  platform: Platform; platform_label: string; city: string;
+  category_key: string; category_label: string;
+  bought: number; used: number; remaining: number;
+  objects: ActiveTableObject[];
+  window: { starts_at: string | null; ends_at: string | null };
+}
+
 export const adPackagesApi = {
   categories: (platform: Platform, all = true) =>
     api.get<AdCategory[]>(`/api/ad-packages/categories?platform=${platform}${all ? '&all=1' : ''}`),
@@ -70,6 +81,9 @@ export const adPackagesApi = {
     api.patch<{ ok: boolean }>(`/api/ad-packages/entries/${entryId}/pay`, { paid }),
   removeEntry: (driveId: number, entryId: number) =>
     api.del<{ ok: boolean }>(`/api/ad-packages/drives/${driveId}/entries/${entryId}`),
+  // «Действующий пакет» — самозаполняемая таблица остатков по площадке.
+  activeTable: (platform: Platform) =>
+    api.get<ActiveTableRow[]>(`/api/ad-packages/active-table?platform=${platform}`),
 };
 
 // Скачивание xlsx с авторизацией (api-обёртка не умеет blob).
