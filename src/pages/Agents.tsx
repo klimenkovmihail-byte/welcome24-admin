@@ -100,6 +100,8 @@ export default function Agents() {
   // Reviews
   const [reviews, setReviews] = useState<AgentReview[]>([]);     // отзывы открытого в модалке агента
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingList, setPendingList] = useState<AgentReview[]>([]);   // все отзывы на модерации (по всем агентам)
+  const [pendingDlgOpen, setPendingDlgOpen] = useState(false);         // диалог глобальной очереди модерации
   const [reviewsDlgFor, setReviewsDlgFor] = useState<Agent | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const pendingReviewsCount = pendingCount;
@@ -122,7 +124,7 @@ export default function Agents() {
 
   const reloadPending = () => {
     agentsApi.pendingReviews()
-      .then(rows => setPendingCount(rows.length))
+      .then(rows => { setPendingList(rows); setPendingCount(rows.length); })
       .catch(() => { /* tolerate */ });
   };
 
@@ -315,7 +317,7 @@ export default function Agents() {
         { label: 'Всего агентов',       value: agentCount,           icon: <PeopleRoundedIcon />,        color: '#4361EE' },
         { label: 'Активных',            value: stats.active,         icon: <CheckCircleRoundedIcon />,    color: '#22C55E' },
         { label: 'Уровень 3 (95%)',     value: stats.level3,         icon: <DiamondRoundedIcon />,        color: '#C9A84C' },
-        { label: 'Отзывы на модерации', value: stats.pendingReviews, icon: <RateReviewRoundedIcon />,     color: '#F59E0B' },
+        { label: 'Отзывы на модерации', value: stats.pendingReviews, icon: <RateReviewRoundedIcon />,     color: '#F59E0B', onClick: () => setPendingDlgOpen(true) },
       ];
 
   return (
@@ -360,9 +362,11 @@ export default function Agents() {
 
       {/* Stats row */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        {statCards.map((s, i) => (
+        {statCards.map((s, i) => {
+          const cardClick = (s as { onClick?: () => void }).onClick;
+          return (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} style={{ flex: '1 1 160px' }}>
-            <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: '1px solid rgba(201,168,76,0.1)', display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box onClick={cardClick} sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: '1px solid rgba(201,168,76,0.1)', display: 'flex', alignItems: 'center', gap: 2, ...(cardClick ? { cursor: 'pointer', transition: 'border-color .2s', '&:hover': { borderColor: `${s.color}66` } } : {}) }}>
               <Box sx={{ width: 42, height: 42, borderRadius: 2, background: `${s.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: s.color, flexShrink: 0 }}>
                 {s.icon}
               </Box>
@@ -372,7 +376,8 @@ export default function Agents() {
               </Box>
             </Box>
           </motion.div>
-        ))}
+          );
+        })}
       </Box>
 
       {/* Toolbar */}
@@ -892,6 +897,68 @@ export default function Agents() {
               </Stack>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== Глобальная очередь модерации отзывов (по всем агентам) ===== */}
+      <Dialog open={pendingDlgOpen} onClose={() => setPendingDlgOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+          <Box>
+            <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Отзывы на модерации</Typography>
+            <Typography variant="caption" sx={{ color: '#94A3B8' }}>
+              {pendingList.length
+                ? `${pendingList.length} ${pendingList.length === 1 ? 'отзыв ждёт' : pendingList.length < 5 ? 'отзыва ждут' : 'отзывов ждут'} решения — по всем агентам`
+                : 'Очередь пуста'}
+            </Typography>
+          </Box>
+          <IconButton size="small" onClick={() => setPendingDlgOpen(false)} sx={{ color: '#64748B' }}>
+            <CloseRoundedIcon />
+          </IconButton>
+        </DialogTitle>
+        <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
+        <DialogContent sx={{ pt: 2 }}>
+          {pendingList.length === 0 ? (
+            <Box sx={{ py: 5, textAlign: 'center' }}>
+              <CheckCircleRoundedIcon sx={{ fontSize: 40, color: '#22C55E', mb: 1 }} />
+              <Typography sx={{ color: '#64748B' }}>Нет отзывов на модерации — всё разобрано</Typography>
+            </Box>
+          ) : (
+            <Stack spacing={1.5}>
+              {[...pendingList].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(r => {
+                const agentName = agents.find(a => a.id === r.agentId)?.name || `Агент #${r.agentId}`;
+                return (
+                  <Box key={r.id} sx={{ p: 2, borderRadius: 2, background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                    <Box sx={{ mb: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{r.authorName}</Typography>
+                        <Rating value={r.rating} readOnly size="small"
+                          icon={<StarRoundedIcon sx={{ color: '#F59E0B', fontSize: 14 }} fontSize="inherit" />}
+                          emptyIcon={<StarBorderRoundedIcon sx={{ color: '#475569', fontSize: 14 }} fontSize="inherit" />}
+                        />
+                        <Typography variant="caption" sx={{ color: '#64748B' }}>
+                          {new Date(r.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: '2-digit' })}
+                        </Typography>
+                      </Box>
+                      <Typography variant="caption" sx={{ color: '#94A3B8' }}>на агента: <b style={{ color: '#C9A84C' }}>{agentName}</b></Typography>
+                    </Box>
+                    <Typography variant="body2" sx={{ color: '#CBD5E1', lineHeight: 1.6, mb: 1.5 }}>{r.text}</Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Button size="small" variant="outlined" startIcon={<CheckCircleRoundedIcon />}
+                        onClick={() => setReviewModeration(r.id, 'approved')}
+                        sx={{ borderColor: 'rgba(34,197,94,0.3)', color: '#22C55E', '&:hover': { borderColor: '#22C55E', background: 'rgba(34,197,94,0.08)' } }}>
+                        Одобрить
+                      </Button>
+                      <Button size="small" variant="outlined" startIcon={<CancelRoundedIcon />}
+                        onClick={() => setReviewModeration(r.id, 'rejected')}
+                        sx={{ borderColor: 'rgba(239,68,68,0.3)', color: '#EF4444', '&:hover': { borderColor: '#EF4444', background: 'rgba(239,68,68,0.08)' } }}>
+                        Отклонить
+                      </Button>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Stack>
+          )}
         </DialogContent>
       </Dialog>
     </Box>
