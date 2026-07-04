@@ -65,6 +65,26 @@ export interface OverridePayload {
   note?: string;
 }
 
+export interface PaymentRow {
+  id: number;
+  agent_id: number;
+  agent_name: string;
+  agent_email: string;
+  agent_city: string | null;
+  period: string;
+  amount: number;
+  paid_at: string;
+  payment_ref: string | null;
+  method: 'auto' | 'manual' | 'direct';
+}
+export interface PaymentsPage {
+  total: number;
+  totalAmount: number;
+  limit: number;
+  offset: number;
+  items: PaymentRow[];
+}
+
 export const subscriptionAdminApi = {
   pending: () => api.get<PendingClaim[]>('/api/subscription/pending'),
   confirm: (id: number, paymentRef?: string) =>
@@ -79,4 +99,14 @@ export const subscriptionAdminApi = {
   // Отметить период оплаченным вручную (прямая оплата) или снять отметку.
   markPaid: (agentId: number, period: string, paid: boolean) =>
     api.post<{ ok: boolean; period: string; paid: boolean }>(`/api/subscription/manual-claim/${agentId}`, { period, paid }),
+  // Лента подтверждённых оплат АП: кто/когда/за какой период. Фильтр q (ФИО) + period.
+  payments: (params: { q?: string; period?: string; limit?: number; offset?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (params.q) p.set('q', params.q);
+    if (params.period) p.set('period', params.period);
+    if (params.limit != null) p.set('limit', String(params.limit));
+    if (params.offset != null) p.set('offset', String(params.offset));
+    const qs = p.toString();
+    return api.get<PaymentsPage>(`/api/subscription/payments${qs ? '?' + qs : ''}`);
+  },
 };

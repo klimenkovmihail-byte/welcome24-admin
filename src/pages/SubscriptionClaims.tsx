@@ -3,18 +3,20 @@
  * Админ подтверждает или отклоняет, agent получает уведомление.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Box, Typography, Button, Chip, IconButton, Alert,
   Table, TableHead, TableBody, TableCell, TableRow, TableContainer, Paper,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Avatar,
-  CircularProgress, Tooltip,
+  CircularProgress, Tooltip, Tabs, Tab, InputAdornment, Select, MenuItem, FormControl, InputLabel,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
-import { subscriptionAdminApi, type PendingClaim } from '../api/subscription';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import BoltRoundedIcon from '@mui/icons-material/BoltRounded';
+import { subscriptionAdminApi, type PendingClaim, type PaymentRow } from '../api/subscription';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 const RU_MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
@@ -22,8 +24,131 @@ const formatPeriod = (p: string) => {
   const [y, m] = p.split('-').map(Number);
   return `${RU_MONTHS[m - 1]} ${y}`;
 };
+const METHOD_CFG: Record<PaymentRow['method'], { label: string; color: string; bg: string }> = {
+  auto:   { label: 'Автоматически',  color: '#22C55E', bg: 'rgba(34,197,94,0.12)' },
+  manual: { label: 'Подтверждено',   color: '#94A3B8', bg: 'rgba(148,163,184,0.12)' },
+  direct: { label: 'Прямая оплата',  color: '#4361EE', bg: 'rgba(67,97,238,0.12)' },
+};
+
+// Лента подтверждённых оплат АП с фильтром по ФИО и периоду. Способ оплаты — чипом
+// (авто через ЮKassa / подтверждено вручную / прямая оплата). Пагинация «показать ещё».
+function PaymentsHistory() {
+  const [q, setQ] = useState('');
+  const [qDeb, setQDeb] = useState('');
+  const [period, setPeriod] = useState('');
+  const [rows, setRows] = useState<PaymentRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalAmount, setTotalAmount] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const LIMIT = 50;
+
+  const periodOptions = useMemo(() => {
+    const out: string[] = [];
+    const now = new Date();
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return out;
+  }, []);
+
+  useEffect(() => { const t = setTimeout(() => setQDeb(q), 300); return () => clearTimeout(t); }, [q]);
+  useEffect(() => { setOffset(0); }, [qDeb, period]);
+  useEffect(() => {
+    setLoading(true); setErr(null);
+    subscriptionAdminApi.payments({ q: qDeb || undefined, period: period || undefined, limit: LIMIT, offset })
+      .then(p => {
+        setTotal(p.total); setTotalAmount(p.totalAmount);
+        setRows(prev => offset === 0 ? p.items : [...prev, ...p.items]);
+      })
+      .catch(e => setErr(e instanceof Error ? e.message : 'Не удалось загрузить оплаты'))
+      .finally(() => setLoading(false));
+  }, [qDeb, period, offset]);
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+        <TextField
+          size="small" placeholder="Поиск по ФИО, email, городу" value={q} onChange={e => setQ(e.target.value)}
+          sx={{ flex: '1 1 260px' }}
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ color: '#64748B', fontSize: 20 }} /></InputAdornment> }}
+        />
+        <FormControl size="small" sx={{ minWidth: 170 }}>
+          <InputLabel>Период</InputLabel>
+          <Select value={period} label="Период" onChange={e => setPeriod(e.target.value)}>
+            <MenuItem value="">Все периоды</MenuItem>
+            {periodOptions.map(p => <MenuItem key={p} value={p}>{formatPeriod(p)}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <Box sx={{ flex: 1 }} />
+        <Chip label={`${fmt(total)} оплат · ${fmt(totalAmount)} ₽`} sx={{ background: 'rgba(34,197,94,0.12)', color: '#22C55E', fontWeight: 700 }} />
+      </Box>
+
+      {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr(null)}>{err}</Alert>}
+
+      {loading && rows.length === 0 ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>
+      ) : rows.length === 0 ? (
+        <Alert severity="info">Оплат не найдено{period || qDeb ? ' по этому фильтру' : ''}. Как только агент оплатит АП — строка появится здесь автоматически.</Alert>
+      ) : (
+        <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Агент</TableCell>
+                <TableCell>Город</TableCell>
+                <TableCell>Период</TableCell>
+                <TableCell align="right">Сумма</TableCell>
+                <TableCell>Оплачено</TableCell>
+                <TableCell>Способ</TableCell>
+                <TableCell>№ транзакции</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map(r => {
+                const mc = METHOD_CFG[r.method];
+                return (
+                  <TableRow key={r.id} hover>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar sx={{ width: 32, height: 32, fontSize: 12, background: 'rgba(34,197,94,0.15)', color: '#22C55E', fontWeight: 700 }}>
+                          {r.agent_name.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{r.agent_name}</Typography>
+                          <Typography variant="caption" sx={{ color: '#64748B' }}>{r.agent_email}</Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                    <TableCell><Typography variant="body2" sx={{ color: '#94A3B8' }}>{r.agent_city || '—'}</Typography></TableCell>
+                    <TableCell><Chip label={formatPeriod(r.period)} size="small" sx={{ background: 'rgba(67,97,238,0.10)', color: '#4361EE', fontWeight: 700, fontSize: 11 }} /></TableCell>
+                    <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(r.amount)} ₽</Typography></TableCell>
+                    <TableCell><Typography variant="caption" sx={{ color: '#94A3B8' }}>{r.paid_at ? new Date(r.paid_at.replace(' ', 'T') + 'Z').toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</Typography></TableCell>
+                    <TableCell><Chip icon={r.method === 'auto' ? <BoltRoundedIcon sx={{ fontSize: 13 }} /> : undefined} label={mc.label} size="small" sx={{ background: mc.bg, color: mc.color, fontWeight: 700, fontSize: 11, '& .MuiChip-icon': { color: mc.color } }} /></TableCell>
+                    <TableCell><Typography variant="caption" sx={{ color: '#64748B', fontFamily: 'monospace' }}>{r.payment_ref && r.payment_ref !== 'MANUAL' && r.payment_ref !== 'DIRECT' ? r.payment_ref : '—'}</Typography></TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          {rows.length < total && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+              <Button variant="outlined" disabled={loading} onClick={() => setOffset(o => o + LIMIT)}
+                sx={{ borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C' }}>
+                Показать ещё (показано {rows.length} из {total})
+              </Button>
+            </Box>
+          )}
+        </TableContainer>
+      )}
+    </Box>
+  );
+}
 
 export default function SubscriptionClaims() {
+  const [tab, setTab] = useState(0);
   const [claims, setClaims] = useState<PendingClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +210,13 @@ export default function SubscriptionClaims() {
         <Chip label={`${claims.length} заявок · ${fmt(totalAmount)} ₽`} sx={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontWeight: 700 }} />
       </Box>
 
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid rgba(201,168,76,0.12)', '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, color: '#94A3B8' }, '& .Mui-selected': { color: '#C9A84C !important' }, '& .MuiTabs-indicator': { background: '#C9A84C' } }}>
+        <Tab label={`Ждут подтверждения${claims.length ? ` · ${claims.length}` : ''}`} />
+        <Tab label="История оплат" />
+      </Tabs>
+
+      {tab === 1 ? <PaymentsHistory /> : (
+      <>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
       {loading ? (
@@ -168,8 +300,10 @@ export default function SubscriptionClaims() {
       <Alert severity="info" sx={{ mt: 3 }} icon={false}>
         <b>Авто-режим:</b> подключи в личном кабинете YooKassa HTTP-уведомления на URL{' '}
         <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>{import.meta.env.VITE_API_URL || ''}/api/subscription/yookassa-webhook</code>
-        {' '}— тогда оплаты с правильной меткой будут закрываться автоматически без этой страницы.
+        {' '}— тогда оплаты с правильной меткой будут закрываться автоматически без этой страницы, а строка появится во вкладке «История оплат».
       </Alert>
+      </>
+      )}
 
       {/* Confirm dialog (с опциональным номером транзакции) */}
       <Dialog open={!!paymentRefFor} onClose={() => setPaymentRefFor(null)} maxWidth="xs" fullWidth>
