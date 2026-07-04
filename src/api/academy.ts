@@ -76,6 +76,7 @@ type RawEvent = {
   location: string;
   link: string;
   capacity: number | null;
+  registered?: number; // живой счётчик записавшихся (бэк отдаёт с волны 4)
   published: number;
 };
 
@@ -93,7 +94,7 @@ function normalizeEvent(raw: RawEvent): AdminEvent {
     location: raw.location || 'Онлайн',
     link: raw.link || '',
     capacity: raw.capacity,
-    registered: 0,
+    registered: raw.registered || 0,
     published: !!raw.published,
   };
 }
