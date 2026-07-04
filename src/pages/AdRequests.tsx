@@ -295,7 +295,7 @@ function RequestDetail({ request, onClose, onChanged, setStatus, take }: {
           <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 320 }}>
             <Typography sx={{ color: '#64748B', fontSize: 12, mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Чат с агентом</Typography>
             <Thread apiBase={`/ad-requests/${r.id}`} myId={user?.id ?? null} myRole={user?.role}
-              maxHeight={320} emptyText="Сообщений нет" />
+              maxHeight={320} emptyText="Сообщений нет" privateFiles />
           </Box>
         </Stack>
       </DialogContent>

@@ -86,7 +86,7 @@ export const adRequestsApi = {
     api.patch<AdRequest>(`/api/ad-requests/${id}`, body),
   remove: (id: number) => api.del<{ ok: boolean }>(`/api/ad-requests/${id}`),
   messages: (id: number, after = 0) => api.get<AdMessage[]>(`/api/ad-requests/${id}/messages?after=${after}`),
-  sendMessage: (id: number, payload: { body?: string; attachmentUrl?: string; attachmentName?: string }) =>
+  sendMessage: (id: number, payload: { body?: string; attachmentUrl?: string; attachmentName?: string; attachmentS3Key?: string; attachmentContentType?: string }) =>
     api.post<AdMessage>(`/api/ad-requests/${id}/messages`, payload),
   markRead: (id: number, lastId?: number) => api.post<{ ok: boolean }>(`/api/ad-requests/${id}/read`, lastId ? { lastId } : {}),
   events: (id: number) => api.get<AdEvent[]>(`/api/ad-requests/${id}/events`),
