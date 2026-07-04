@@ -15,6 +15,8 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
+import Checkbox from '@mui/material/Checkbox';
 import type { Deal, Agent } from '../types';
 import { dealsApi } from '../api/deals';
 import { useAgents } from '../hooks/useAgents';
@@ -447,6 +449,234 @@ function ImportDealsDialog({ open, onClose, onImported }: ImportDialogProps) {
 }
 
 // ============================================================
+// S2: пересчёт комиссий по правилу прогрессии — инструмент с diff-превью (решение CEO: НЕ авто).
+// Сделка задней датой меняет YTD-прогрессию последующих сделок года — превью показывает
+// «было→стало», применяются ТОЛЬКО отмеченные строки. «Понижения» (пересчёт СНИЖАЕТ % против
+// текущего = вероятная ручная надбавка админа, в БД не помечена) по умолчанию ИСКЛЮЧЕНЫ.
+// Применение — только super_admin (бэк перепроверяет diff в транзакции; 409 = данные изменились).
+// ============================================================
+interface RecomputeChange {
+  id: number; date: string; vkd: number; oldPct: number; newPct: number; oldIncome: number; newIncome: number;
+  client_name: string; address: string; status: string; joint: boolean; lowered: boolean;
+}
+interface RecomputePreview {
+  agent: { id: number; name: string; commission_fixed: number | null };
+  thresholds: { l1: number; l2: number };
+  year: string | null;
+  changes: RecomputeChange[];
+  unprocessable: { id: number; date: string | null; vkd: number | null; client_name: string }[];
+}
+
+const STATUS_RU: Record<string, string> = { pending: 'черновик', confirmed: 'проведена', paid: 'выплачена', cancelled: 'отменена' };
+
+function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; onClose: () => void; agents: Agent[]; onApplied: () => void }) {
+  const isSuper = getCurrentUser()?.role === 'super_admin';
+  const curYear = String(new Date().getFullYear());
+  const [agentId, setAgentId] = useState<number | null>(null);
+  const [year, setYear] = useState(curYear);
+  const [preview, setPreview] = useState<RecomputePreview | null>(null);
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<number | null>(null);
+  const reqSeq = useRef(0); // анти-гонка: устаревший ответ превью не перезаписывает свежий выбор
+
+  useEffect(() => {
+    if (!open) { setAgentId(null); setYear(curYear); setPreview(null); setChecked(new Set()); setError(null); setDone(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const yearOptions = useMemo(() => {
+    const ys: string[] = [];
+    for (let y = Number(curYear); y >= 2022; y--) ys.push(String(y));
+    return ys;
+  }, [curYear]);
+
+  const loadPreview = async (aid = agentId, yr = year) => {
+    if (!aid) return;
+    const seq = ++reqSeq.current;
+    setBusy(true); setError(null); setDone(null);
+    try {
+      const p = await api.post<RecomputePreview>('/api/deals/recompute/preview', { agentId: aid, year: yr === 'all' ? '' : yr });
+      if (seq !== reqSeq.current) return; // выбор сменился, пока грузили — ответ устарел
+      setPreview(p);
+      // Дефолт (решение CEO): понижения НЕ отмечены — админ включает осознанно.
+      setChecked(new Set(p.changes.filter(c => !c.lowered).map(c => c.id)));
+    } catch (e) {
+      if (seq !== reqSeq.current) return;
+      setPreview(null); setError(e instanceof Error ? e.message : 'Не удалось получить превью');
+    } finally { if (seq === reqSeq.current) setBusy(false); }
+  };
+
+  const apply = async () => {
+    if (!preview || !agentId) return;
+    const rows = preview.changes.filter(c => checked.has(c.id))
+      .map(({ id, oldPct, newPct, oldIncome, newIncome }) => ({ id, oldPct, newPct, oldIncome, newIncome }));
+    if (!rows.length) return;
+    if (!confirm(`Применить пересчёт ${rows.length} строк агента «${preview.agent.name}»? Комиссия/доход изменятся задним числом (включая выплаченные).`)) return;
+    setBusy(true); setError(null);
+    try {
+      const r = await api.post<{ ok: boolean; applied: number }>('/api/deals/recompute/apply', { agentId, year: year === 'all' ? '' : year, changes: rows });
+      setDone(r.applied); setPreview(null); onApplied();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Не удалось применить';
+      setBusy(false);
+      if (msg.includes('изменились')) {
+        await loadPreview();  // TOCTOU: сначала свежий diff…
+        setError(msg);        // …потом сообщение — иначе setError(null) внутри loadPreview его затирает
+      } else {
+        setError(msg);
+      }
+      return;
+    }
+    setBusy(false);
+  };
+
+  const sel = preview ? preview.changes.filter(c => checked.has(c.id)) : [];
+  const deltaIncome = sel.reduce((s, c) => s + (c.newIncome - c.oldIncome), 0);
+  const allChecked = !!preview && preview.changes.length > 0 && checked.size === preview.changes.length;
+  const toggleAll = () => {
+    if (!preview) return;
+    setChecked(allChecked ? new Set() : new Set(preview.changes.map(c => c.id)));
+  };
+  const toggle = (id: number) => setChecked(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  return (
+    <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Пересчёт комиссий по правилу</Typography>
+        <IconButton size="small" onClick={onClose} disabled={busy} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
+      </DialogTitle>
+      <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
+      <DialogContent sx={{ pt: 3 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+        {done != null && <Alert severity="success" sx={{ mb: 2 }}>Применено строк: <b>{done}</b>. Комиссии/доход обновлены, запись в журнале пересчётов.</Alert>}
+
+        <Stack direction="row" spacing={2} sx={{ mb: 2 }} alignItems="center">
+          <Autocomplete
+            sx={{ flex: 1 }}
+            options={agents}
+            disabled={busy}
+            getOptionLabel={a => a.name}
+            value={agents.find(a => a.id === agentId) || null}
+            onChange={(_, v) => { reqSeq.current++; setAgentId(v?.id || null); setPreview(null); setDone(null); setError(null); }}
+            renderInput={params => <TextField {...params} label="Агент *" size="small" />}
+          />
+          <FormControl size="small" sx={{ minWidth: 120 }} disabled={busy}>
+            <InputLabel>Год</InputLabel>
+            <Select value={year} label="Год" onChange={e => { reqSeq.current++; setYear(e.target.value); setPreview(null); setDone(null); setError(null); }}>
+              {yearOptions.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+              <MenuItem value="all">Все годы</MenuItem>
+            </Select>
+          </FormControl>
+          <Button variant="outlined" disabled={busy || !agentId} onClick={() => loadPreview()} sx={{ flexShrink: 0 }}>
+            {busy && !preview ? 'Считаю…' : 'Показать превью'}
+          </Button>
+        </Stack>
+
+        <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mb: 1.5 }}>
+          Правило: % сделки = уровень по накопленному ВКД года СТРОГО до её даты (сделки одного дня друг друга не видят).
+          Сделка, внесённая задней датой, меняет уровень последующих — этот инструмент показывает разницу и применяет только отмеченные строки.
+        </Typography>
+
+        {preview && (
+          <>
+            {preview.agent.commission_fixed != null && (
+              <Alert severity="warning" sx={{ mb: 1.5 }}>
+                Агент на фикс-тарифе <b>{preview.agent.commission_fixed}%</b> — пересчёт приведёт ВСЮ историю (все годы превью) к этому проценту, включая сделки до перевода на фикс.
+              </Alert>
+            )}
+            {preview.unprocessable.length > 0 && (
+              <Alert severity="info" sx={{ mb: 1.5 }}>
+                {preview.unprocessable.length} строк без даты/ВКД не пересчитываются (id: {preview.unprocessable.map(u => u.id).join(', ')}).
+              </Alert>
+            )}
+            {preview.changes.length === 0 ? (
+              <Alert severity="success">Расхождений с правилом нет — все комиссии агента{preview.year ? ` за ${preview.year}` : ''} уже соответствуют прогрессии (пороги L2 {fmt(preview.thresholds.l1)} ₽ / L3 {fmt(preview.thresholds.l2)} ₽).</Alert>
+            ) : (
+              <>
+                <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
+                  <Typography variant="body2" sx={{ color: '#F1F5F9', fontWeight: 700 }}>
+                    Расхождений: {preview.changes.length} · отмечено {sel.length}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: deltaIncome >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700 }}>
+                    Δ дохода по отмеченным: {deltaIncome >= 0 ? '+' : ''}{fmt(deltaIncome)} ₽
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Typography variant="caption" sx={{ color: '#64748B' }}>пороги: L2 от {fmt(preview.thresholds.l1)} ₽, L3 от {fmt(preview.thresholds.l2)} ₽</Typography>
+                </Stack>
+                <Alert severity="warning" sx={{ mb: 1 }}>
+                  Ручные корректировки в базе НЕ помечены. Строки-«понижения» (вероятные ручные надбавки) по умолчанию сняты,
+                  но и ПОВЫШЕНИЕ может перезаписать намеренно заниженный % (договорённость/доля co-broking) — просмотрите строки перед применением.
+                </Alert>
+                <TableContainer sx={{ maxHeight: 380, borderRadius: 1.5, border: '1px solid rgba(201,168,76,0.12)' }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell padding="checkbox"><Checkbox size="small" checked={allChecked} indeterminate={checked.size > 0 && !allChecked} onChange={toggleAll} /></TableCell>
+                        <TableCell>Дата</TableCell>
+                        <TableCell>Сделка</TableCell>
+                        <TableCell align="right">ВКД</TableCell>
+                        <TableCell align="right">%: было → станет</TableCell>
+                        <TableCell align="right">Доход: было → станет</TableCell>
+                        <TableCell align="right">Δ</TableCell>
+                        <TableCell>Метки</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {preview.changes.map(c => {
+                        const d = c.newIncome - c.oldIncome;
+                        return (
+                          <TableRow key={c.id} hover selected={checked.has(c.id)}>
+                            <TableCell padding="checkbox"><Checkbox size="small" checked={checked.has(c.id)} onChange={() => toggle(c.id)} /></TableCell>
+                            <TableCell><Typography variant="caption" sx={{ color: '#94A3B8' }}>{c.date}</Typography></TableCell>
+                            <TableCell sx={{ maxWidth: 160 }}>
+                              <Typography variant="caption" sx={{ color: '#CBD5E1', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                #{c.id}{c.client_name && c.client_name !== '—' ? ` · ${c.client_name}` : ''}{c.address ? ` · ${c.address}` : ''}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right"><Typography variant="caption" sx={{ color: '#F1F5F9', fontWeight: 600 }}>{fmt(c.vkd)} ₽</Typography></TableCell>
+                            <TableCell align="right"><Typography variant="caption" sx={{ fontWeight: 700, color: '#C9A84C' }}>{c.oldPct}% → {c.newPct}%</Typography></TableCell>
+                            <TableCell align="right"><Typography variant="caption" sx={{ color: '#F1F5F9' }}>{fmt(c.oldIncome)} → {fmt(c.newIncome)} ₽</Typography></TableCell>
+                            <TableCell align="right"><Typography variant="caption" sx={{ fontWeight: 700, color: d >= 0 ? '#22C55E' : '#EF4444' }}>{d >= 0 ? '+' : ''}{fmt(d)}</Typography></TableCell>
+                            <TableCell>
+                              <Stack direction="row" spacing={0.5}>
+                                {c.lowered && <Tooltip title="Пересчёт СНИЖАЕТ значение: либо ручная надбавка (не трогать), либо легитимная коррекция (например, после отмены ранней сделки года — тогда отметьте). По умолчанию не отмечено."><Chip label="понижение" size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700, color: '#F59E0B', background: 'rgba(245,158,11,0.14)' }} /></Tooltip>}
+                                {c.status === 'paid' && <Tooltip title="Сделка уже выплачена — пересчёт изменит доход задним числом."><Chip label="выплачена" size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700, color: '#60A5FA', background: 'rgba(96,165,250,0.14)' }} /></Tooltip>}
+                                {c.joint && <Tooltip title="Нога совместной сделки (co-broking) — суммарный доход группы изменится."><Chip label="совместная" size="small" sx={{ height: 18, fontSize: 10, fontWeight: 700, color: '#C9A84C', background: 'rgba(201,168,76,0.14)' }} /></Tooltip>}
+                                {!c.lowered && c.status !== 'paid' && !c.joint && <Typography variant="caption" sx={{ color: '#475569' }}>{STATUS_RU[c.status] || c.status}</Typography>}
+                              </Stack>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </>
+            )}
+          </>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 3 }}>
+        <Button onClick={onClose} sx={{ color: '#64748B' }} disabled={busy}>Закрыть</Button>
+        {preview && preview.changes.length > 0 && (
+          isSuper ? (
+            <Button variant="contained" color="warning" onClick={apply} disabled={busy || sel.length === 0}>
+              {busy ? 'Применяю…' : `Применить ${sel.length} строк`}
+            </Button>
+          ) : (
+            <Tooltip title="Применить пересчёт может только super_admin"><span>
+              <Button variant="contained" disabled>Применить (super_admin)</Button>
+            </span></Tooltip>
+          )
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ============================================================
 // Главный компонент страницы
 // ============================================================
 export default function Deals() {
@@ -463,6 +693,7 @@ export default function Deals() {
   const [limit, setLimit] = useState(25); // последние 25; «Показать ещё» добавляет по 50
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [recomputeOpen, setRecomputeOpen] = useState(false); // S2: пересчёт комиссий с diff-превью
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
   // Удалять сделки могут super_admin и admin (необратимо, влияет на комиссию/MLM).
   const canDelete = ['super_admin', 'admin'].includes(getCurrentUser()?.role ?? '');
@@ -538,8 +769,14 @@ export default function Deals() {
           </Typography>
         </Box>
         <Button
-          variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}
+          variant="outlined" startIcon={<CalculateRoundedIcon />} onClick={() => setRecomputeOpen(true)}
           sx={{ ml: 'auto', flexShrink: 0, borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.06)' } }}
+        >
+          Пересчёт %
+        </Button>
+        <Button
+          variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}
+          sx={{ flexShrink: 0, borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.06)' } }}
         >
           Импорт xlsx
         </Button>
@@ -552,6 +789,13 @@ export default function Deals() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={reloadDeals}
+      />
+
+      <RecomputeDialog
+        open={recomputeOpen}
+        onClose={() => setRecomputeOpen(false)}
+        agents={agents}
+        onApplied={reloadDeals}
       />
 
       {error && (
