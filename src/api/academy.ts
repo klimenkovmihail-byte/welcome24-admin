@@ -139,6 +139,7 @@ type RawCourse = {
   rating_count: number;
   tags: string[];
   published: boolean;
+  order_idx?: number;
   lessons: RawLesson[];
 };
 
@@ -166,6 +167,9 @@ function normalizeCourse(raw: RawCourse): AdminCourse {
     coverUrl: raw.cover_url || '',
     duration: raw.duration || '',
     author: raw.author_name || '',
+    // orderIdx обязан переноситься: saveCourse шлёт его в PATCH — без переноса
+    // любое сохранение курса молча сбрасывало порядок курса в 0.
+    orderIdx: raw.order_idx ?? 0,
     lessons: (raw.lessons || []).map(normalizeLesson),
     rating: raw.rating || 0,
     ratingCount: raw.rating_count || 0,
@@ -182,7 +186,9 @@ export interface CoursePayload {
   duration?: string;
   authorName?: string;
   published?: boolean;
-  lessons?: Array<{ title: string; duration?: string; videoUrl?: string; content?: string; attachments?: CourseAttachment[] }>;
+  // id — для update-in-place на бэке (сохранение прогресса агентов);
+  // у новых уроков это временный Date.now() из формы.
+  lessons?: Array<{ id?: number; title: string; duration?: string; videoUrl?: string; content?: string; attachments?: CourseAttachment[] }>;
 }
 
 export const academyApi = {

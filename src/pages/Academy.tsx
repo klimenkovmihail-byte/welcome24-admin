@@ -192,6 +192,10 @@ export default function Academy() {
         authorName: courseForm.author,
         published: courseForm.published,
         lessons: courseForm.lessons.map(l => ({
+          // id обязателен: бэк обновляет существующие уроки НА МЕСТЕ (id живёт,
+          // прогресс агентов не сбрасывается); новые уроки несут временный
+          // Date.now()-id — бэк его не найдёт у курса и вставит урок как новый.
+          id: l.id,
           title: l.title,
           duration: l.duration,
           videoUrl: l.videoUrl,
