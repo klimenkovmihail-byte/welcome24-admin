@@ -134,32 +134,8 @@ export default function Docs() {
     }
     setUploading(true);
     try {
-      // Загружаем в S3 через /api/upload
-      const fd = new FormData();
-      fd.append('file', file, file.name);
-      fd.append('type', 'doc');
-      const token = getToken();
-      const res = await fetch(`${API_BASE_URL}/api/upload`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: fd,
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        if (res.status === 413) {
-          throw new ApiError(`Файл слишком большой (лимит сервера ${MAX_MB} МБ)`, 413, data);
-        }
-        throw new ApiError(data?.error || `Ошибка загрузки (HTTP ${res.status})`, res.status, data);
-      }
-      // Регистрируем в БД
-      await docsApi.createFile({
-        parentId: currentFolderId,
-        name: file.name,
-        fileUrl: data.url,
-        fileKey: data.key,
-        mimeType: file.type,
-        fileSize: file.size,
-      });
+      // ПРИВАТНАЯ загрузка в приватный бакет welcome24-docs (152-ФЗ) — одним запросом.
+      await docsApi.uploadFile(currentFolderId, file);
       reloadCurrent();
     } catch (err) {
       // «Failed to fetch» — обычно сеть/тайм-аут на больших файлах.
@@ -198,13 +174,18 @@ export default function Docs() {
     }
   };
 
-  const openItem = (item: DocItem) => {
+  const openItem = async (item: DocItem) => {
     if (item.type === 'folder') {
       setCurrentFolderId(item.id);
       setSearch(''); setSearchResults(null);
-    } else if (item.fileUrl) {
-      window.open(item.fileUrl, '_blank', 'noopener,noreferrer');
+      return;
     }
+    // Приватный файл (fileUrl пустой) — берём presigned-ссылку; legacy-публичный — открываем напрямую.
+    let url = item.fileUrl;
+    if (!url && item.hasFile) {
+      try { url = (await docsApi.url(item.id)).url; } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось открыть файл'); return; }
+    }
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const visibleItems = searchResults !== null ? searchResults : items;
@@ -365,18 +346,24 @@ export default function Docs() {
 
       {/* Context menu */}
       <Menu open={!!menuAnchor} anchorEl={menuAnchor?.el || null} onClose={() => setMenuAnchor(null)}>
-        {menuAnchor?.item.type === 'file' && menuAnchor.item.fileUrl && (
-          <MenuItem onClick={() => { window.open(menuAnchor.item.fileUrl!, '_blank'); setMenuAnchor(null); }}>
+        {menuAnchor?.item.type === 'file' && (menuAnchor.item.hasFile ?? !!menuAnchor.item.fileUrl) && (
+          <MenuItem onClick={async () => {
+            const it = menuAnchor!.item; setMenuAnchor(null);
+            let url = it.fileUrl;
+            if (!url) { try { url = (await docsApi.url(it.id)).url; } catch { return; } }
+            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+          }}>
             <OpenInNewRoundedIcon fontSize="small" sx={{ mr: 1, color: '#94A3B8' }} /> Открыть в новой вкладке
           </MenuItem>
         )}
-        {menuAnchor?.item.type === 'file' && menuAnchor.item.fileUrl && (
-          <MenuItem onClick={() => {
+        {menuAnchor?.item.type === 'file' && (menuAnchor.item.hasFile ?? !!menuAnchor.item.fileUrl) && (
+          <MenuItem onClick={async () => {
+            const it = menuAnchor!.item; setMenuAnchor(null);
+            let url = it.fileUrl;
+            if (!url) { try { url = (await docsApi.url(it.id)).url; } catch { return; } }
+            if (!url) return;
             const a = document.createElement('a');
-            a.href = menuAnchor.item.fileUrl!;
-            a.download = menuAnchor.item.name;
-            a.click();
-            setMenuAnchor(null);
+            a.href = url; a.download = it.name; a.click();
           }}>
             <DownloadRoundedIcon fontSize="small" sx={{ mr: 1, color: '#94A3B8' }} /> Скачать
           </MenuItem>

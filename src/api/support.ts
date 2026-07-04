@@ -30,8 +30,8 @@ export interface SupportTicketFull extends SupportTicketSummary {
 export const supportApi = {
   list: () => api.get<SupportTicketSummary[]>('/api/support'),
   get: (id: number) => api.get<SupportTicketFull>(`/api/support/${id}`),
-  reply: (id: number, text: string, attachments: string[] = []) =>
-    api.post<SupportTicketFull>(`/api/support/${id}/messages`, { text, attachments }),
+  reply: (id: number, text: string, attachmentKeys: string[] = []) =>
+    api.post<SupportTicketFull>(`/api/support/${id}/messages`, { text, attachmentKeys }),
   setStatus: (id: number, status: 'open' | 'replied' | 'closed') =>
     api.patch<{ ok: true }>(`/api/support/${id}/status`, { status }),
 };

@@ -13,19 +13,19 @@ import { useRef } from 'react';
 import { supportApi, type SupportTicketSummary, type SupportTicketFull } from '../api/support';
 import { API_BASE_URL, getToken } from '../api/apiClient';
 
-async function uploadAttachment(file: File): Promise<string> {
+// ПРИВАТНАЯ загрузка вложения тикета (152-ФЗ) — в приватный бакет, вернуть s3Key.
+async function uploadAttachment(file: File): Promise<{ s3Key: string; name: string }> {
   const fd = new FormData();
   fd.append('file', file);
-  fd.append('type', 'doc');
   const token = getToken();
-  const res = await fetch(`${API_BASE_URL}/api/upload`, {
+  const res = await fetch(`${API_BASE_URL}/api/support/upload`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-  return data.url;
+  return { s3Key: data.s3Key, name: data.name };
 }
 const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(url);
 
@@ -44,7 +44,7 @@ export default function Support() {
   const [open, setOpen] = useState<SupportTicketFull | null>(null);
   const [openLoading, setOpenLoading] = useState(false);
   const [reply, setReply] = useState('');
-  const [replyAtts, setReplyAtts] = useState<string[]>([]);
+  const [replyAtts, setReplyAtts] = useState<{ s3Key: string; name: string }[]>([]);
   const [uploadingAtt, setUploadingAtt] = useState(false);
   const [sending, setSending] = useState(false);
   const attachInputRef = useRef<HTMLInputElement | null>(null);
@@ -55,8 +55,8 @@ export default function Support() {
     if (!file) return;
     setUploadingAtt(true);
     try {
-      const url = await uploadAttachment(file);
-      setReplyAtts(prev => [...prev, url]);
+      const att = await uploadAttachment(file);
+      setReplyAtts(prev => [...prev, att]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить файл');
     } finally {
@@ -85,7 +85,7 @@ export default function Support() {
     if (!reply.trim() && replyAtts.length === 0) return;
     setSending(true);
     try {
-      const updated = await supportApi.reply(open.id, reply.trim(), replyAtts);
+      const updated = await supportApi.reply(open.id, reply.trim(), replyAtts.map(a => a.s3Key));
       setOpen(updated);
       setReply('');
       setReplyAtts([]);
@@ -226,12 +226,9 @@ export default function Support() {
             <Box sx={{ width: '100%' }}>
               {replyAtts.length > 0 && (
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-                  {replyAtts.map((url, i) => (
+                  {replyAtts.map((att, i) => (
                     <Box key={i} sx={{ position: 'relative', display: 'inline-block' }}>
-                      {isImage(url)
-                        ? <Box component="img" src={url} sx={{ maxWidth: 80, maxHeight: 80, borderRadius: 1, border: '1px solid rgba(201,168,76,0.3)' }} />
-                        : <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, background: 'rgba(67,97,238,0.12)', color: '#60A5FA', fontSize: 11 }}>Файл {i + 1}</Box>
-                      }
+                      <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, background: 'rgba(67,97,238,0.12)', color: '#60A5FA', fontSize: 11, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</Box>
                       <IconButton size="small" onClick={() => setReplyAtts(prev => prev.filter((_, idx) => idx !== i))}
                         sx={{ position: 'absolute', top: -8, right: -8, background: 'rgba(0,0,0,0.7)', color: '#fff', width: 18, height: 18, '&:hover': { background: '#EF4444' } }}>
                         <DeleteOutlineRoundedIcon sx={{ fontSize: 12 }} />
