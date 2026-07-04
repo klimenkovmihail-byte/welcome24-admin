@@ -77,6 +77,9 @@ export interface DealsListParams { year?: string; month?: string; q?: string; li
 function dealsQuery(p: DealsListParams = {}, paged = false): string {
   const sp = new URLSearchParams();
   if (paged)                        sp.set('paged', '1');
+  // Админка видит и отменённые (управление/правка/удаление); бэк по умолчанию
+  // теперь их исключает — дашборд агента должен совпадать с рейтингом/отчётами.
+  sp.set('includeCancelled', '1');
   if (p.year && p.year !== 'all')   sp.set('year', p.year);
   if (p.month && p.month !== 'all') sp.set('month', p.month);
   if (p.q && p.q.trim())            sp.set('q', p.q.trim());

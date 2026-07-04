@@ -87,8 +87,6 @@ export default function Shares() {
   const [error, setError] = useState<string | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [priceDialogOpen, setPriceDialogOpen] = useState(false);
-  const [newPrice, setNewPrice] = useState(String(initialSettings.sharePrice));
   const [totalDialogOpen, setTotalDialogOpen] = useState(false);
   const [newTotal, setNewTotal] = useState(String(initialSettings.totalSharesIssued));
   const [filterType, setFilterType] = useState<ShareOperationType | 'all'>('all');
@@ -202,12 +200,6 @@ export default function Shares() {
     }
   };
 
-  const handlePriceSave = () => {
-    const p = parseFloat(newPrice);
-    if (p > 0) setSettings(s => ({ ...s, sharePrice: p }));
-    setPriceDialogOpen(false);
-  };
-
   const totalIssued = useMemo(() => ops.filter(o => o.type === 'issue').reduce((s, o) => s + o.quantity, 0), [ops]);
   const totalBuyback = useMemo(() => ops.filter(o => o.type === 'buyback').reduce((s, o) => s + o.quantity, 0), [ops]);
   const totalMarketCap = settings.sharePrice * settings.totalSharesIssued;
@@ -244,7 +236,10 @@ export default function Shares() {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1.5 }}>
-            <Button variant="outlined" startIcon={<TrendingUpRoundedIcon />} onClick={() => { setNewPrice(String(settings.sharePrice)); setPriceDialogOpen(true); }}
+            {/* Курс реально меняется ТОЛЬКО котировкой (бэк отдаёт последнюю из share_quotes).
+                Раньше тут был диалог, менявший цену лишь в памяти экрана — обманка. */}
+            <Button variant="outlined" startIcon={<TrendingUpRoundedIcon />}
+              onClick={() => { setQuoteForm({ date: todayLocal(), price: String(settings.sharePrice), note: '' }); setQuoteDialogOpen(true); }}
               sx={{ borderColor: 'rgba(201,168,76,0.4)', color: '#C9A84C', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.08)' } }}>
               Изменить курс
             </Button>
@@ -680,38 +675,6 @@ export default function Shares() {
           <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
           <Button variant="contained" onClick={handleOpSave} disabled={!form.quantity || !form.pricePerShare}>
             Провести операцию
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Price dialog */}
-      <Dialog open={priceDialogOpen} onClose={() => setPriceDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ pb: 1 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Изменить курс акции</Typography>
-        </DialogTitle>
-        <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
-        <DialogContent sx={{ pt: 3 }}>
-          <Stack spacing={2}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, borderRadius: 2, background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)' }}>
-              <Typography variant="body2" sx={{ color: '#94A3B8' }}>Текущий курс</Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{fmt(settings.sharePrice)} ₽</Typography>
-            </Box>
-            <TextField
-              fullWidth label="Новый курс (₽)" type="number" value={newPrice}
-              onChange={e => setNewPrice(e.target.value)} size="small"
-              slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }}
-            />
-            {parseFloat(newPrice) > 0 && parseFloat(newPrice) !== settings.sharePrice && (
-              <Alert severity={parseFloat(newPrice) > settings.sharePrice ? 'success' : 'warning'} sx={{ py: 0.5 }}>
-                {parseFloat(newPrice) > settings.sharePrice ? '+' : ''}{(((parseFloat(newPrice) - settings.sharePrice) / settings.sharePrice) * 100).toFixed(1)}% к текущему курсу
-              </Alert>
-            )}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setPriceDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={handlePriceSave} disabled={!parseFloat(newPrice) || parseFloat(newPrice) <= 0}>
-            Установить курс
           </Button>
         </DialogActions>
       </Dialog>

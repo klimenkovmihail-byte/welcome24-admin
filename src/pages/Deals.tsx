@@ -828,7 +828,12 @@ export default function Deals() {
                   <Typography variant="caption" sx={{ color: '#64748B' }}>{deal.city}</Typography>
                 </TableCell>
                 <TableCell>
-                  <Chip label={typeLabels[deal.type] || deal.type} size="small" sx={{ background: 'rgba(67,97,238,0.12)', color: '#60A5FA', fontWeight: 600, fontSize: 11 }} />
+                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Chip label={typeLabels[deal.type] || deal.type} size="small" sx={{ background: 'rgba(67,97,238,0.12)', color: '#60A5FA', fontWeight: 600, fontSize: 11 }} />
+                    {deal.status === 'cancelled' && (
+                      <Chip label="Отменена" size="small" sx={{ background: 'rgba(239,68,68,0.12)', color: '#EF4444', fontWeight: 600, fontSize: 11 }} />
+                    )}
+                  </Box>
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(deal.vkd)} ₽</Typography>

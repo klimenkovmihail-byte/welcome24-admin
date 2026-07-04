@@ -90,6 +90,11 @@ export const settingsApi = {
     api.put<{ ok: true }>(`/api/marketing-plan/${level}`, p as unknown as Record<string, unknown>),
 
   achievements:  () => api.get<RawAch[]>('/api/achievements').then(rows => rows.map(normalizeAch)),
-  updateAch:     (id: string, p: Partial<AchievementDef>) =>
+  // ВАЖНО: бэк принимает ключ `trigger` (маппит в trigger_type); `triggerType`
+  // он молча игнорирует — поэтому тип payload здесь явный, не Partial<AchievementDef>.
+  updateAch: (id: string, p: {
+    title?: string; description?: string; icon?: string;
+    tier?: AchievementDef['tier']; trigger?: string; threshold?: number; active?: boolean;
+  }) =>
     api.patch<{ ok: true }>(`/api/achievements/${id}`, p as unknown as Record<string, unknown>),
 };

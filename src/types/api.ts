@@ -348,7 +348,6 @@ export const API = {
   courseCreate:    'POST   /api/academy/courses',
   courseUpdate:    'PATCH  /api/academy/courses/:id',
   courseDelete:    'DELETE /api/academy/courses/:id',
-  courseProgress:  'GET    /api/academy/courses/:id/progress',
   courseRate:      'POST   /api/academy/courses/:id/rate',
   lessonComplete:  'POST   /api/academy/courses/:cid/lessons/:lid/complete',
 
@@ -364,7 +363,6 @@ export const API = {
   eventUpdate:     'PATCH  /api/academy/events/:id',
   eventDelete:     'DELETE /api/academy/events/:id',
   eventRegister:   'POST   /api/academy/events/:id/register',
-  eventICS:        'GET    /api/academy/events/:id/ics',
 
   // News
   news:            'GET    /api/news',

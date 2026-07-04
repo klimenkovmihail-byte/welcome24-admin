@@ -26,7 +26,7 @@ import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import Sidebar from './Sidebar';
 import PushBanner from '../PushBanner';
 import { syncPushSubscription } from '../../push';
-import { logout, PORTAL_URL } from '../../auth/auth';
+import { logout, getCurrentUser, PORTAL_URL } from '../../auth/auth';
 import { agents, deals } from '../../data/mockData';
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
@@ -261,8 +261,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           >
             <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(201,168,76,0.08)' }}>
               <Typography variant="caption" sx={{ color: '#64748B', display: 'block', fontSize: 11 }}>Вы вошли как</Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Администратор</Typography>
-              <Typography variant="caption" sx={{ color: '#94A3B8', fontSize: 11 }}>admin@w24.agency</Typography>
+              {/* Реальный залогиненный админ — раньше тут был хардкод «Администратор /
+                  admin@w24.agency» для любого вошедшего, включая mk@. */}
+              <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{getCurrentUser()?.name || 'Администратор'}</Typography>
+              <Typography variant="caption" sx={{ color: '#94A3B8', fontSize: 11 }}>{getCurrentUser()?.email || ''}</Typography>
             </Box>
             <MenuItem onClick={() => { setAdminAnchor(null); navigate('/settings'); }} sx={{ py: 1.2 }}>
               <SettingsRoundedIcon sx={{ fontSize: 18, mr: 1.5, color: '#94A3B8' }} />

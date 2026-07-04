@@ -5,6 +5,7 @@ import {
   Switch, FormControlLabel, Alert, Chip, InputAdornment,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, Tooltip,
   Select, MenuItem, FormControl, InputLabel,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
@@ -30,8 +31,22 @@ import { settingsApi } from '../api/settings';
 import { statsApi } from '../api/stats';
 import { backupApi, type BackupItem } from '../api/backup';
 import { CircularProgress } from '@mui/material';
+import { getCurrentUser } from '../auth/auth';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
+
+const TIER_COLOR: Record<AchievementTier, string> = {
+  bronze: '#D97706', silver: '#94A3B8', gold: '#C9A84C', platinum: '#A855F7',
+};
+const TRIGGER_LABEL: Record<AchievementTriggerType, string> = {
+  first_agent_invited: 'Первый рекрут',
+  first_deal:          'Первая сделка',
+  commission_year:     'Комиссия за год',
+  level_reached:       'Уровень достигнут',
+  team_l1_size:        'Размер L1',
+  deals_year:          'Сделок за год',
+  commission_total:    'Общая комиссия',
+};
 
 // Bytes → "12.3 МБ"
 function fmtBytes(n: number): string {
@@ -231,6 +246,36 @@ export default function Settings() {
     settingsApi.updateAch(id, { active: next }).catch(() => { /* tolerate */ });
   };
 
+  // Редактор достижения (раньше — заглушка «появится позже», хотя бэк умел всё).
+  const [achForm, setAchForm] = useState<{ title: string; description: string; icon: string; tier: AchievementTier; trigger: AchievementTriggerType; threshold: string }>({
+    title: '', description: '', icon: '', tier: 'bronze', trigger: 'first_deal', threshold: '0',
+  });
+  const [achSaving, setAchSaving] = useState(false);
+  const openAchEditor = (a: AchievementDef) => {
+    setAchForm({ title: a.title, description: a.description, icon: a.icon, tier: a.tier, trigger: a.trigger, threshold: String(a.threshold) });
+    setEditAch(a);
+  };
+  const handleAchSave = async () => {
+    if (!editAch) return;
+    setAchSaving(true); setError(null);
+    const threshold = Math.max(0, Math.round(Number(achForm.threshold) || 0));
+    try {
+      // Ключ строго `trigger` — бэк маппит его в trigger_type (triggerType игнорирует).
+      await settingsApi.updateAch(editAch.id, {
+        title: achForm.title.trim(), description: achForm.description.trim(),
+        icon: achForm.icon.trim() || '🏆', tier: achForm.tier, trigger: achForm.trigger, threshold,
+      });
+      setAchievements(prev => prev.map(x => x.id === editAch.id
+        ? { ...x, title: achForm.title.trim(), description: achForm.description.trim(), icon: achForm.icon.trim() || '🏆', tier: achForm.tier, trigger: achForm.trigger, threshold }
+        : x));
+      setEditAch(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить достижение');
+    } finally {
+      setAchSaving(false);
+    }
+  };
+
   const commissionProgress = [
     { label: 'Уровень 1 → Уровень 2', threshold: settings.level1Threshold, commission: settings.level2Commission, from: settings.level1Commission, color: '#4361EE' },
     { label: 'Уровень 2 → Уровень 3', threshold: settings.level2Threshold, commission: settings.level3Commission, from: settings.level2Commission, color: '#C9A84C' },
@@ -244,6 +289,11 @@ export default function Settings() {
             Настройки успешно сохранены
           </Alert>
         </motion.div>
+      )}
+      {error && (
+        <Alert severity="error" onClose={() => setError(null)} sx={{ borderRadius: 2.5 }}>
+          {error}
+        </Alert>
       )}
 
       {/* Commission levels */}
@@ -382,20 +432,7 @@ export default function Settings() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {achievements.map(a => {
-                const tierColor: Record<AchievementTier, string> = {
-                  bronze: '#D97706', silver: '#94A3B8', gold: '#C9A84C', platinum: '#A855F7',
-                };
-                const triggerLabel: Record<AchievementTriggerType, string> = {
-                  first_agent_invited: 'Первый рекрут',
-                  first_deal:          'Первая сделка',
-                  commission_year:     'Комиссия за год',
-                  level_reached:       'Уровень достигнут',
-                  team_l1_size:        'Размер L1',
-                  deals_year:          'Сделок за год',
-                  commission_total:    'Общая комиссия',
-                };
-                return (
+              {achievements.map(a => (
                   <TableRow key={a.id}>
                     <TableCell><Typography sx={{ fontSize: 26 }}>{a.icon}</Typography></TableCell>
                     <TableCell>
@@ -403,11 +440,11 @@ export default function Settings() {
                       <Typography variant="caption" sx={{ color: '#64748B' }}>{a.description}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip label={a.tier.toUpperCase()} size="small" sx={{ background: `${tierColor[a.tier]}25`, color: tierColor[a.tier], fontWeight: 800, fontSize: 10 }} />
+                      <Chip label={a.tier.toUpperCase()} size="small" sx={{ background: `${TIER_COLOR[a.tier]}25`, color: TIER_COLOR[a.tier], fontWeight: 800, fontSize: 10 }} />
                     </TableCell>
                     <TableCell>
                       <Typography variant="caption" sx={{ color: '#94A3B8' }}>
-                        {triggerLabel[a.trigger]}: <b style={{ color: '#C9A84C' }}>{a.threshold.toLocaleString('ru-RU')}</b>
+                        {TRIGGER_LABEL[a.trigger] ?? a.trigger}: <b style={{ color: '#C9A84C' }}>{a.threshold.toLocaleString('ru-RU')}</b>
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -415,23 +452,74 @@ export default function Settings() {
                     </TableCell>
                     <TableCell align="center">
                       <Tooltip title="Редактировать ачивку">
-                        <IconButton size="small" onClick={() => setEditAch(a)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+                        <IconButton size="small" onClick={() => openAchEditor(a)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                           <EditRoundedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     </TableCell>
                   </TableRow>
-                );
-              })}
+              ))}
             </TableBody>
           </Table>
         </Box>
-        {editAch && (
-          <Alert severity="info" sx={{ mt: 2, borderRadius: 2 }}>
-            Редактирование параметров ачивки <b>{editAch.title}</b> появится позже. Пока ачивку можно включать/выключать переключателем «Активна».
-            <Button size="small" sx={{ ml: 2 }} onClick={() => setEditAch(null)}>Закрыть</Button>
-          </Alert>
-        )}
+        <Dialog open={!!editAch} onClose={() => !achSaving && setEditAch(null)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ pb: 1 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Редактировать достижение</Typography>
+            <Typography variant="caption" sx={{ color: '#64748B' }}>id: {editAch?.id}</Typography>
+          </DialogTitle>
+          <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
+          <DialogContent sx={{ pt: 3 }}>
+            <Stack spacing={2}>
+              {error && (
+                <Alert severity="error" onClose={() => setError(null)} sx={{ borderRadius: 2 }}>{error}</Alert>
+              )}
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField label="Иконка (эмодзи)" size="small" value={achForm.icon}
+                  onChange={e => setAchForm(f => ({ ...f, icon: e.target.value }))} sx={{ width: 140 }} />
+                <TextField fullWidth label="Название" size="small" value={achForm.title}
+                  onChange={e => setAchForm(f => ({ ...f, title: e.target.value }))} />
+              </Box>
+              <TextField fullWidth multiline minRows={2} label="Описание" size="small" value={achForm.description}
+                onChange={e => setAchForm(f => ({ ...f, description: e.target.value }))} />
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <FormControl size="small" sx={{ minWidth: 140 }}>
+                  <InputLabel>Tier</InputLabel>
+                  <Select label="Tier" value={achForm.tier} onChange={e => setAchForm(f => ({ ...f, tier: e.target.value as AchievementTier }))}>
+                    {(Object.keys(TIER_COLOR) as AchievementTier[]).map(t => (
+                      <MenuItem key={t} value={t}><span style={{ color: TIER_COLOR[t], fontWeight: 700 }}>{t.toUpperCase()}</span></MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 220, flex: 1 }}>
+                  <InputLabel>Условие (триггер)</InputLabel>
+                  <Select label="Условие (триггер)" value={achForm.trigger} onChange={e => setAchForm(f => ({ ...f, trigger: e.target.value as AchievementTriggerType }))}>
+                    {(Object.entries(TRIGGER_LABEL) as [AchievementTriggerType, string][]).map(([k, label]) => (
+                      <MenuItem key={k} value={k}>{label}</MenuItem>
+                    ))}
+                    {/* Нестандартный триггер из БД (бэк принимает произвольную строку) —
+                        показываем как есть, чтобы Select не «пустел» и значение не терялось. */}
+                    {!TRIGGER_LABEL[achForm.trigger] && (
+                      <MenuItem value={achForm.trigger}>{achForm.trigger}</MenuItem>
+                    )}
+                  </Select>
+                </FormControl>
+                <TextField label="Порог" size="small" type="number" value={achForm.threshold}
+                  onChange={e => setAchForm(f => ({ ...f, threshold: e.target.value }))} sx={{ width: 160 }} />
+              </Box>
+              <Alert severity="warning" sx={{ borderRadius: 2 }}>
+                Порог и триггер применяются сразу: бейджи агентов пересчитываются живьём.
+                Повышение порога может убрать уже показанные достижения у агентов.
+              </Alert>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3 }}>
+            <Button onClick={() => setEditAch(null)} disabled={achSaving} sx={{ color: '#64748B' }}>Отмена</Button>
+            <Button variant="contained" onClick={handleAchSave}
+              disabled={achSaving || !achForm.title.trim() || achForm.threshold.trim() === '' || Number.isNaN(Number(achForm.threshold))}>
+              {achSaving ? 'Сохранение…' : 'Сохранить'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Section>
 
       {/* Share settings */}
@@ -480,17 +568,34 @@ export default function Settings() {
         <BackupsBlock />
       </Section>
 
-      {/* Security */}
-      <Section title="Безопасность" subtitle="Параметры доступа к административной панели" icon={<SecurityRoundedIcon />} delay={0.25}>
-        <Stack spacing={2.5}>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <TextField fullWidth size="small" label="Email администратора" defaultValue="admin@w24.agency" />
-            <TextField fullWidth size="small" label="Имя администратора" defaultValue="Администратор" />
-          </Box>
-          <Alert severity="info" sx={{ borderRadius: 2.5 }}>
-            Смена пароля и настройки 2FA доступны через ссылку на email администратора
-          </Alert>
-        </Stack>
+      {/* Security — честная карточка текущего аккаунта. Раньше тут были поля
+          «email/имя администратора», которые никуда не сохранялись (обманка),
+          и Alert про несуществующую 2FA. Имя/email админ-аккаунта правятся в
+          карточке сотрудника (Агенты ↔ Сотрудники), пароль — через сброс там же. */}
+      <Section title="Безопасность" subtitle="Текущий аккаунт административной панели" icon={<SecurityRoundedIcon />} delay={0.25}>
+        {(() => {
+          const me = getCurrentUser();
+          const roleLabel: Record<string, string> = {
+            super_admin: 'Супер-админ', admin: 'Администратор', manager: 'Менеджер',
+          };
+          return (
+            <Box sx={{ p: 2, borderRadius: 2.5, background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.1)', display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>Вы вошли как</Typography>
+                <Typography variant="body1" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{me?.name || '—'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>Email</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: '#94A3B8' }}>{me?.email || '—'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>Роль</Typography>
+                <Chip label={roleLabel[me?.role || ''] || me?.role || '—'} size="small"
+                  sx={{ background: 'rgba(201,168,76,0.12)', color: '#C9A84C', fontWeight: 700 }} />
+              </Box>
+            </Box>
+          );
+        })()}
       </Section>
 
       {/* Save button */}
