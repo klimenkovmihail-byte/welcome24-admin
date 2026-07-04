@@ -9,7 +9,7 @@
 import { api } from './apiClient';
 import type {
   AdminCourse, AdminLesson, AdminWebinar, AdminEvent,
-  AdminEventFormat, AcademyCategoryName, WebinarTopicName,
+  AdminEventFormat, AcademyCategoryName, WebinarTopicName, CourseAttachment,
 } from '../data/mockData';
 
 // ============== WEBINARS ==============
@@ -120,6 +120,8 @@ type RawLesson = {
   title: string;
   duration: string;
   video_url: string;
+  content?: string;
+  attachments?: CourseAttachment[];
   order_idx: number;
 };
 
@@ -146,6 +148,11 @@ function normalizeLesson(raw: RawLesson): AdminLesson {
     title: raw.title,
     duration: raw.duration || '',
     videoUrl: raw.video_url || '',
+    // ВАЖНО: content и attachments обязаны переноситься при загрузке. Иначе saveCourse
+    // (DELETE+reinsert уроков на бэке) перезапишет их пустыми — тихая порча учебных
+    // материалов у всех агентов при любом редактировании курса.
+    content: raw.content || '',
+    attachments: raw.attachments || [],
   };
 }
 
@@ -175,7 +182,7 @@ export interface CoursePayload {
   duration?: string;
   authorName?: string;
   published?: boolean;
-  lessons?: Array<{ title: string; duration?: string; videoUrl?: string }>;
+  lessons?: Array<{ title: string; duration?: string; videoUrl?: string; content?: string; attachments?: CourseAttachment[] }>;
 }
 
 export const academyApi = {
