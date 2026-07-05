@@ -16,7 +16,7 @@ export interface SupportMessage {
   id: number;
   ticket_id: number;
   author_id: number;
-  author_role: 'agent' | 'admin';
+  author_role: 'agent' | 'admin' | 'super_admin';
   author_name: string;
   text: string;
   attachments: string[];

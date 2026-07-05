@@ -1,7 +1,9 @@
-import { Box, Typography, Tooltip } from '@mui/material';
+import { useState } from 'react';
+import { Box, Typography, Tooltip, useMediaQuery, useTheme } from '@mui/material';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { STATUS_RU, type TaskTrack } from '../api/cases';
+import ConfirmDialog from './ConfirmDialog';
 
 // Линейные «дорожки» этапов (как колонки Trello). Терминальные «отказные»
 // статусы вынесены отдельной кнопкой, чтобы не ломать линейность.
@@ -19,12 +21,17 @@ const CANCEL_STATUS: Record<TaskTrack, string> = {
 export default function CaseStatusStepper({
   track, status, onChange,
 }: { track: TaskTrack; status: string; onChange: (s: string) => void }) {
+  const theme = useTheme();
+  const isXs = useMediaQuery(theme.breakpoints.down('sm'));
   const flow = FLOW[track];
   const cancelStatus = CANCEL_STATUS[track];
   const isCancelled = status === cancelStatus || status === 'cancelled';
   const currentIdx = flow.indexOf(status);
+  // Перевод в терминальный «отказной» статус (Отменена/Отказ) — через подтверждение.
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   return (
+    <>
     <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 0.5, flexWrap: 'wrap' }}>
       {flow.map((s, i) => {
         const done = !isCancelled && currentIdx > i;
@@ -68,7 +75,7 @@ export default function CaseStatusStepper({
       })}
       <Tooltip title={isCancelled ? STATUS_RU[status] : `Отметить: ${STATUS_RU[cancelStatus]}`}>
         <Box
-          onClick={() => onChange(cancelStatus)}
+          onClick={() => { if (!isCancelled) setConfirmCancel(true); }}
           sx={{
             px: 1, py: 0.8, borderRadius: 1.5, cursor: 'pointer',
             background: isCancelled ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.03)',
@@ -84,5 +91,23 @@ export default function CaseStatusStepper({
         </Box>
       </Tooltip>
     </Box>
+    {/* Подсказка для тач-экранов: тултипы этапов на телефоне не всплывают. */}
+    {isXs && (
+      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#475569', fontSize: 10.5 }}>
+        Тап по этапу — перевести задачу.
+      </Typography>
+    )}
+    <ConfirmDialog
+      open={confirmCancel}
+      title={`Перевести в «${STATUS_RU[cancelStatus]}»?`}
+      text={track === 'legal'
+        ? 'Задача будет помечена как отменённая. Дальнейшая работа по ней прекращается.'
+        : 'Заявка будет помечена как отказ по ипотеке. Дальнейшая работа по ней прекращается.'}
+      confirmLabel={STATUS_RU[cancelStatus]}
+      danger
+      onConfirm={() => { setConfirmCancel(false); onChange(cancelStatus); }}
+      onClose={() => setConfirmCancel(false)}
+    />
+    </>
   );
 }

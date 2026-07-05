@@ -36,6 +36,7 @@ import MovieRoundedIcon from '@mui/icons-material/MovieRounded';
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
 import { docsApi, type DocItem, type Breadcrumb } from '../api/docs';
 import { getToken, API_BASE_URL, ApiError } from '../api/apiClient';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 // Иконка по mime/имени
 function fileIcon(item: DocItem) {
@@ -63,17 +64,24 @@ export default function Docs() {
   const [rootFolders, setRootFolders] = useState<DocItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  // Прогресс пакетной загрузки: {done, total}. null — загрузки нет либо файл один.
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Поиск
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<DocItem[] | null>(null);
+  // Путь к родительской папке результата поиска: parentId → «Папка / Подпапка».
+  // Резолвим через breadcrumbs (в результатах поиска есть только parentId, но не имя).
+  const [folderPaths, setFolderPaths] = useState<Record<number, string>>({});
 
   // Диалоги
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [renameFor, setRenameFor] = useState<DocItem | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [deleteFor, setDeleteFor] = useState<DocItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; item: DocItem } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -107,6 +115,33 @@ export default function Docs() {
     return () => clearTimeout(h);
   }, [search]);
 
+  // Подтягиваем путь к папке для результатов поиска (по уникальным parentId, один раз на папку).
+  useEffect(() => {
+    if (!searchResults) return;
+    let cancelled = false;
+    const need = Array.from(new Set(
+      searchResults.map(r => r.parentId).filter((id): id is number => id != null && folderPaths[id] === undefined),
+    ));
+    if (need.length === 0) return;
+    (async () => {
+      const entries = await Promise.all(need.map(async id => {
+        try {
+          const crumbs = await docsApi.breadcrumbs(id);
+          return [id, crumbs.map(c => c.name).join(' / ')] as const;
+        } catch {
+          return [id, ''] as const;
+        }
+      }));
+      if (cancelled) return;
+      setFolderPaths(prev => {
+        const next = { ...prev };
+        for (const [id, path] of entries) next[id] = path;
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [searchResults, folderPaths]);
+
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
     try {
@@ -122,31 +157,52 @@ export default function Docs() {
   const handleFilePick = () => fileInputRef.current?.click();
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     e.target.value = '';
     setError(null);
-    const sizeMb = file.size / (1024 * 1024);
     const MAX_MB = 50;
-    if (sizeMb > MAX_MB) {
-      setError(`Файл «${file.name}» весит ${sizeMb.toFixed(1)} МБ — лимит ${MAX_MB} МБ. Сожми PDF (например через ilovepdf.com) или разбей на части.`);
+
+    // Крупные файлы отсеиваем до загрузки — грузим только уложившиеся в лимит.
+    const tooBig = files.filter(f => f.size / (1024 * 1024) > MAX_MB);
+    const toUpload = files.filter(f => f.size / (1024 * 1024) <= MAX_MB);
+    const errors: string[] = tooBig.map(f => `«${f.name}» — ${(f.size / (1024 * 1024)).toFixed(1)} МБ, лимит ${MAX_MB} МБ`);
+
+    if (toUpload.length === 0) {
+      setError(`Файлы больше лимита не загружены: ${errors.join('; ')}. Сожмите PDF (например через ilovepdf.com) или разбейте на части.`);
       return;
     }
+
     setUploading(true);
+    // Счётчик «N из M» показываем только при пакетной загрузке (>1 файла).
+    setUploadProgress(toUpload.length > 1 ? { done: 0, total: toUpload.length } : null);
+    let networkFailed = false;
     try {
-      // ПРИВАТНАЯ загрузка в приватный бакет welcome24-docs (152-ФЗ) — одним запросом.
-      await docsApi.uploadFile(currentFolderId, file);
-      reloadCurrent();
-    } catch (err) {
-      // «Failed to fetch» — обычно сеть/тайм-аут на больших файлах.
-      const msg = err instanceof Error ? err.message : 'Не удалось загрузить файл';
-      if (/failed to fetch|network/i.test(msg)) {
-        setError(`Не удалось отправить файл на сервер. Возможные причины: файл больше ${MAX_MB} МБ, медленный интернет, или сервер сейчас перезапускается. Попробуй через минуту.`);
-      } else {
-        setError(msg);
+      for (let i = 0; i < toUpload.length; i++) {
+        const file = toUpload[i];
+        try {
+          // ПРИВАТНАЯ загрузка в приватный бакет welcome24-docs (152-ФЗ) — по одному запросу на файл.
+          await docsApi.uploadFile(currentFolderId, file);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Не удалось загрузить файл';
+          if (/failed to fetch|network/i.test(msg)) networkFailed = true;
+          errors.push(`«${file.name}» — ${msg}`);
+        } finally {
+          if (toUpload.length > 1) setUploadProgress({ done: i + 1, total: toUpload.length });
+        }
       }
+      reloadCurrent();
     } finally {
       setUploading(false);
+      setUploadProgress(null);
+    }
+
+    if (errors.length) {
+      // «Failed to fetch» — обычно сеть/тайм-аут на больших файлах.
+      const tail = networkFailed
+        ? ' Возможные причины: медленный интернет или сервер сейчас перезапускается. Попробуйте через минуту.'
+        : '';
+      setError(`Не удалось загрузить: ${errors.join('; ')}.${tail}`);
     }
   };
 
@@ -161,16 +217,17 @@ export default function Docs() {
     }
   };
 
-  const handleDelete = async (item: DocItem) => {
-    const msg = item.type === 'folder'
-      ? `Удалить папку «${item.name}» со всем содержимым? Действие необратимо.`
-      : `Удалить файл «${item.name}»?`;
-    if (!confirm(msg)) return;
+  const confirmDelete = async () => {
+    if (!deleteFor) return;
+    setDeleting(true);
     try {
-      await docsApi.remove(item.id);
+      await docsApi.remove(deleteFor.id);
+      setDeleteFor(null);
       reloadCurrent();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось удалить');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -181,11 +238,21 @@ export default function Docs() {
       return;
     }
     // Приватный файл (fileUrl пустой) — берём presigned-ссылку; legacy-публичный — открываем напрямую.
-    let url = item.fileUrl;
-    if (!url && item.hasFile) {
-      try { url = (await docsApi.url(item.id)).url; } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось открыть файл'); return; }
+    // Safari на iPhone блокирует window.open ПОСЛЕ await — открываем окно синхронно, потом подставляем URL.
+    if (item.fileUrl) {
+      window.open(item.fileUrl, '_blank', 'noopener,noreferrer');
+      return;
     }
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (item.hasFile) {
+      const w = window.open('', '_blank', 'noopener,noreferrer');
+      try {
+        const { url } = await docsApi.url(item.id);
+        if (w) w.location.href = url;
+      } catch (e) {
+        if (w) w.close();
+        setError(e instanceof Error ? e.message : 'Не удалось открыть файл');
+      }
+    }
   };
 
   const visibleItems = searchResults !== null ? searchResults : items;
@@ -195,11 +262,11 @@ export default function Docs() {
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <Box sx={{ flex: 1, minWidth: 200 }}>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>База данных</Typography>
+          <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>База документов</Typography>
           <Typography variant="caption" sx={{ color: '#64748B' }}>Документы, регламенты, шаблоны</Typography>
         </Box>
         <TextField
-          placeholder="Поиск по всем документам…"
+          placeholder="Поиск по документам (от 2 символов)…"
           value={search} onChange={e => setSearch(e.target.value)}
           size="small" sx={{ flex: '0 1 320px' }}
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ color: '#64748B', fontSize: 20 }} /></InputAdornment> } }}
@@ -208,9 +275,11 @@ export default function Docs() {
           Новая папка
         </Button>
         <Button startIcon={<UploadFileRoundedIcon />} variant="contained" onClick={handleFilePick} disabled={uploading}>
-          {uploading ? 'Загрузка…' : 'Загрузить файл'}
+          {uploading
+            ? (uploadProgress ? `Загрузка ${uploadProgress.done} из ${uploadProgress.total}…` : 'Загрузка…')
+            : 'Загрузить файлы'}
         </Button>
-        <input type="file" ref={fileInputRef} onChange={handleFileSelected} style={{ display: 'none' }} />
+        <input type="file" multiple ref={fileInputRef} onChange={handleFileSelected} style={{ display: 'none' }} />
       </Box>
 
       {uploading && <LinearProgress sx={{ mb: 2 }} />}
@@ -299,7 +368,7 @@ export default function Docs() {
             <Box sx={{ textAlign: 'center', py: 6, color: '#64748B' }}>
               <FolderOpenRoundedIcon sx={{ fontSize: 48, color: '#334155', mb: 1 }} />
               <Typography variant="body2">
-                {searchResults !== null ? 'Ничего не найдено' : 'Папка пуста. Создай папку или загрузи файл.'}
+                {searchResults !== null ? 'Ничего не найдено' : 'Папка пуста. Создайте папку или загрузите файл.'}
               </Typography>
             </Box>
           ) : (
@@ -322,7 +391,7 @@ export default function Docs() {
                       <IconButton
                         size="small"
                         onClick={(e) => { e.stopPropagation(); setMenuAnchor({ el: e.currentTarget, item }); }}
-                        sx={{ position: 'absolute', top: 4, right: 4, color: '#475569', '&:hover': { color: '#F1F5F9', background: 'rgba(255,255,255,0.06)' } }}
+                        sx={{ position: 'absolute', top: 4, right: 4, color: '#475569', p: { xs: 1, sm: 0.5 }, '&:hover': { color: '#F1F5F9', background: 'rgba(255,255,255,0.06)' } }}
                       >
                         <MoreVertRoundedIcon fontSize="small" />
                       </IconButton>
@@ -332,6 +401,14 @@ export default function Docs() {
                       <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {item.name}
                       </Typography>
+                      {searchResults !== null && (
+                        <Typography variant="caption" title={item.parentId != null ? (folderPaths[item.parentId] || '') : 'Все документы'}
+                          sx={{ color: '#475569', textAlign: 'center', display: 'block', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.parentId != null
+                            ? (folderPaths[item.parentId] === undefined ? '…' : (folderPaths[item.parentId] || 'Все документы'))
+                            : 'Все документы'}
+                        </Typography>
+                      )}
                       <Typography variant="caption" sx={{ color: '#64748B', textAlign: 'center', display: 'block', fontSize: 10 }}>
                         {isFolder ? 'папка' : fmtSize(item.fileSize) || 'файл'}
                       </Typography>
@@ -349,9 +426,16 @@ export default function Docs() {
         {menuAnchor?.item.type === 'file' && (menuAnchor.item.hasFile ?? !!menuAnchor.item.fileUrl) && (
           <MenuItem onClick={async () => {
             const it = menuAnchor!.item; setMenuAnchor(null);
-            let url = it.fileUrl;
-            if (!url) { try { url = (await docsApi.url(it.id)).url; } catch { return; } }
-            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+            // Safari (iPhone): окно нужно открыть синхронно, до await presigned-ссылки.
+            if (it.fileUrl) { window.open(it.fileUrl, '_blank', 'noopener,noreferrer'); return; }
+            const w = window.open('', '_blank', 'noopener,noreferrer');
+            try {
+              const { url } = await docsApi.url(it.id);
+              if (w) w.location.href = url;
+            } catch (e) {
+              if (w) w.close();
+              setError(e instanceof Error ? e.message : 'Не удалось открыть файл');
+            }
           }}>
             <OpenInNewRoundedIcon fontSize="small" sx={{ mr: 1, color: '#94A3B8' }} /> Открыть в новой вкладке
           </MenuItem>
@@ -376,7 +460,7 @@ export default function Docs() {
         }}>
           <DriveFileRenameOutlineRoundedIcon fontSize="small" sx={{ mr: 1, color: '#94A3B8' }} /> Переименовать
         </MenuItem>
-        <MenuItem onClick={() => { if (menuAnchor) { handleDelete(menuAnchor.item); setMenuAnchor(null); } }}
+        <MenuItem onClick={() => { if (menuAnchor) { setDeleteFor(menuAnchor.item); setMenuAnchor(null); } }}
           sx={{ color: '#EF4444' }}>
           <DeleteRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Удалить
         </MenuItem>
@@ -421,6 +505,22 @@ export default function Docs() {
           <Button variant="contained" onClick={handleRename} disabled={!renameValue.trim()}>Сохранить</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Подтверждение удаления */}
+      <ConfirmDialog
+        open={!!deleteFor}
+        title={deleteFor?.type === 'folder' ? 'Удалить папку?' : 'Удалить файл?'}
+        text={deleteFor?.type === 'folder'
+          ? <>Папка «{deleteFor.name}» будет удалена вместе со всем содержимым. Действие необратимо.</>
+          : deleteFor
+            ? <>Файл «{deleteFor.name}» будет удалён. Действие необратимо.</>
+            : ''}
+        confirmLabel="Удалить"
+        danger
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => { if (!deleting) setDeleteFor(null); }}
+      />
     </Box>
   );
 }

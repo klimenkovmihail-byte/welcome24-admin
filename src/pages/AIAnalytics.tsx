@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import {
-  Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem,
+  Box, Typography, Paper, CircularProgress, LinearProgress, Select, MenuItem,
   Table, TableHead, TableBody, TableRow, TableCell, FormControl, InputLabel,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { aiAnalyticsApi, type AiAnalyticsResponse } from '../api/aiAnalytics';
+import { ErrorState } from '../components/States';
+import { formatDate } from '../utils/format';
 
 const fmt = (n: number) => (n || 0).toLocaleString('ru-RU');
+// ISO 'YYYY-MM-DD' → «ДД.ММ» (без года) для компактной подписи периода.
+const dm = (iso?: string | null): string => { const p = String(iso || '').split('-'); return p.length === 3 ? `${p[2]}.${p[1]}` : (iso || ''); };
 
 const TOOL_LABELS: Record<string, string> = {
   listing: 'Описание объекта',
@@ -25,6 +29,7 @@ export default function AIAnalytics() {
   const [data, setData] = useState<AiAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,14 +40,14 @@ export default function AIAnalytics() {
       .catch(e => { if (!cancelled) setError(e?.message || 'Ошибка загрузки'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [days]);
+  }, [days, reloadKey]);
 
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
-  if (error) return <Alert severity="error">{error}</Alert>;
+  if (loading && !data) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
+  if (error && !data) return <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />;
   if (!data) return null;
 
   const chartData = data.byDay.map(d => ({
-    day: d.day.slice(5),    // 'MM-DD'
+    day: dm(d.day),         // 'ДД.ММ'
     requests: d.requests,
     tokens: Math.round(d.tokens / 1000), // тыс токенов
   }));
@@ -53,7 +58,7 @@ export default function AIAnalytics() {
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>Аналитика AI</Typography>
           <Typography variant="caption" sx={{ color: '#64748B' }}>
-            Использование AI-инструментов агентами · период {data.from} — {data.to}
+            Использование AI-инструментов агентами · период {dm(data.from)} — {formatDate(data.to)}
           </Typography>
         </Box>
         <FormControl size="small" sx={{ minWidth: 140 }}>
@@ -68,12 +73,17 @@ export default function AIAnalytics() {
         </FormControl>
       </Box>
 
+      {loading && <LinearProgress sx={{ mb: 3, borderRadius: 1, '& .MuiLinearProgress-bar': { background: '#C9A84C' }, background: 'rgba(201,168,76,0.12)' }} />}
+      {error && <Box sx={{ mb: 3 }}><ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} /></Box>}
+
+      <Box sx={{ opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : 'auto' }}>
+
       {/* KPI cards */}
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, mb: 3 }}>
         <KpiCard label="Всего запросов" value={fmt(data.totals.requests)} color="#C9A84C" delay={0} />
         <KpiCard label="Активных агентов" value={fmt(data.totals.active_agents)} color="#4361EE" delay={0.05} />
         <KpiCard label="Токенов" value={fmt(data.totals.tokens)} color="#22C55E" delay={0.1} />
-        <KpiCard label="Прибл. стоимость" value={`$${data.totals.cost_usd.toFixed(2)}`} color="#F59E0B" delay={0.15} />
+        <KpiCard label="≈ Стоимость, $" value={`$${data.totals.cost_usd.toFixed(2)}`} color="#F59E0B" delay={0.15} />
       </Box>
 
       {/* График по дням */}
@@ -121,7 +131,7 @@ export default function AIAnalytics() {
                     <TableCell sx={{ color: '#64748B !important', fontSize: 11 }}>Инструмент</TableCell>
                     <TableCell align="right" sx={{ color: '#64748B !important', fontSize: 11 }}>Запросов</TableCell>
                     <TableCell align="right" sx={{ color: '#64748B !important', fontSize: 11 }}>Токенов</TableCell>
-                    <TableCell align="right" sx={{ color: '#64748B !important', fontSize: 11 }}>Прибл. $</TableCell>
+                    <TableCell align="right" sx={{ color: '#64748B !important', fontSize: 11 }}>≈ $</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -165,6 +175,7 @@ export default function AIAnalytics() {
             </Table>
           )}
         </Paper>
+      </Box>
       </Box>
     </Box>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, IconButton, Typography, CircularProgress, Collapse } from '@mui/material';
+import { Box, Button, IconButton, Typography, CircularProgress, Collapse, Snackbar, Alert } from '@mui/material';
 import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { getPushState, enablePush } from '../push';
@@ -11,6 +11,7 @@ const DISMISS_KEY = 'w24_admin_push_dismissed';
 export default function PushBanner() {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [snack, setSnack] = useState<string | null>(null);
 
   useEffect(() => {
     if (localStorage.getItem(DISMISS_KEY)) return;
@@ -27,11 +28,19 @@ export default function PushBanner() {
     setBusy(true);
     const state = await enablePush().catch(() => 'default' as const);
     setBusy(false);
-    if (state === 'subscribed') localStorage.setItem(DISMISS_KEY, '1');
-    setShow(false);
+    if (state === 'subscribed') {
+      localStorage.setItem(DISMISS_KEY, '1');
+      setShow(false);
+      return;
+    }
+    // denied — разрешение заблокировано; остальное (отмена/ошибка/сервер) — общая причина.
+    setSnack(state === 'denied'
+      ? 'Не удалось включить: уведомления заблокированы в настройках браузера'
+      : 'Не удалось включить уведомления. Попробуйте ещё раз.');
   };
 
   return (
+    <>
     <Collapse in={show}>
       <Box sx={{
         mb: 3, p: 2, borderRadius: 3, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap',
@@ -58,5 +67,16 @@ export default function PushBanner() {
         </Box>
       </Box>
     </Collapse>
+    <Snackbar
+      open={!!snack}
+      autoHideDuration={6000}
+      onClose={() => setSnack(null)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+    >
+      <Alert severity="warning" variant="filled" onClose={() => setSnack(null)} sx={{ width: '100%' }}>
+        {snack}
+      </Alert>
+    </Snackbar>
+    </>
   );
 }

@@ -12,6 +12,9 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import { useRef } from 'react';
 import { supportApi, type SupportTicketSummary, type SupportTicketFull } from '../api/support';
 import { API_BASE_URL, getToken } from '../api/apiClient';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
+import { formatDateTime, plural } from '../utils/format';
 
 // ПРИВАТНАЯ загрузка вложения тикета (152-ФЗ) — в приватный бакет, вернуть s3Key.
 async function uploadAttachment(file: File): Promise<{ s3Key: string; name: string }> {
@@ -28,6 +31,15 @@ async function uploadAttachment(file: File): Promise<{ s3Key: string; name: stri
   return { s3Key: data.s3Key, name: data.name };
 }
 const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(url);
+// Имя файла из URL вложения: отрезаем query (подписанные ссылки) и раскодируем %XX.
+const fileNameFromUrl = (url: string): string => {
+  try {
+    const last = url.split('?')[0].split('/').pop() || '';
+    return decodeURIComponent(last);
+  } catch {
+    return '';
+  }
+};
 
 const STATUS_CFG: Record<SupportTicketSummary['status'], { label: string; color: string; bg: string }> = {
   open:    { label: 'Открыт',    color: '#F59E0B', bg: 'rgba(245,158,11,0.15)' },
@@ -35,7 +47,7 @@ const STATUS_CFG: Record<SupportTicketSummary['status'], { label: string; color:
   closed:  { label: 'Закрыт',    color: '#22C55E', bg: 'rgba(34,197,94,0.15)' },
 };
 
-const fmtDate = (s?: string | null) => s ? new Date(s.replace(' ', 'T') + 'Z').toLocaleString('ru-RU') : '—';
+const fmtDate = (s?: string | null) => formatDateTime(s) || '—';
 
 export default function Support() {
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
@@ -47,7 +59,10 @@ export default function Support() {
   const [replyAtts, setReplyAtts] = useState<{ s3Key: string; name: string }[]>([]);
   const [uploadingAtt, setUploadingAtt] = useState(false);
   const [sending, setSending] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
   const attachInputRef = useRef<HTMLInputElement | null>(null);
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
 
   const handleAttachPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -97,11 +112,20 @@ export default function Support() {
     }
   };
 
-  const close = async () => {
-    if (!open) return;
-    await supportApi.setStatus(open.id, 'closed');
-    setOpen({ ...open, status: 'closed' });
-    load();
+  const setStatus = async (status: 'open' | 'closed'): Promise<boolean> => {
+    if (!open) return false;
+    setStatusBusy(true);
+    try {
+      await supportApi.setStatus(open.id, status);
+      setOpen({ ...open, status });
+      load();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось изменить статус тикета');
+      return false;
+    } finally {
+      setStatusBusy(false);
+    }
   };
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>;
@@ -114,7 +138,8 @@ export default function Support() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
+      {/* Таблица — на планшете+; на телефоне переключаемся на карточный вид (см. ниже) */}
+      <TableContainer component={Paper} sx={{ display: { xs: 'none', sm: 'block' }, borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -156,7 +181,38 @@ export default function Support() {
         )}
       </TableContainer>
 
-      <Dialog open={!!open} onClose={() => setOpen(null)} maxWidth="md" fullWidth>
+      {/* Карточный вид — только на телефоне (таблица из 5 колонок не влезает в 375px) */}
+      <Stack spacing={1.5} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+        {tickets.length === 0 ? (
+          <Box sx={{ py: 6, textAlign: 'center' }}>
+            <Typography sx={{ color: '#64748B' }}>Запросов в поддержку пока нет</Typography>
+          </Box>
+        ) : tickets.map(t => {
+          const cfg = STATUS_CFG[t.status];
+          return (
+            <Box key={t.id} onClick={() => openTicket(t.id)}
+              sx={{ p: 2, borderRadius: 3, cursor: 'pointer', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(201,168,76,0.1)', '&:active': { background: 'rgba(255,255,255,0.04)' } }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9', minWidth: 0, overflowWrap: 'anywhere' }}>{t.subject}</Typography>
+                <Chip label={cfg.label} size="small" sx={{ flexShrink: 0, background: cfg.bg, color: cfg.color, fontWeight: 700 }} />
+              </Box>
+              {t.last_message && (
+                <Typography variant="caption" sx={{ color: '#64748B', mt: 0.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                  {t.last_message}
+                </Typography>
+              )}
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center', mt: 1 }}>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>{t.agent_name}</Typography>
+                <Typography variant="caption" sx={{ color: '#475569' }}>· {t.messages_count}&nbsp;{plural(t.messages_count, 'сообщение', 'сообщения', 'сообщений')}</Typography>
+                <Typography variant="caption" sx={{ color: '#475569', ml: 'auto' }}>{fmtDate(t.updated_at)}</Typography>
+              </Box>
+            </Box>
+          );
+        })}
+      </Stack>
+
+      <Dialog open={!!open} onClose={() => setOpen(null)} maxWidth="md" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Box>
             <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>{open?.subject}</Typography>
@@ -174,7 +230,7 @@ export default function Support() {
           ) : open && (
             <Stack spacing={1.5}>
               {open.messages.map(m => {
-                const isAdmin = m.author_role === 'admin';
+                const isAdmin = ['admin', 'super_admin'].includes(m.author_role);
                 return (
                   <Box key={m.id} sx={{
                     p: 2, borderRadius: 2,
@@ -206,9 +262,11 @@ export default function Support() {
                               </Box>
                             ) : (
                               <Box key={i} component="a" href={url} target="_blank" rel="noopener"
-                                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderRadius: 1, background: 'rgba(67,97,238,0.12)', color: '#60A5FA', textDecoration: 'none', fontSize: 12 }}>
-                                <AttachFileRoundedIcon sx={{ fontSize: 14 }} />
-                                Файл {i + 1}
+                                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderRadius: 1, background: 'rgba(67,97,238,0.12)', color: '#60A5FA', textDecoration: 'none', fontSize: 12, maxWidth: 200, overflow: 'hidden' }}>
+                                <AttachFileRoundedIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+                                <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {fileNameFromUrl(url) || `Файл ${i + 1}`}
+                                </Box>
                               </Box>
                             )
                           ))}
@@ -257,12 +315,24 @@ export default function Support() {
           )}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
             <Button onClick={() => setOpen(null)} sx={{ color: '#64748B' }}>Закрыть окно</Button>
-            {open && open.status !== 'closed' && (
-              <Button onClick={close} sx={{ color: '#94A3B8' }}>Пометить «Закрыт»</Button>
+            {open && open.status !== 'closed' ? (
+              <Button onClick={() => setConfirmClose(true)} disabled={statusBusy} sx={{ color: '#94A3B8' }}>Пометить «Закрыт»</Button>
+            ) : open && (
+              <Button onClick={() => setStatus('open')} disabled={statusBusy} sx={{ color: '#94A3B8' }}>Переоткрыть</Button>
             )}
           </Box>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmClose}
+        title="Закрыть тикет?"
+        text="Агент больше не сможет ответить в нём."
+        confirmLabel="Закрыть тикет"
+        loading={statusBusy}
+        onConfirm={async () => { if (await setStatus('closed')) setConfirmClose(false); }}
+        onClose={() => setConfirmClose(false)}
+      />
     </Box>
   );
 }

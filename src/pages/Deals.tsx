@@ -16,26 +16,49 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
+import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import Checkbox from '@mui/material/Checkbox';
 import type { Deal, Agent } from '../types';
+import type { Role } from '../auth/roles';
 import { dealsApi } from '../api/deals';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { useAgents } from '../hooks/useAgents';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 import { api, API_BASE_URL, getToken } from '../api/apiClient';
 import { getCurrentUser } from '../auth/auth';
+import { plural, formatDate, formatRub } from '../utils/format';
 
 const typeLabels: Record<string, string> = {
   primary: 'Первичка', secondary: 'Вторичка', commercial: 'Коммерция', suburban: 'Загородная', rent: 'Аренда',
 };
 
+// role приходит из бэка (см. normalizeAgent), но в тип Agent не входит — расширяем локально.
+type AgentWithRole = Agent & { role?: Role };
+
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
-function pluralDeals(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return 'сделка';
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'сделки';
-  return 'сделок';
-}
+// Минимальный год данных — единый источник для фильтра списка и диалога пересчёта.
+const MIN_DEAL_YEAR = 2022;
+
+const dealsWord = (n: number) => plural(n, 'сделка', 'сделки', 'сделок');
+
+// Липкая первая колонка «Агент» — на узком экране таблица скроллится вбок,
+// а имя агента остаётся на месте. Фон под тёмную тему перекрывает уезжающий контент.
+const stickyAgentCell = {
+  position: 'sticky' as const,
+  left: 0,
+  zIndex: 1,
+  bgcolor: 'background.paper',
+};
+
+// Тап-таргет иконок-действий: на телефоне зона нажатия ≥40px (визуал иконки прежний).
+// Отрицательный margin компенсирует паддинг, чтобы строка не подросла по высоте.
+const actionTapTarget = {
+  color: '#64748B',
+  minWidth: { xs: 40, sm: 'auto' },
+  minHeight: { xs: 40, sm: 'auto' },
+  m: { xs: '-3px', sm: 0 },
+};
 
 // ============================================================
 // Внутренний state формы изолирован в этом компоненте.
@@ -79,11 +102,14 @@ const emptyForm: FormState = {
 };
 
 function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDialogProps) {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [form, setForm] = useState<FormState>(emptyForm);
   const [suggestion, setSuggestion] = useState<{ ytdVkdBefore: number; suggestedCommission: number; level: number; year: number } | null>(null);
   const [commissionEdited, setCommissionEdited] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vkdError, setVkdError] = useState<string | null>(null);
+  const [commissionError, setCommissionError] = useState<string | null>(null);
 
   // Инициализация формы при открытии (create или edit)
   useEffect(() => {
@@ -105,6 +131,8 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
     }
     setSuggestion(null);
     setError(null);
+    setVkdError(null);
+    setCommissionError(null);
   }, [open, editTarget]);
 
   // Подсказка % комиссии при выборе агента и/или даты
@@ -133,6 +161,15 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
     [form.vkd, form.commission],
   );
 
+  // Сделку заводят только на агентов: убираем из выбора штаб (админ/юрист/брокер/…).
+  // Заблокированных/уволенных агентов оставляем в списке, но помечаем и опускаем вниз —
+  // редактируя старую сделку, можно оставить прежнего исполнителя, даже если он уже уволен.
+  const isBlockedAgent = (a: Agent) => a.status !== 'active' || Boolean(a.terminatedAt);
+  const agentOptions = useMemo(() => {
+    const onlyAgents = agents.filter(a => ((a as AgentWithRole).role || 'agent') === 'agent');
+    return [...onlyAgents].sort((x, y) => Number(isBlockedAgent(x)) - Number(isBlockedAgent(y)));
+  }, [agents]);
+
   const handleAgentChange = (agent: Agent | null) => {
     setForm(f => ({ ...f, agentId: agent?.id || null }));
     setCommissionEdited(false);
@@ -141,6 +178,13 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
   const handleSave = async () => {
     if (!form.agentId || !form.vkd) return;
     const vkdNum = parseFloat(form.vkd);
+    // Валидация перед записью в финансовое ядро: ВКД строго > 0, комиссия в диапазоне 1..100.
+    const vkdMsg = !Number.isFinite(vkdNum) || vkdNum <= 0 ? 'ВКД должен быть больше нуля' : null;
+    const commMsg = !Number.isFinite(form.commission) || form.commission < 1 || form.commission > 100
+      ? 'Комиссия должна быть от 1 до 100' : null;
+    setVkdError(vkdMsg);
+    setCommissionError(commMsg);
+    if (vkdMsg || commMsg) return;
     setSaving(true); setError(null);
     try {
       if (editTarget) {
@@ -182,7 +226,14 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={fullScreen}
+      slotProps={{ paper: { sx: { ...paperSafeArea } } }}
+    >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
           {editTarget ? 'Редактировать сделку' : 'Новая сделка'}
@@ -196,19 +247,32 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
         <Stack spacing={2.5}>
           <Autocomplete
-            options={agents}
+            options={agentOptions}
+            disabled={!!editTarget}
             getOptionLabel={a => a.name}
             value={agents.find(a => a.id === form.agentId) || null}
             onChange={(_, v) => handleAgentChange(v)}
             renderInput={params => <TextField {...params} label="Агент *" size="small" />}
-            renderOption={(props, a) => (
-              <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.8 }}>
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{a.name}</Typography>
-                  <Typography variant="caption" sx={{ color: '#64748B' }}>{a.city}</Typography>
+            renderOption={(props, a) => {
+              const blocked = isBlockedAgent(a);
+              return (
+                <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.8, opacity: blocked ? 0.6 : 1 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{a.name}</Typography>
+                      {blocked && (
+                        <Chip
+                          label={a.terminatedAt ? 'уволен' : 'заблокирован'}
+                          size="small"
+                          sx={{ height: 18, fontSize: 10, fontWeight: 700, color: '#F59E0B', background: 'rgba(245,158,11,0.14)' }}
+                        />
+                      )}
+                    </Box>
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{a.city}</Typography>
+                  </Box>
                 </Box>
-              </Box>
-            )}
+              );
+            }}
           />
 
           <TextField
@@ -219,7 +283,7 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
             size="small"
           />
 
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
             <FormControl size="small" fullWidth>
               <InputLabel>Категория</InputLabel>
               <Select
@@ -257,14 +321,16 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
             <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
               Финансы сделки
             </Typography>
-            <Box sx={{ display: 'flex', gap: 2 }}>
+            <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
               <TextField
                 fullWidth
                 label="ВКД (₽) *"
                 type="number"
                 value={form.vkd}
-                onChange={e => setForm(f => ({ ...f, vkd: e.target.value }))}
+                onChange={e => { setForm(f => ({ ...f, vkd: e.target.value })); if (vkdError) setVkdError(null); }}
                 size="small"
+                error={!!vkdError}
+                helperText={vkdError || undefined}
                 slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }}
               />
               <TextField
@@ -272,10 +338,11 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
                 label="Комиссия %"
                 type="number"
                 value={form.commission}
-                onChange={e => { setForm(f => ({ ...f, commission: Number(e.target.value) })); setCommissionEdited(true); }}
+                onChange={e => { setForm(f => ({ ...f, commission: Number(e.target.value) })); setCommissionEdited(true); if (commissionError) setCommissionError(null); }}
                 size="small"
+                error={!!commissionError}
                 slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-                helperText={commissionEdited ? 'Изменено вручную' : 'Рекомендовано системой'}
+                helperText={commissionError || (commissionEdited ? 'Изменено вручную' : 'Рекомендовано системой')}
               />
             </Box>
             {suggestion && (
@@ -286,7 +353,7 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
                     Рекомендуется {suggestion.suggestedCommission}% (L{suggestion.level})
                   </Typography>
                   <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>
-                    ВКД агента в {suggestion.year} г. до этой сделки: <b style={{ color: '#F1F5F9' }}>{fmt(suggestion.ytdVkdBefore)} ₽</b>
+                    ВКД агента в {suggestion.year} г. до этой сделки: <b style={{ color: '#F1F5F9' }}>{formatRub(suggestion.ytdVkdBefore)}</b>
                     {' · '}порог L2 — 2 млн, L3 — 5 млн{' · '}
                     с 1 января все возвращаются на 80%
                   </Typography>
@@ -305,7 +372,7 @@ function DealFormDialog({ open, onClose, agents, editTarget, onSaved }: FormDial
             {income > 0 && (
               <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="caption" sx={{ color: '#64748B' }}>Доход агента:</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 800, color: '#22C55E' }}>{fmt(income)} ₽</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 800, color: '#22C55E' }}>{formatRub(income)}</Typography>
               </Box>
             )}
           </Box>
@@ -330,19 +397,22 @@ interface ImportDialogProps {
   open: boolean;
   onClose: () => void;
   onImported: () => void;
+  total: number;
 }
 
-function ImportDealsDialog({ open, onClose, onImported }: ImportDialogProps) {
+function ImportDealsDialog({ open, onClose, onImported, total }: ImportDialogProps) {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [file, setFile] = useState<File | null>(null);
   const [replace, setReplace] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ parsedRows: number; logs: string[] } | null>(null);
+  const [confirmReplace, setConfirmReplace] = useState(false); // финальное подтверждение перед заменой всей базы
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) {
-      setFile(null); setReplace(false); setError(null); setResult(null);
+      setFile(null); setReplace(false); setError(null); setResult(null); setConfirmReplace(false);
     }
   }, [open]);
 
@@ -370,7 +440,14 @@ function ImportDealsDialog({ open, onClose, onImported }: ImportDialogProps) {
   };
 
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={busy ? undefined : onClose}
+      maxWidth="sm"
+      fullWidth
+      fullScreen={fullScreen}
+      slotProps={{ paper: { sx: { ...paperSafeArea } } }}
+    >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Импорт сделок из xlsx</Typography>
         <IconButton size="small" onClick={onClose} disabled={busy} sx={{ color: '#64748B' }}>
@@ -437,13 +514,24 @@ function ImportDealsDialog({ open, onClose, onImported }: ImportDialogProps) {
             <Button onClick={onClose} sx={{ color: '#64748B' }} disabled={busy}>Отмена</Button>
             <Button
               variant="contained" color={replace ? 'warning' : 'primary'}
-              onClick={handleSubmit} disabled={busy || !file}
+              onClick={() => { if (replace) setConfirmReplace(true); else handleSubmit(); }} disabled={busy || !file}
             >
               {busy ? 'Импорт…' : replace ? 'Заменить и импортировать' : 'Импортировать'}
             </Button>
           </>
         )}
       </DialogActions>
+
+      <ConfirmDialog
+        open={confirmReplace}
+        danger
+        title="Заменить все сделки?"
+        text={`Заменить ВСЕ ${fmt(total)} ${dealsWord(total)} данными из файла? Текущие сделки будут удалены безвозвратно.`}
+        confirmLabel="Заменить"
+        loading={busy}
+        onConfirm={() => { setConfirmReplace(false); handleSubmit(); }}
+        onClose={() => setConfirmReplace(false)}
+      />
     </Dialog>
   );
 }
@@ -470,6 +558,7 @@ interface RecomputePreview {
 const STATUS_RU: Record<string, string> = { pending: 'черновик', confirmed: 'проведена', paid: 'выплачена', cancelled: 'отменена' };
 
 function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; onClose: () => void; agents: Agent[]; onApplied: () => void }) {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const isSuper = getCurrentUser()?.role === 'super_admin';
   const curYear = String(new Date().getFullYear());
   const [agentId, setAgentId] = useState<number | null>(null);
@@ -488,7 +577,7 @@ function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; 
 
   const yearOptions = useMemo(() => {
     const ys: string[] = [];
-    for (let y = Number(curYear); y >= 2022; y--) ys.push(String(y));
+    for (let y = Number(curYear); y >= MIN_DEAL_YEAR; y--) ys.push(String(y));
     return ys;
   }, [curYear]);
 
@@ -534,15 +623,36 @@ function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; 
 
   const sel = preview ? preview.changes.filter(c => checked.has(c.id)) : [];
   const deltaIncome = sel.reduce((s, c) => s + (c.newIncome - c.oldIncome), 0);
-  const allChecked = !!preview && preview.changes.length > 0 && checked.size === preview.changes.length;
+  // «Выбрать все» оперирует только не-понижениями — понижения (снятые по решению CEO)
+  // включаются исключительно вручную и одним кликом не отмечаются.
+  const selectable = preview ? preview.changes.filter(c => !c.lowered) : [];
+  const allChecked = selectable.length > 0 && selectable.every(c => checked.has(c.id));
   const toggleAll = () => {
     if (!preview) return;
-    setChecked(allChecked ? new Set() : new Set(preview.changes.map(c => c.id)));
+    setChecked(prev => {
+      if (allChecked) {
+        // снимаем только не-понижения; вручную отмеченные понижения не трогаем
+        const n = new Set(prev);
+        for (const c of selectable) n.delete(c.id);
+        return n;
+      }
+      // добавляем не-понижения к текущему выбору, сохраняя ручные отметки понижений
+      const n = new Set(prev);
+      for (const c of selectable) n.add(c.id);
+      return n;
+    });
   };
   const toggle = (id: number) => setChecked(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
+    <Dialog
+      open={open}
+      onClose={busy ? undefined : onClose}
+      maxWidth="md"
+      fullWidth
+      fullScreen={fullScreen}
+      slotProps={{ paper: { sx: { ...paperSafeArea } } }}
+    >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Пересчёт комиссий по правилу</Typography>
         <IconButton size="small" onClick={onClose} disabled={busy} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
@@ -552,7 +662,7 @@ function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; 
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
         {done != null && <Alert severity="success" sx={{ mb: 2 }}>Применено строк: <b>{done}</b>. Комиссии/доход обновлены, запись в журнале пересчётов.</Alert>}
 
-        <Stack direction="row" spacing={2} sx={{ mb: 2 }} alignItems="center">
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Autocomplete
             sx={{ flex: 1 }}
             options={agents}
@@ -592,7 +702,7 @@ function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; 
               </Alert>
             )}
             {preview.changes.length === 0 ? (
-              <Alert severity="success">Расхождений с правилом нет — все комиссии агента{preview.year ? ` за ${preview.year}` : ''} уже соответствуют прогрессии (пороги L2 {fmt(preview.thresholds.l1)} ₽ / L3 {fmt(preview.thresholds.l2)} ₽).</Alert>
+              <Alert severity="success">Расхождений с правилом нет — все комиссии агента{preview.year ? ` за ${preview.year}` : ''} уже соответствуют прогрессии (пороги L2 {formatRub(preview.thresholds.l1)} / L3 {formatRub(preview.thresholds.l2)}).</Alert>
             ) : (
               <>
                 <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
@@ -600,10 +710,10 @@ function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; 
                     Расхождений: {preview.changes.length} · отмечено {sel.length}
                   </Typography>
                   <Typography variant="body2" sx={{ color: deltaIncome >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700 }}>
-                    Δ дохода по отмеченным: {deltaIncome >= 0 ? '+' : ''}{fmt(deltaIncome)} ₽
+                    Δ дохода по отмеченным: {deltaIncome >= 0 ? '+' : ''}{formatRub(deltaIncome)}
                   </Typography>
                   <Box sx={{ flex: 1 }} />
-                  <Typography variant="caption" sx={{ color: '#64748B' }}>пороги: L2 от {fmt(preview.thresholds.l1)} ₽, L3 от {fmt(preview.thresholds.l2)} ₽</Typography>
+                  <Typography variant="caption" sx={{ color: '#64748B' }}>пороги: L2 от {formatRub(preview.thresholds.l1)}, L3 от {formatRub(preview.thresholds.l2)}</Typography>
                 </Stack>
                 <Alert severity="warning" sx={{ mb: 1 }}>
                   Ручные корректировки в базе НЕ помечены. Строки-«понижения» (вероятные ручные надбавки) по умолчанию сняты,
@@ -629,15 +739,15 @@ function RecomputeDialog({ open, onClose, agents, onApplied }: { open: boolean; 
                         return (
                           <TableRow key={c.id} hover selected={checked.has(c.id)}>
                             <TableCell padding="checkbox"><Checkbox size="small" checked={checked.has(c.id)} onChange={() => toggle(c.id)} /></TableCell>
-                            <TableCell><Typography variant="caption" sx={{ color: '#94A3B8' }}>{c.date}</Typography></TableCell>
+                            <TableCell><Typography variant="caption" sx={{ color: '#94A3B8', whiteSpace: 'nowrap' }}>{formatDate(c.date)}</Typography></TableCell>
                             <TableCell sx={{ maxWidth: 160 }}>
                               <Typography variant="caption" sx={{ color: '#CBD5E1', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 #{c.id}{c.client_name && c.client_name !== '—' ? ` · ${c.client_name}` : ''}{c.address ? ` · ${c.address}` : ''}
                               </Typography>
                             </TableCell>
-                            <TableCell align="right"><Typography variant="caption" sx={{ color: '#F1F5F9', fontWeight: 600 }}>{fmt(c.vkd)} ₽</Typography></TableCell>
-                            <TableCell align="right"><Typography variant="caption" sx={{ fontWeight: 700, color: '#C9A84C' }}>{c.oldPct}% → {c.newPct}%</Typography></TableCell>
-                            <TableCell align="right"><Typography variant="caption" sx={{ color: '#F1F5F9' }}>{fmt(c.oldIncome)} → {fmt(c.newIncome)} ₽</Typography></TableCell>
+                            <TableCell align="right"><Typography variant="caption" sx={{ color: '#F1F5F9', fontWeight: 600, whiteSpace: 'nowrap' }}>{formatRub(c.vkd)}</Typography></TableCell>
+                            <TableCell align="right"><Typography variant="caption" sx={{ fontWeight: 700, color: '#C9A84C', whiteSpace: 'nowrap' }}>{c.oldPct}% → {c.newPct}%</Typography></TableCell>
+                            <TableCell align="right"><Typography variant="caption" sx={{ color: '#F1F5F9', whiteSpace: 'nowrap' }}>{formatRub(c.oldIncome)} → {formatRub(c.newIncome)}</Typography></TableCell>
                             <TableCell align="right"><Typography variant="caption" sx={{ fontWeight: 700, color: d >= 0 ? '#22C55E' : '#EF4444' }}>{d >= 0 ? '+' : ''}{fmt(d)}</Typography></TableCell>
                             <TableCell>
                               <Stack direction="row" spacing={0.5}>
@@ -695,7 +805,9 @@ export default function Deals() {
   const [importOpen, setImportOpen] = useState(false);
   const [recomputeOpen, setRecomputeOpen] = useState(false); // S2: пересчёт комиссий с diff-превью
   const [editTarget, setEditTarget] = useState<Deal | null>(null);
-  // Удалять сделки могут super_admin и admin (необратимо, влияет на комиссию/MLM).
+  const [cancelTarget, setCancelTarget] = useState<Deal | null>(null); // сделка на отмену (обратимо: откат комиссий/объекта)
+  const [cancelBusy, setCancelBusy] = useState(false);
+  // Удалять/отменять сделки могут super_admin и admin (влияет на комиссию/MLM).
   const canDelete = ['super_admin', 'admin'].includes(getCurrentUser()?.role ?? '');
 
   // Дебаунс поиска — серверный запрос не на каждый символ.
@@ -716,11 +828,11 @@ export default function Deals() {
 
   // Сервер уже отсортировал по дате DESC и ограничил лимитом — выводим как есть.
   const filtered = deals;
-  // Годы для фильтра: от текущего до 2024.
+  // Годы для фильтра: от текущего до минимального года данных (единый источник с пересчётом).
   const yearOptions = useMemo(() => {
     const cur = new Date().getFullYear();
     const ys: string[] = [];
-    for (let y = cur; y >= 2024; y--) ys.push(String(y));
+    for (let y = cur; y >= MIN_DEAL_YEAR; y--) ys.push(String(y));
     return ys;
   }, []);
   const RU_MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
@@ -730,7 +842,7 @@ export default function Deals() {
 
   const handleDelete = useCallback(async (deal: Deal) => {
     // Двойное подтверждение — удаление сделки необратимо.
-    if (!confirm(`Удалить сделку #${deal.id} (${deal.agentName}, ${fmt(deal.vkd)} ₽)?`)) return;
+    if (!confirm(`Удалить сделку #${deal.id} (${deal.agentName}, ${formatRub(deal.vkd)})?`)) return;
     if (!confirm('Вы уверены? Сделка будет удалена БЕЗВОЗВРАТНО — это повлияет на ВКД, комиссию и MLM агента.')) return;
     try {
       await dealsApi.remove(deal.id);
@@ -739,6 +851,22 @@ export default function Deals() {
       setError(err instanceof Error ? err.message : 'Не удалось удалить сделку');
     }
   }, []);
+
+  // Отмена сделки (в отличие от удаления сохраняет историю): бэк в транзакции
+  // откатывает комиссии/начисления всей co-broking группы и возвращает объект в продажу.
+  const handleCancel = useCallback(async () => {
+    if (!cancelTarget) return;
+    setCancelBusy(true); setError(null);
+    try {
+      await dealsApi.cancel(cancelTarget.id);
+      setDeals(prev => prev.map(d => d.id === cancelTarget.id ? { ...d, status: 'cancelled' } : d));
+      setCancelTarget(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось отменить сделку');
+    } finally {
+      setCancelBusy(false);
+    }
+  }, [cancelTarget]);
 
   return (
     <Box>
@@ -765,7 +893,7 @@ export default function Deals() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 1 }}>
           {loading && <CircularProgress size={14} sx={{ color: '#C9A84C' }} />}
           <Typography variant="caption" sx={{ color: '#64748B' }}>
-            {total} {pluralDeals(total)}
+            {total} {dealsWord(total)}
           </Typography>
         </Box>
         <Button
@@ -789,6 +917,7 @@ export default function Deals() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={reloadDeals}
+        total={total}
       />
 
       <RecomputeDialog
@@ -807,14 +936,14 @@ export default function Deals() {
         </Box>
       )}
 
-      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: (loading && deals.length === 0) ? 'none' : 'block', opacity: loading ? 0.6 : 1, transition: 'opacity 0.15s' }}>
-        <Table>
+      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: (loading && deals.length === 0) ? 'none' : 'block', opacity: loading ? 0.6 : 1, transition: 'opacity 0.15s', overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 640 }}>
           <TableHead>
             <TableRow>
-              <TableCell>Агент</TableCell>
+              <TableCell sx={stickyAgentCell}>Агент</TableCell>
               <TableCell>Тип</TableCell>
               <TableCell align="right">ВКД</TableCell>
-              <TableCell align="right">Ком-я</TableCell>
+              <TableCell align="right">%</TableCell>
               <TableCell align="right">Доход</TableCell>
               <TableCell>Дата</TableCell>
               <TableCell align="center">Действия</TableCell>
@@ -823,8 +952,8 @@ export default function Deals() {
           <TableBody>
             {filtered.map((deal) => (
               <TableRow key={deal.id} hover>
-                <TableCell>
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
+                <TableCell sx={stickyAgentCell}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9', whiteSpace: 'nowrap' }}>{deal.agentName.split(' ').slice(0, 2).join(' ')}</Typography>
                   <Typography variant="caption" sx={{ color: '#64748B' }}>{deal.city}</Typography>
                 </TableCell>
                 <TableCell>
@@ -836,27 +965,34 @@ export default function Deals() {
                   </Box>
                 </TableCell>
                 <TableCell align="right">
-                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(deal.vkd)} ₽</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9', whiteSpace: 'nowrap' }}>{formatRub(deal.vkd)}</Typography>
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{deal.commission}%</Typography>
                 </TableCell>
                 <TableCell align="right">
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#22C55E' }}>{fmt(deal.income)} ₽</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#22C55E', whiteSpace: 'nowrap' }}>{formatRub(deal.income)}</Typography>
                 </TableCell>
                 <TableCell>
-                  <Typography variant="caption" sx={{ color: '#94A3B8' }}>{deal.date}</Typography>
+                  <Typography variant="caption" sx={{ color: '#94A3B8', whiteSpace: 'nowrap' }}>{formatDate(deal.date)}</Typography>
                 </TableCell>
                 <TableCell align="center">
                   <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
                     <Tooltip title="Редактировать">
-                      <IconButton size="small" onClick={() => openEdit(deal)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+                      <IconButton size="small" onClick={() => openEdit(deal)} sx={{ ...actionTapTarget, '&:hover': { color: '#C9A84C' } }}>
                         <EditRoundedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    {canDelete && deal.status !== 'cancelled' && (
+                      <Tooltip title="Отменить сделку">
+                        <IconButton size="small" onClick={() => setCancelTarget(deal)} sx={{ ...actionTapTarget, '&:hover': { color: '#F59E0B' } }}>
+                          <CancelRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     {canDelete && (
                       <Tooltip title="Удалить сделку">
-                        <IconButton size="small" onClick={() => handleDelete(deal)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                        <IconButton size="small" onClick={() => handleDelete(deal)} sx={{ ...actionTapTarget, '&:hover': { color: '#EF4444' } }}>
                           <DeleteRoundedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -888,6 +1024,18 @@ export default function Deals() {
         agents={agents}
         editTarget={editTarget}
         onSaved={reloadDeals}
+      />
+
+      <ConfirmDialog
+        open={!!cancelTarget}
+        danger
+        title="Отменить сделку?"
+        text="Комиссии и начисления участников откатятся, объект вернётся в продажу."
+        confirmLabel="Отменить сделку"
+        cancelLabel="Не отменять"
+        loading={cancelBusy}
+        onConfirm={handleCancel}
+        onClose={() => { if (!cancelBusy) setCancelTarget(null); }}
       />
     </Box>
   );

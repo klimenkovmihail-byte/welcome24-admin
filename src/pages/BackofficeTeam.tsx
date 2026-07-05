@@ -9,9 +9,13 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
+import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import { backofficeApi, type BackOfficeMember, type BackOfficePayload } from '../api/backoffice';
 import { settingsApi } from '../api/settings';
 import FileUploader from '../components/FileUploader';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 import EditRoundedIcon2 from '@mui/icons-material/EditNoteRounded';
 
 const DEFAULT_INTRO = 'К этим людям ты можешь обращаться по специальным вопросам — бухгалтерия, юристы, HR, маркетинг, IT.';
@@ -39,6 +43,7 @@ const COLOR_PRESETS: { value: string; label: string }[] = [
 ];
 
 export default function BackofficeTeam() {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [list, setList] = useState<BackOfficeMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +52,9 @@ export default function BackofficeTeam() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteFor, setDeleteFor] = useState<BackOfficeMember | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Вступительный текст над карточками (хранится в settings.backoffice_intro)
   const [intro, setIntro] = useState(DEFAULT_INTRO);
@@ -85,7 +93,7 @@ export default function BackofficeTeam() {
     }
   };
 
-  const openCreate = () => { setEditId(null); setForm({ ...emptyForm }); setDialogOpen(true); };
+  const openCreate = () => { setEditId(null); setForm({ ...emptyForm }); setSaveError(null); setDialogOpen(true); };
   const openEdit = (m: BackOfficeMember) => {
     setEditId(m.id);
     setForm({
@@ -94,31 +102,62 @@ export default function BackofficeTeam() {
       color: m.color,
       orderIdx: m.orderIdx, active: m.active,
     });
+    setSaveError(null);
     setDialogOpen(true);
   };
 
   const save = async () => {
     if (!form.name?.trim() || !form.role?.trim()) return;
     setSaving(true);
+    setSaveError(null);
     try {
       if (editId) await backofficeApi.update(editId, form);
       else await backofficeApi.create(form);
       setDialogOpen(false);
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка сохранения');
+      setSaveError(e instanceof Error ? e.message : 'Не удалось сохранить');
     } finally {
       setSaving(false);
     }
   };
 
-  const remove = async (m: BackOfficeMember) => {
-    if (!confirm(`Удалить ${m.name} из команды?`)) return;
+  const confirmRemove = async () => {
+    if (!deleteFor) return;
+    setDeleting(true);
     try {
-      await backofficeApi.remove(m.id);
-      setList(prev => prev.filter(x => x.id !== m.id));
+      await backofficeApi.remove(deleteFor.id);
+      setList(prev => prev.filter(x => x.id !== deleteFor.id));
+      setDeleteFor(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка удаления');
+      setError(e instanceof Error ? e.message : 'Не удалось удалить');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Перемещение карточки вверх/вниз: меняем orderIdx местами с соседом
+  // в текущем визуальном порядке. Оптимистично обновляем список и шлём два PATCH.
+  const move = async (id: number, dir: -1 | 1) => {
+    const idx = list.findIndex(x => x.id === id);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= list.length) return;
+    const a = list[idx];
+    const b = list[swapIdx];
+    const next = [...list];
+    next[idx] = { ...b, orderIdx: a.orderIdx };
+    next[swapIdx] = { ...a, orderIdx: b.orderIdx };
+    // Разворачиваем визуальный порядок вслед за orderIdx (меньше — выше).
+    next.sort((x, y) => x.orderIdx - y.orderIdx);
+    setList(next);
+    try {
+      await Promise.all([
+        backofficeApi.update(a.id, { orderIdx: b.orderIdx }),
+        backofficeApi.update(b.id, { orderIdx: a.orderIdx }),
+      ]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось изменить порядок');
+      load();
     }
   };
 
@@ -157,11 +196,11 @@ export default function BackofficeTeam() {
         </Box>
       </Box>
 
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5 }}>
-        <Typography variant="caption" sx={{ color: '#94A3B8' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5, flexWrap: 'wrap', gap: 1.5 }}>
+        <Typography variant="caption" sx={{ color: '#94A3B8', flex: '1 1 240px' }}>
           Сотрудники бэк-офиса (HR, юристы, бухгалтеры и т.п.) — будут видны агентам в разделе «Команда» на платформе
         </Typography>
-        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate}>
+        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate} sx={{ flexShrink: 0 }}>
           Добавить сотрудника
         </Button>
       </Box>
@@ -210,12 +249,32 @@ export default function BackofficeTeam() {
                 <TableCell align="center">
                   <Chip label={m.active ? 'Да' : 'Нет'} size="small" sx={{ background: m.active ? 'rgba(34,197,94,0.15)' : 'rgba(100,116,139,0.15)', color: m.active ? '#22C55E' : '#94A3B8' }} />
                 </TableCell>
-                <TableCell align="center" sx={{ color: '#94A3B8' }}>{m.orderIdx}</TableCell>
+                <TableCell align="center" sx={{ color: '#94A3B8' }}>
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                    <IconButton
+                      size="small"
+                      disabled={list.indexOf(m) === 0}
+                      onClick={() => move(m.id, -1)}
+                      sx={{ color: '#64748B', p: { xs: 0.75, sm: 0.25 }, m: { xs: -0.5, sm: 0 }, '&:hover': { color: '#C9A84C' } }}
+                    >
+                      <KeyboardArrowUpRoundedIcon fontSize="small" />
+                    </IconButton>
+                    <Box component="span" sx={{ minWidth: 18, textAlign: 'center' }}>{m.orderIdx}</Box>
+                    <IconButton
+                      size="small"
+                      disabled={list.indexOf(m) === list.length - 1}
+                      onClick={() => move(m.id, 1)}
+                      sx={{ color: '#64748B', p: { xs: 0.75, sm: 0.25 }, m: { xs: -0.5, sm: 0 }, '&:hover': { color: '#C9A84C' } }}
+                    >
+                      <KeyboardArrowDownRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </TableCell>
                 <TableCell align="center">
                   <IconButton size="small" onClick={() => openEdit(m)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                     <EditRoundedIcon fontSize="small" />
                   </IconButton>
-                  <IconButton size="small" onClick={() => remove(m)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                  <IconButton size="small" onClick={() => setDeleteFor(m)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                     <DeleteRoundedIcon fontSize="small" />
                   </IconButton>
                 </TableCell>
@@ -225,12 +284,19 @@ export default function BackofficeTeam() {
         </Table>
         {list.length === 0 && (
           <Box sx={{ py: 6, textAlign: 'center' }}>
-            <Typography sx={{ color: '#64748B' }}>Никого нет — добавь первого сотрудника</Typography>
+            <Typography sx={{ color: '#64748B' }}>Никого нет — добавьте первого сотрудника</Typography>
           </Box>
         )}
       </TableContainer>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={fullScreen}
+        slotProps={{ paper: { sx: { ...paperSafeArea } } }}
+      >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
             {editId ? 'Редактировать сотрудника' : 'Новый сотрудник бэк-офиса'}
@@ -240,6 +306,7 @@ export default function BackofficeTeam() {
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 3 }}>
           <Stack spacing={2.5}>
+            {saveError && <Alert severity="error" onClose={() => setSaveError(null)}>{saveError}</Alert>}
             <FileUploader
               value={form.photo || ''}
               onChange={url => setForm(f => ({ ...f, photo: url }))}
@@ -326,6 +393,17 @@ export default function BackofficeTeam() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!deleteFor}
+        title="Удалить сотрудника?"
+        text={deleteFor ? <>Удалить {deleteFor.name} ({deleteFor.role})? Карточка исчезнет у всех агентов.</> : ''}
+        confirmLabel="Удалить"
+        danger
+        loading={deleting}
+        onConfirm={confirmRemove}
+        onClose={() => { if (!deleting) setDeleteFor(null); }}
+      />
     </Box>
   );
 }

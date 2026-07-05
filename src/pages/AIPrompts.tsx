@@ -10,11 +10,11 @@
  * Сохранять и сбрасывать может только super_admin.
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box, Typography, Button, TextField, Tabs, Tab, Alert, CircularProgress,
   Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
-  Select, MenuItem, FormControl, InputLabel, Divider, Tooltip,
+  Select, MenuItem, FormControl, InputLabel, Divider, Tooltip, Snackbar,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
@@ -25,10 +25,13 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import Switch from '@mui/material/Switch';
 import { aiPromptsApi, type PromptConfig, type PreviewResult, type KnowledgeBlock } from '../api/aiPrompts';
 import { getCurrentUser } from '../auth/auth';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 
 export default function AIPrompts() {
   const user = getCurrentUser();
@@ -40,6 +43,8 @@ export default function AIPrompts() {
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
   const [saving, setSaving] = useState(false);
+  // Подтверждение сброса промпта к дефолту (заменяет системный confirm()).
+  const [confirmReset, setConfirmReset] = useState(false);
 
   // Локальные значения форм (по toolKey)
   const [drafts, setDrafts] = useState<Record<string, { system: string; extra: string }>>({});
@@ -68,6 +73,20 @@ export default function AIPrompts() {
     draft.system !== current.systemPrompt || draft.extra !== current.extraInstructions
   );
 
+  // Несохранённые черновики по любой вкладке (переключение табов не сохраняет драфт).
+  const anyDirty = prompts.some(p => {
+    const d = drafts[p.toolKey];
+    return d && (d.system !== p.systemPrompt || d.extra !== p.extraInstructions);
+  });
+
+  // Предупредить при закрытии/перезагрузке вкладки, пока есть несохранённые черновики.
+  useEffect(() => {
+    if (!anyDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [anyDirty]);
+
   const setDraft = (toolKey: string, field: 'system' | 'extra', value: string) => {
     setDrafts(d => ({ ...d, [toolKey]: { ...d[toolKey], [field]: value } }));
   };
@@ -92,7 +111,7 @@ export default function AIPrompts() {
 
   const handleReset = async () => {
     if (!current || !isSuperAdmin) return;
-    if (!confirm(`Сбросить промпт «${current.label}» к дефолтному значению из кода?`)) return;
+    setConfirmReset(false);
     setSaving(true); setError(null);
     try {
       const reset = await aiPromptsApi.reset(current.toolKey);
@@ -211,7 +230,7 @@ export default function AIPrompts() {
                       value={draft.extra}
                       onChange={e => setDraft(current.toolKey, 'extra', e.target.value)}
                       disabled={!isSuperAdmin || saving}
-                      placeholder="Например: «Используй больше эмодзи. В конце добавляй ссылку https://welcome24.ru»"
+                      placeholder="Например: «Используйте больше эмодзи. В конце добавляйте ссылку https://welcome24.ru»"
                       slotProps={{ input: { sx: { fontFamily: 'ui-monospace, monospace', fontSize: 13, lineHeight: 1.55 } } }}
                     />
                   </Box>
@@ -227,7 +246,7 @@ export default function AIPrompts() {
                     <Tooltip title={current.isCustomized ? 'Удалить кастомные значения, использовать дефолт из кода' : 'Промпт уже дефолтный'}>
                       <span>
                         <Button startIcon={<RestartAltRoundedIcon />} variant="outlined" color="warning"
-                          onClick={handleReset} disabled={!isSuperAdmin || !current.isCustomized || saving}
+                          onClick={() => setConfirmReset(true)} disabled={!isSuperAdmin || !current.isCustomized || saving}
                         >
                           Сбросить к дефолту
                         </Button>
@@ -262,6 +281,17 @@ export default function AIPrompts() {
           onClose={() => setTestFor(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="Сбросить промпт к дефолту?"
+        text={current ? <>Промпт «{current.label}» вернётся к дефолтному значению из кода. Ваши кастомные правки будут удалены.</> : undefined}
+        confirmLabel="Сбросить"
+        danger
+        loading={saving}
+        onConfirm={handleReset}
+        onClose={() => { if (!saving) setConfirmReset(false); }}
+      />
     </Box>
   );
 }
@@ -280,6 +310,8 @@ function TestDialog({ tool, draft, onClose }: TestProps) {
   const [result, setResult] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'prompt' | 'output'>('output');
+  const [copied, setCopied] = useState(false);
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
 
   const runPreview = async () => {
     setLoading(true); setError(null); setResult(null);
@@ -300,16 +332,16 @@ function TestDialog({ tool, draft, onClose }: TestProps) {
   };
 
   const copy = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
+    try { await navigator.clipboard.writeText(text); setCopied(true); } catch { setError('Не удалось скопировать'); }
   };
 
   return (
-    <Dialog open onClose={onClose} maxWidth="lg" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="lg" fullWidth fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Box>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Тест промпта · {tool.label}</Typography>
           <Typography variant="caption" sx={{ color: '#64748B' }}>
-            Использует НЕсохранённые значения формы. Лимит не тратится.
+            Использует несохранённые значения формы. Лимит не тратится.
           </Typography>
         </Box>
         <IconButton size="small" onClick={onClose} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
@@ -336,7 +368,7 @@ function TestDialog({ tool, draft, onClose }: TestProps) {
 
             {!result && !loading && (
               <Box sx={{ p: 4, textAlign: 'center', color: '#64748B' }}>
-                <Typography variant="body2">Заполни параметры и нажми «Запустить тест»</Typography>
+                <Typography variant="body2">Заполните параметры и нажмите «Запустить тест»</Typography>
               </Box>
             )}
 
@@ -351,9 +383,9 @@ function TestDialog({ tool, draft, onClose }: TestProps) {
               <Box>
                 {result.stub && (
                   <Alert severity="warning" sx={{ mb: 2 }}>
-                    Ответ-заглушка. Чтобы получить реальный ответ модели, добавь
+                    Ответ-заглушка. Чтобы получить реальный ответ модели, добавьте
                     <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 6px', borderRadius: 3, margin: '0 4px' }}>ANTHROPIC_API_KEY</code>
-                    в Render env.
+                    в переменные окружения бэкенда на VPS.
                   </Alert>
                 )}
                 <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: '1px solid rgba(201,168,76,0.1)', mb: 2 }}>
@@ -414,6 +446,13 @@ function TestDialog({ tool, draft, onClose }: TestProps) {
       <DialogActions sx={{ px: 3, pb: 3 }}>
         <Button onClick={onClose}>Закрыть</Button>
       </DialogActions>
+      <Snackbar
+        open={copied}
+        autoHideDuration={2000}
+        onClose={() => setCopied(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        message="Скопировано"
+      />
     </Dialog>
   );
 }
@@ -527,9 +566,6 @@ function renderInputFields(
   return <Typography variant="caption" sx={{ color: '#64748B' }}>Нет полей для тестирования.</Typography>;
 }
 
-// Unused but kept for future cross-reference
-void useMemo;
-
 // ============================================================
 // Knowledge base editor — управление блоками базы знаний инструмента.
 // Активные блоки автоматически инжектятся в system-prompt при каждом
@@ -541,6 +577,9 @@ function KnowledgeBaseEditor({ toolKey, isSuperAdmin }: { toolKey: string; isSup
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<KnowledgeBlock | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // Подтверждение удаления блока (заменяет системный confirm()).
+  const [confirmDel, setConfirmDel] = useState<KnowledgeBlock | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
 
   const reload = () => {
     setLoading(true);
@@ -553,22 +592,29 @@ function KnowledgeBaseEditor({ toolKey, isSuperAdmin }: { toolKey: string; isSup
   useEffect(() => { reload(); }, [toolKey]);
 
   const toggleActive = async (block: KnowledgeBlock) => {
+    const next = !block.active;
+    const prev = block.active; // прежнее значение — для отката при ошибке
+    setItems(list => list.map(b => b.id === block.id ? { ...b, active: next ? 1 : 0 } : b));
     try {
-      const next = !block.active;
-      setItems(prev => prev.map(b => b.id === block.id ? { ...b, active: next ? 1 : 0 } : b));
       await aiPromptsApi.updateKnowledge(block.id, { active: next });
     } catch (e) {
+      // Откат optimistic-переключения, иначе тумблер врёт о состоянии на сервере.
+      setItems(list => list.map(b => b.id === block.id ? { ...b, active: prev } : b));
       setError(e instanceof Error ? e.message : 'Не удалось обновить');
     }
   };
 
-  const remove = async (block: KnowledgeBlock) => {
-    if (!confirm(`Удалить блок «${block.title}»? Действие необратимо.`)) return;
+  const remove = async () => {
+    if (!confirmDel) return;
+    setDelBusy(true); setError(null);
     try {
-      await aiPromptsApi.deleteKnowledge(block.id);
-      setItems(prev => prev.filter(b => b.id !== block.id));
+      await aiPromptsApi.deleteKnowledge(confirmDel.id);
+      setItems(prev => prev.filter(b => b.id !== confirmDel.id));
+      setConfirmDel(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось удалить');
+    } finally {
+      setDelBusy(false);
     }
   };
 
@@ -589,7 +635,7 @@ function KnowledgeBaseEditor({ toolKey, isSuperAdmin }: { toolKey: string; isSup
         )}
       </Box>
       <Typography variant="caption" sx={{ color: '#475569', display: 'block', mb: 1.5 }}>
-        Активные блоки автоматически добавляются в конец system-prompt при каждом вызове AI. Используй для правил, таблиц, FAQ — то что часто меняется.
+        Активные блоки автоматически добавляются в конец system-prompt при каждом вызове AI. Используйте для правил, таблиц, FAQ — того, что часто меняется.
       </Typography>
       {error && <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>{error}</Alert>}
       {loading ? (
@@ -599,7 +645,7 @@ function KnowledgeBaseEditor({ toolKey, isSuperAdmin }: { toolKey: string; isSup
       ) : items.length === 0 ? (
         <Box sx={{ py: 2.5, textAlign: 'center', borderRadius: 2, border: '1px dashed rgba(201,168,76,0.2)' }}>
           <Typography variant="caption" sx={{ color: '#64748B' }}>
-            Блоков пока нет. Нажми «Добавить блок» чтобы начать.
+            Блоков пока нет. Нажмите «Добавить блок», чтобы начать.
           </Typography>
         </Box>
       ) : (
@@ -625,10 +671,12 @@ function KnowledgeBaseEditor({ toolKey, isSuperAdmin }: { toolKey: string; isSup
               {isSuperAdmin && (
                 <>
                   <Switch checked={!!b.active} onChange={() => toggleActive(b)} size="small" />
-                  <Button size="small" variant="text" onClick={() => setEditing(b)} sx={{ color: '#C9A84C', minWidth: 'auto', px: 1 }}>
-                    Изм
-                  </Button>
-                  <IconButton size="small" onClick={() => remove(b)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                  <Tooltip title="Изменить">
+                    <IconButton size="small" onClick={() => setEditing(b)} sx={{ color: '#C9A84C', p: { xs: 1, md: 0.5 } }}>
+                      <EditRoundedIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                  <IconButton size="small" onClick={() => setConfirmDel(b)} sx={{ color: '#64748B', p: { xs: 1, md: 0.5 }, '&:hover': { color: '#EF4444' } }}>
                     <DeleteOutlineRoundedIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </>
@@ -646,6 +694,17 @@ function KnowledgeBaseEditor({ toolKey, isSuperAdmin }: { toolKey: string; isSup
           onSaved={() => { setAddOpen(false); setEditing(null); reload(); }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmDel !== null}
+        title="Удалить блок базы знаний?"
+        text={confirmDel ? <>Удалить блок «{confirmDel.title}»? Действие необратимо.</> : undefined}
+        confirmLabel="Удалить"
+        danger
+        loading={delBusy}
+        onConfirm={remove}
+        onClose={() => { if (!delBusy) setConfirmDel(null); }}
+      />
     </Box>
   );
 }
@@ -662,6 +721,17 @@ function KnowledgeDialog({
   const [active, setActive] = useState(block ? !!block.active : true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
+
+  // Есть ли несохранённые изменения относительно исходных значений блока.
+  const dirty =
+    title !== (block?.title || '') ||
+    content !== (block?.content || '') ||
+    orderIdx !== String(block?.order_idx ?? 0) ||
+    active !== (block ? !!block.active : true);
+  // Закрытие с подтверждением при несохранённом контенте (бэкдроп/крестик/«Отмена»).
+  const requestClose = () => { if (dirty) setConfirmClose(true); else onClose(); };
 
   const save = async () => {
     if (!title.trim() || !content.trim()) return;
@@ -687,12 +757,12 @@ function KnowledgeDialog({
   };
 
   return (
-    <Dialog open onClose={saving ? undefined : onClose} maxWidth="md" fullWidth>
+    <Dialog open onClose={saving ? undefined : requestClose} maxWidth="md" fullWidth fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
           {block ? 'Редактировать блок' : 'Новый блок базы знаний'}
         </Typography>
-        <IconButton size="small" onClick={onClose} disabled={saving} sx={{ color: '#64748B' }}>
+        <IconButton size="small" onClick={requestClose} disabled={saving} sx={{ color: '#64748B' }}>
           <CloseRoundedIcon />
         </IconButton>
       </DialogTitle>
@@ -727,11 +797,21 @@ function KnowledgeDialog({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button onClick={onClose} disabled={saving} sx={{ color: '#64748B' }}>Отмена</Button>
+        <Button onClick={requestClose} disabled={saving} sx={{ color: '#64748B' }}>Отмена</Button>
         <Button variant="contained" onClick={save} disabled={saving || !title.trim() || !content.trim()}>
           {saving ? 'Сохранение…' : 'Сохранить'}
         </Button>
       </DialogActions>
+
+      <ConfirmDialog
+        open={confirmClose}
+        title="Закрыть без сохранения?"
+        text="В блоке есть несохранённые изменения. Если закрыть, они пропадут."
+        confirmLabel="Закрыть без сохранения"
+        danger
+        onConfirm={() => { setConfirmClose(false); onClose(); }}
+        onClose={() => setConfirmClose(false)}
+      />
     </Dialog>
   );
 }

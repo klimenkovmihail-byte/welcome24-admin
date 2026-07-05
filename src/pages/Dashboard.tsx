@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Card, CardContent, Typography, Grid, Chip, alpha, CircularProgress, Alert, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { Box, Card, CardContent, Typography, Grid, Chip, alpha, CircularProgress, LinearProgress, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import { motion } from 'framer-motion';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
@@ -7,8 +7,10 @@ import HandshakeRoundedIcon from '@mui/icons-material/HandshakeRounded';
 import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
 import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
 import { statsApi, type OverviewResponse } from '../api/stats';
+import { ErrorState } from '../components/States';
+import { plural } from '../utils/format';
 
-const fmt = (n: number) => n >= 1000000 ? `${(n / 1000000).toFixed(1)} млн` : n >= 1000 ? `${(n / 1000).toFixed(0)} тыс` : String(n);
+const fmt = (n: number) => n >= 1000000 ? `${(n / 1000000).toFixed(1).replace('.', ',')} млн` : n >= 1000 ? `${(n / 1000).toFixed(0)} тыс` : String(n);
 const fmtFull = (n: number) => n.toLocaleString('ru-RU');
 
 const CustomTip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string; stroke?: string }>; label?: string }) => active && payload?.length ? (
@@ -45,6 +47,7 @@ export default function Dashboard() {
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const currentYear = String(new Date().getFullYear());
   const [filterYear, setFilterYear] = useState<string>(currentYear);
 
@@ -54,6 +57,7 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
     const opts: { year?: string } = {};
     if (filterYear !== 'all') opts.year = filterYear;
     statsApi.overview(opts)
@@ -61,16 +65,21 @@ export default function Dashboard() {
       .catch(err => { if (!cancelled) setError(err?.message || 'Ошибка загрузки'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [filterYear]);
+  }, [filterYear, reloadKey]);
 
   if (loading && !data) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
-  if (error)   return <Alert severity="error">{error}</Alert>;
+  if (error && !data)   return <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />;
   if (!data)   return null;
 
   const { agents, deals, monthlyDeals, agentsByCity, settings, monthlyNewAgents, monthlyShares } = data;
   const totalVkd = deals.totalVkd;
   const pendingDeals = deals.pending;
   const cityChart = agentsByCity.slice(0, 6).map((c, i) => ({ ...c, color: CITY_COLORS[i] }));
+  // Хвост городов за пределами топ-6 сворачиваем в один сегмент «Прочие»,
+  // иначе пирог молча теряет часть агентов и суммы не сходятся.
+  const restCities = agentsByCity.slice(6);
+  const restAgents = restCities.reduce((s, c) => s + c.agents, 0);
+  if (restAgents > 0) cityChart.push({ city: `Прочие (${restCities.length})`, agents: restAgents, color: CITY_COLORS[6] });
   const periodLabel = filterYear === 'all' ? 'за всё время' : `${filterYear} год`;
   const totalNewAgents = monthlyNewAgents.reduce((s, m) => s + m.newAgents, 0);
   const totalSharesOps = monthlyShares.reduce((s, m) => s + m.qty, 0);
@@ -92,12 +101,17 @@ export default function Dashboard() {
         </FormControl>
       </Box>
 
+      {loading && <LinearProgress sx={{ mb: 3, borderRadius: 1, '& .MuiLinearProgress-bar': { background: '#C9A84C' }, background: 'rgba(201,168,76,0.12)' }} />}
+      {error && <Box sx={{ mb: 3 }}><ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} /></Box>}
+
+      <Box sx={{ opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : 'auto' }}>
+
       {pendingDeals > 0 && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
           <Box sx={{ mb: 3, p: 2, borderRadius: 3, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', display: 'flex', alignItems: 'center', gap: 2 }}>
             <Box sx={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B', flexShrink: 0, boxShadow: '0 0 8px #F59E0B' }} />
             <Typography variant="body2" sx={{ color: '#F1F5F9' }}>
-              <b style={{ color: '#F59E0B' }}>{pendingDeals} сделки</b> ожидают верификации
+              <b style={{ color: '#F59E0B' }}>{pendingDeals} {plural(pendingDeals, 'сделка', 'сделки', 'сделок')}</b> {plural(pendingDeals, 'ожидает', 'ожидают', 'ожидают')} верификации
             </Typography>
           </Box>
         </motion.div>
@@ -106,13 +120,13 @@ export default function Dashboard() {
       {/* Stats */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatCard delay={0.05} icon={<PeopleRoundedIcon />} label="Всего агентов" value={agents.total} sub={`${agents.active} активных · ${agents.blocked + agents.inactive} заблокированных`} color="#4361EE" />
+          <StatCard delay={0.05} icon={<PeopleRoundedIcon />} label="Всего агентов" value={agents.total} sub={`${agents.active} активных · ${agents.inactive} неактивных · ${agents.blocked} заблокированных`} color="#4361EE" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard delay={0.1} icon={<HandshakeRoundedIcon />} label={`Сделки ${periodLabel}`} value={deals.total} sub={`ВКД: ${fmt(totalVkd)} ₽ · доход: ${fmt(deals.totalIncome)} ₽`} trend={pendingDeals > 0 ? `${pendingDeals} на верификации` : undefined} color="#C9A84C" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <StatCard delay={0.15} icon={<DiamondRoundedIcon />} label="Акции выпущено" value={fmtFull(settings.totalSharesIssued)} sub={`В обращении: ${fmtFull(settings.sharesInCirculation)} шт`} color="#7B2FBE" />
+          <StatCard delay={0.15} icon={<DiamondRoundedIcon />} label="Выпущено акций" value={fmtFull(settings.totalSharesIssued)} sub={`В обращении: ${fmtFull(settings.sharesInCirculation)} шт`} color="#7B2FBE" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard delay={0.2} icon={<TrendingUpRoundedIcon />} label="Курс 1 акции" value={`${fmtFull(settings.sharePrice)} ₽`} sub={`Капитализация: ${fmt(settings.totalSharesIssued * settings.sharePrice)} ₽`} color="#22C55E" />
@@ -233,6 +247,7 @@ export default function Dashboard() {
           </motion.div>
         </Grid>
       </Grid>
+      </Box>
     </Box>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, Box, Typography, Button, Chip, CircularProgress,
-  IconButton, Tooltip, Divider,
+  IconButton, Tooltip, Divider, Alert,
 } from '@mui/material';
 import TelegramIcon from '@mui/icons-material/Telegram';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
@@ -11,6 +11,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
 import { agentsApi } from '../api/agents';
 import { getPushState, enablePush, type PushState } from '../push';
+import ConfirmDialog from './ConfirmDialog';
 
 const GOLD = '#C9A84C';
 
@@ -27,11 +28,32 @@ export default function NotificationsDialog({ open, onClose }: { open: boolean; 
   const [push, setPush] = useState<PushState>('default');
   const [pushBusy, setPushBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Подтверждение отвязки: канал (для текста) и функция, выполняющая отвязку.
+  const [unlinkFor, setUnlinkFor] = useState<{ channel: string; run: () => Promise<void> } | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
+
+  const confirmUnlink = async () => {
+    if (!unlinkFor) return;
+    setUnlinking(true);
+    setError(null);
+    try {
+      await unlinkFor.run();
+      setUnlinkFor(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось отвязать мессенджер');
+    } finally {
+      setUnlinking(false);
+    }
+  };
 
   const loadTg = useCallback(() => { agentsApi.telegramLink().then(setTg).catch(() => setTg(null)).finally(() => setTgLoading(false)); }, []);
   const loadMx = useCallback(() => { agentsApi.maxLink().then(setMx).catch(() => setMx(null)).finally(() => setMxLoading(false)); }, []);
 
-  useEffect(() => { if (!open) return; loadTg(); loadMx(); getPushState().then(setPush).catch(() => setPush('unsupported')); }, [open, loadTg, loadMx]);
+  useEffect(() => {
+    if (!open) { setError(null); setUnlinkFor(null); return; }
+    loadTg(); loadMx(); getPushState().then(setPush).catch(() => setPush('unsupported'));
+  }, [open, loadTg, loadMx]);
   // Вернулся из мессенджера (нажал Start / отправил код) — обновляем статус.
   useEffect(() => {
     if (!open) return;
@@ -45,7 +67,7 @@ export default function NotificationsDialog({ open, onClose }: { open: boolean; 
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth
-      PaperProps={{ sx: { background: 'linear-gradient(135deg, #0F1629, #0A0E1A)', border: '1px solid rgba(201,168,76,0.18)', borderRadius: 3 } }}>
+      slotProps={{ paper: { sx: { background: 'linear-gradient(135deg, #0F1629, #0A0E1A)', border: '1px solid rgba(201,168,76,0.18)', borderRadius: 3 } } }}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#F1F5F9' }}>
         <NotificationsActiveRoundedIcon sx={{ color: GOLD }} /> Уведомления и бот
         <Box sx={{ flex: 1 }} />
@@ -56,10 +78,12 @@ export default function NotificationsDialog({ open, onClose }: { open: boolean; 
           Подключите мессенджер — и новые заявки вашего отдела и сообщения в чате будут приходить туда мгновенно.
         </Typography>
 
+        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
         {/* Telegram */}
         <Section icon={<TelegramIcon sx={{ color: '#229ED9', fontSize: 20 }} />} title="Telegram" subtitle="Новые заявки и сообщения в чат">
           {tgLoading ? <CircularProgress size={18} sx={{ color: '#229ED9' }} /> : tg?.linked ? (
-            <LinkedRow onUnlink={() => agentsApi.telegramUnlink().then(loadTg)} />
+            <LinkedRow onUnlink={() => setUnlinkFor({ channel: 'Telegram', run: () => agentsApi.telegramUnlink().then(loadTg) })} />
           ) : tg?.available && tg.deepLink ? (
             <Box>
               <Button variant="contained" fullWidth component="a" href={tg.deepLink} target="_blank" rel="noopener noreferrer" startIcon={<TelegramIcon />}
@@ -74,7 +98,7 @@ export default function NotificationsDialog({ open, onClose }: { open: boolean; 
         {/* MAX */}
         <Section icon={<ChatRoundedIcon sx={{ color: '#8B5CF6', fontSize: 20 }} />} title="MAX" subtitle="То же, в мессенджере MAX">
           {mxLoading ? <CircularProgress size={18} sx={{ color: '#8B5CF6' }} /> : mx?.linked ? (
-            <LinkedRow onUnlink={() => agentsApi.maxUnlink().then(loadMx)} />
+            <LinkedRow onUnlink={() => setUnlinkFor({ channel: 'MAX', run: () => agentsApi.maxUnlink().then(loadMx) })} />
           ) : mx?.available && mx.botLink ? (
             <Box>
               <Button variant="contained" fullWidth component="a" href={mx.botLink} target="_blank" rel="noopener noreferrer" startIcon={<ChatRoundedIcon />}
@@ -110,6 +134,17 @@ export default function NotificationsDialog({ open, onClose }: { open: boolean; 
           )}
         </Section>
       </DialogContent>
+
+      <ConfirmDialog
+        open={!!unlinkFor}
+        title="Отвязать мессенджер?"
+        text={unlinkFor ? <>Отвязать {unlinkFor.channel}? Уведомления о заявках перестанут приходить.</> : ''}
+        confirmLabel="Отвязать"
+        danger
+        loading={unlinking}
+        onConfirm={confirmUnlink}
+        onClose={() => { if (!unlinking) setUnlinkFor(null); }}
+      />
     </Dialog>
   );
 }

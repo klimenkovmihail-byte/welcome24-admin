@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { Box, Typography, TextField, IconButton, CircularProgress, Chip, Link, Menu, MenuItem, ListItemIcon } from '@mui/material';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
@@ -14,6 +14,7 @@ import DoneRoundedIcon from '@mui/icons-material/DoneRounded';
 import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded';
 import { api, API_BASE_URL, getToken } from '../api/apiClient';
 import { sseSubscribe, sseConnected } from '../lib/sse';
+import ConfirmDialog from './ConfirmDialog';
 
 // Единый чат заявки (Фазы Б–Г): один компонент вместо копий CaseChat + инлайн-чатов
 // рекламы. Параметризуется доменным путём apiBase ('/cases/14' | '/ad-requests/31') —
@@ -64,10 +65,28 @@ const roleColor = (r?: string | null) => ROLE_COLOR[r || ''] || '#94A3B8';
 
 // Картинка → превью + лайтбокс; прочие файлы — ссылкой.
 const isImage = (url?: string | null) => !!url && /\.(jpe?g|png|gif|webp|avif|bmp)(\?|$)/i.test(url);
+// URL внутри текста сообщения → кликабельная ссылка (ссылки на оплату рекламы и пр.
+// присылают текстом — без этого их приходилось копировать вручную).
+const URL_RE = /(https?:\/\/[^\s]+)/g;
+function linkify(text: string): ReactNode {
+  return text.split(URL_RE).map((part, i) =>
+    /^https?:\/\//i.test(part)
+      ? <Link key={i} href={part} target="_blank" rel="noopener noreferrer"
+          sx={{ color: '#8AB4F8', textDecoration: 'underline', wordBreak: 'break-all' }}>{part}</Link>
+      : part,
+  );
+}
 // Локальная метка времени в формате сервера ('YYYY-MM-DD HH:MM:SS', UTC).
 const nowStamp = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
-const fmtTime = (s: string) =>
-  new Date(s.replace(' ', 'T') + 'Z').toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+// Метка сообщения: день/месяц/время; год показываем только если сообщение не этого года
+// (в переписке за прошлые годы иначе непонятно, когда именно оно было).
+const fmtTime = (s: string) => {
+  const d = new Date(s.replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return '';
+  const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleString('ru-RU', opts);
+};
 
 async function uploadFile(file: File, base: string, privateFiles: boolean): Promise<Att> {
   const fd = new FormData();
@@ -95,7 +114,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   const base = `/api${apiBase}`;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState('');
-  const [pending, setPending] = useState<Att | null>(null);
+  const [pending, setPending] = useState<Att[]>([]); // до 5 вложений на отправку
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -106,6 +125,11 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [editing, setEditing] = useState<Msg | null>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; msg: Msg } | null>(null);
+  const [confirmDel, setConfirmDel] = useState<Msg | null>(null); // сообщение под удаление (ConfirmDialog)
+  const [deleting, setDeleting] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null); // ошибка удаления сообщения
+  const [newBelow, setNewBelow] = useState(false); // пришли сообщения, пока лента отмотана вверх
+  const inputRef = useRef<HTMLTextAreaElement>(null); // фокус в поле после «Ответить»/«Изменить»
   const tmpRef = useRef(-1); // отрицательные id для временных сообщений
   const lastIdRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -113,8 +137,24 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
   // Актуальный apiBase: при смене заявки без размонтирования (deep-link ?open=N)
   // поздний ответ старого чата не должен дописываться в новый.
   const baseRef = useRef(apiBase);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollDown = () => bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollRef = useRef<HTMLDivElement>(null);          // скролл-контейнер ленты
+  const didInitialScrollRef = useRef(false);               // первый скролл в самый низ — мгновенно
+  // Скроллим САМ контейнер ленты (не scrollIntoView — он дёргал и всю страницу).
+  const jumpToBottom = () => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; };
+  const scrollDown = () => { const el = scrollRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); };
+  // Пользователь «у низа» ленты — чужие сообщения автоскроллим; если отмотал вверх,
+  // ленту не дёргаем, а показываем плашку «Новое сообщение ↓».
+  const nearBottom = () => { const el = scrollRef.current; return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120; };
+  // Фокус в поле ввода (после «Ответить»/«Изменить»); toEnd — курсор в конец текста.
+  // setTimeout: даём меню закрыться и значению попасть в textarea.
+  const focusInput = (toEnd = false) => {
+    setTimeout(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      if (toEnd) el.setSelectionRange(el.value.length, el.value.length);
+    }, 0);
+  };
 
   // Дедупликация по id: перекрывающиеся ответы поллинга (медленная сеть)
   // и гонка poll↔send давали задвоенные сообщения.
@@ -137,9 +177,10 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
       if (baseRef.current !== apiBase) return; // переключились на другую заявку
       if (fresh.length) {
         lastIdRef.current = Math.max(lastIdRef.current, fresh[fresh.length - 1].id);
+        const stick = nearBottom(); // положение на момент прихода сообщений
         appendUnique(fresh);
         bumpReadUpTo(fresh);
-        setTimeout(scrollDown, 50);
+        if (stick) setTimeout(scrollDown, 50); else setNewBelow(true);
         api.post(`${base}/read`, { lastId: lastIdRef.current }).catch(() => {});
       }
     } catch { /* tolerate */ }
@@ -160,8 +201,21 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     baseRef.current = apiBase;
     setMessages([]); lastIdRef.current = 0; setLoading(true);
     setReadUpTo(0); setTypingBy(null); setReplyTo(null); setEditing(null);
+    setNewBelow(false); setConfirmDel(null);
+    didInitialScrollRef.current = false;
     poll().finally(() => setLoading(false));
   }, [poll, apiBase]);
+
+  // При первом открытии заявки — сразу к последним сообщениям (мгновенно, без анимации).
+  // Повторяем после догрузки картинок: их высота меняет общую высоту ленты.
+  useEffect(() => {
+    if (loading || didInitialScrollRef.current || messages.length === 0) return;
+    didInitialScrollRef.current = true;
+    jumpToBottom();
+    const t1 = setTimeout(jumpToBottom, 150);
+    const t2 = setTimeout(jumpToBottom, 500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [loading, messages.length]);
 
   // Фоллбэк-поллинг отдельным эффектом: смена частоты (live) не сбрасывает чат.
   useEffect(() => {
@@ -196,14 +250,24 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     };
   }, [apiBase, poll, reload, myId]);
 
-  const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Загрузка вложений: до 5 файлов, лишние отсекаем. Каждый уходит в свой бакет.
+  const addFiles = async (files: File[]) => {
+    if (!files.length || editing) return;       // в режиме правки вложения недоступны
+    const room = 5 - pending.length;
+    if (room <= 0) { setAttachError('Можно прикрепить не более 5 файлов.'); return; }
+    const toAdd = files.slice(0, room);
     setBusy(true);
-    setAttachError(null);
-    try { setPending(await uploadFile(file, base, privateFiles)); }
-    catch { setAttachError('Не удалось загрузить файл — попробуйте ещё раз.'); }
-    finally { setBusy(false); e.target.value = ''; }
+    setAttachError(files.length > room ? 'Можно прикрепить не более 5 файлов — лишние не добавлены.' : null);
+    try {
+      const uploaded: Att[] = [];
+      for (const f of toAdd) uploaded.push(await uploadFile(f, base, privateFiles));
+      setPending(prev => [...prev, ...uploaded]);
+    } catch { setAttachError('Не удалось загрузить файл — попробуйте ещё раз.'); }
+    finally { setBusy(false); }
+  };
+  const handleAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
+    addFiles(Array.from(e.target.files || []));
+    e.target.value = '';
   };
 
   // Доставка с повтором: меняет временное сообщение на настоящее либо метит «не доставлено».
@@ -222,13 +286,8 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     } finally { setBusy(false); }
   };
 
-  // Оптимистичная отправка: сообщение появляется мгновенно со статусом «отправка…».
-  const send = () => {
-    const body = text.trim();
-    // busy в guard'е: Enter не проверяет disabled кнопки → без него дубли при автоповторе клавиши.
-    if ((!body && !pending) || busy) return;
-    const att = pending;
-    const rep = replyTo;
+  // Одно оптимистичное сообщение (текст и/или одно вложение) + доставка с повтором.
+  const sendOne = (body: string, att: Att | null, rep: Msg | null) => {
     const tmpId = tmpRef.current--;
     const optimistic: Msg = {
       id: tmpId, sender_id: myId, sender_name: 'Вы', sender_role: myRole,
@@ -238,9 +297,22 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
       reply_attachment_name: rep?.attachment_name ?? null, reply_sender_name: rep?.sender_name ?? null,
     };
     setMessages(prev => [...prev, optimistic]);
-    setText(''); setPending(null); setReplyTo(null);
-    setTimeout(scrollDown, 50);
     deliver(tmpId, body, att, rep?.id ?? null);
+  };
+
+  // Оптимистичная отправка. Несколько вложений (до 5) → текст с первым файлом,
+  // остальные файлы — отдельными сообщениями (схема thread_messages хранит одно вложение).
+  const send = () => {
+    const body = text.trim();
+    const atts = pending;
+    // busy в guard'е: Enter не проверяет disabled кнопки → без него дубли при автоповторе клавиши.
+    if ((!body && atts.length === 0) || busy) return;
+    const rep = replyTo;
+    setText(''); setPending([]); setReplyTo(null);
+    setTimeout(scrollDown, 50);
+    if (atts.length === 0) { sendOne(body, null, rep); return; }
+    sendOne(body, atts[0], rep);
+    for (let i = 1; i < atts.length; i++) sendOne('', atts[i], null);
   };
 
   const retry = (m: Msg) => {
@@ -263,12 +335,18 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     } finally { setBusy(false); }
   };
 
-  const removeMsg = async (m: Msg) => {
-    if (!window.confirm('Удалить сообщение? Текст и вложение будут стёрты у всех.')) return;
+  // Подтверждённое удаление (ConfirmDialog вместо системного window.confirm).
+  const removeMsg = async () => {
+    const m = confirmDel;
+    if (!m || deleting) return;
+    setDeleting(true); setDelError(null);
     try {
       const updated = await api.del<ThreadMessage>(`${base}/messages/${m.id}`);
       setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, ...updated } : x)));
-    } catch { /* tolerate */ }
+      setConfirmDel(null);
+    } catch (e) {
+      setDelError(e instanceof Error ? e.message : 'Не удалось удалить сообщение — попробуйте ещё раз.');
+    } finally { setDeleting(false); }
   };
 
   const copyMsg = (m: Msg) => { navigator.clipboard?.writeText(m.body || '').catch(() => {}); };
@@ -283,14 +361,16 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
     }
   };
 
-  const startEdit = (m: Msg) => { setEditing(m); setReplyTo(null); setText(m.body); };
+  const startEdit = (m: Msg) => { setEditing(m); setReplyTo(null); setText(m.body); focusInput(true); };
   const cancelEdit = () => { setEditing(null); setText(''); };
 
   const openMenu = (e: React.MouseEvent<HTMLElement>, msg: Msg) => { e.stopPropagation(); setMenu({ anchor: e.currentTarget as HTMLElement, msg }); };
 
   return (
     <Box sx={fillHeight ? { display: 'flex', flexDirection: 'column', height: '100%' } : undefined}>
-      <Box sx={{ ...(fillHeight ? { flex: 1, minHeight: 0 } : { maxHeight }), overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1, p: 1, borderRadius: 2, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <Box sx={{ position: 'relative', ...(fillHeight ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : {}) }}>
+      <Box ref={scrollRef} onScroll={() => { if (newBelow && nearBottom()) setNewBelow(false); }}
+        sx={{ ...(fillHeight ? { flex: 1, minHeight: 0 } : { maxHeight }), overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1, p: 1, borderRadius: 2, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)' }}>
         {loading ? (
           <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} sx={{ color: '#C9A84C' }} /></Box>
         ) : messages.length === 0 ? (
@@ -304,8 +384,11 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
             <Box key={m.id} sx={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '82%' }}>
               <Box sx={{ position: 'relative', px: 1.5, py: 0.8, borderRadius: 2, background: `${c}1A`, border: `1px solid ${c}38`, opacity: m._status === 'sending' ? 0.65 : 1, '&:hover .msg-menu': { opacity: 1 } }}>
                 {!deleted && !m._status && (
+                  // Тап-таргет ≥40px на телефоне: расширяем зону паддингом, а отрицательным
+                  // сдвигом top/right держим иконку в углу пузыря (визуал не меняется).
                   <IconButton className="msg-menu" size="small" onClick={e => openMenu(e, m)}
-                    sx={{ position: 'absolute', top: 2, right: 2, p: 0.2, color: '#64748B', opacity: { xs: 0.5, md: 0 }, transition: 'opacity .15s' }}>
+                    aria-label="Действия с сообщением"
+                    sx={{ position: 'absolute', top: { xs: -6, md: 2 }, right: { xs: -6, md: 2 }, p: { xs: '12px', md: 0.2 }, color: '#64748B', opacity: { xs: 0.5, md: 0 }, transition: 'opacity .15s' }}>
                     <MoreHorizRoundedIcon sx={{ fontSize: 16 }} />
                   </IconButton>
                 )}
@@ -326,7 +409,7 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
                   <Typography variant="body2" sx={{ color: '#64748B', fontStyle: 'italic' }}>Сообщение удалено</Typography>
                 ) : (
                   <>
-                    {m.body && m.body !== '[object Object]' && <Typography variant="body2" sx={{ color: '#E2E8F0', whiteSpace: 'pre-wrap' }}>{m.body}</Typography>}
+                    {m.body && m.body !== '[object Object]' && <Typography variant="body2" sx={{ color: '#E2E8F0', whiteSpace: 'pre-wrap' }}>{linkify(m.body)}</Typography>}
                     {m.attachment_url && (img ? (
                       <Box component="img" src={m.attachment_url} alt={m.attachment_name || ''} loading="lazy"
                         onClick={() => setLightbox(m.attachment_url!)}
@@ -365,7 +448,15 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
             {typingBy} печатает…
           </Typography>
         )}
-        <div ref={bottomRef} />
+      </Box>
+      {newBelow && (
+        <Chip label="Новое сообщение ↓" size="small"
+          onClick={() => { setNewBelow(false); scrollDown(); }}
+          sx={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 3,
+            background: 'rgba(0,0,0,0.65)', color: '#E2C97E', border: '1px solid rgba(201,168,76,0.35)',
+            backdropFilter: 'blur(4px)', cursor: 'pointer', fontWeight: 600,
+            '&:hover': { background: 'rgba(0,0,0,0.8)' } }} />
+      )}
       </Box>
 
       {replyTo && !editing && (
@@ -387,32 +478,39 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
           <IconButton size="small" onClick={cancelEdit} sx={{ color: '#64748B' }}><CloseRoundedIcon sx={{ fontSize: 16 }} /></IconButton>
         </Box>
       )}
-      {pending && (
-        <Chip icon={<DescriptionRoundedIcon />} label={pending.name} onDelete={() => setPending(null)} deleteIcon={<CloseRoundedIcon />}
-          sx={{ mt: 1, maxWidth: '100%', background: 'rgba(201,168,76,0.12)', color: '#E2C97E', '& .MuiChip-icon': { color: '#C9A84C' } }} />
+      {pending.length > 0 && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+          {pending.map((p, i) => (
+            <Chip key={i} icon={<DescriptionRoundedIcon />} label={p.name} onDelete={() => setPending(prev => prev.filter((_, j) => j !== i))} deleteIcon={<CloseRoundedIcon />}
+              sx={{ maxWidth: '100%', background: 'rgba(201,168,76,0.12)', color: '#E2C97E', '& .MuiChip-icon': { color: '#C9A84C' } }} />
+          ))}
+        </Box>
       )}
       {attachError && (
         <Typography variant="caption" sx={{ color: '#EF4444', mt: 1, display: 'block' }}>{attachError}</Typography>
       )}
-      <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center' }}>
-        <IconButton component="label" disabled={busy || !!editing} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
+      <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'flex-end' }}>
+        <IconButton component="label" disabled={busy || !!editing || pending.length >= 5} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
           <AttachFileRoundedIcon />
-          <input type="file" hidden onChange={handleAttach} />
+          <input type="file" hidden multiple onChange={handleAttach} />
         </IconButton>
-        <TextField size="small" fullWidth placeholder={editing ? 'Исправьте текст…' : 'Написать сообщение…'} value={text}
+        <TextField size="small" fullWidth multiline maxRows={5} inputRef={inputRef} placeholder={editing ? 'Исправьте текст…' : 'Написать сообщение…'} value={text}
           onChange={e => onType(e.target.value)}
           onKeyDown={e => {
+            // Десктоп: Enter отправляет, Shift+Enter — перенос строки.
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); editing ? saveEdit() : send(); }
             if (e.key === 'Escape' && editing) cancelEdit();
           }} />
-        <IconButton onClick={editing ? saveEdit : send} disabled={busy || (!text.trim() && !pending)} sx={{ color: editing ? '#60A5FA' : '#C9A84C' }}>
+        <IconButton onClick={editing ? saveEdit : send} disabled={busy || (!text.trim() && pending.length === 0)} sx={{ color: editing ? '#60A5FA' : '#C9A84C' }}>
           {busy ? <CircularProgress size={18} /> : editing ? <DoneRoundedIcon /> : <SendRoundedIcon />}
         </IconButton>
       </Box>
 
-      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}
+      {/* disableRestoreFocus: после «Ответить»/«Изменить» фокус должен остаться в поле ввода,
+          а не вернуться на кнопку «⋯» сообщения. */}
+      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)} disableRestoreFocus
         slotProps={{ paper: { sx: { background: '#0F172A', border: '1px solid rgba(201,168,76,0.2)' } } }}>
-        <MenuItem onClick={() => { if (menu) { setReplyTo(menu.msg); setEditing(null); } setMenu(null); }}>
+        <MenuItem onClick={() => { if (menu) { setReplyTo(menu.msg); setEditing(null); focusInput(); } setMenu(null); }}>
           <ListItemIcon><ReplyRoundedIcon sx={{ fontSize: 18, color: '#94A3B8' }} /></ListItemIcon>Ответить
         </MenuItem>
         {!!menu?.msg.body && (
@@ -426,11 +524,24 @@ export default function Thread({ apiBase, myId, myRole = 'agent', fillHeight, ma
           </MenuItem>
         )}
         {menu && menu.msg.sender_id === myId && (
-          <MenuItem onClick={() => { removeMsg(menu.msg); setMenu(null); }} sx={{ color: '#EF4444' }}>
+          <MenuItem onClick={() => { setConfirmDel(menu.msg); setDelError(null); setMenu(null); }} sx={{ color: '#EF4444' }}>
             <ListItemIcon><DeleteOutlineRoundedIcon sx={{ fontSize: 18, color: '#EF4444' }} /></ListItemIcon>Удалить
           </MenuItem>
         )}
       </Menu>
+
+      <ConfirmDialog
+        open={!!confirmDel}
+        title="Удалить сообщение?"
+        text={delError
+          ? <Typography component="span" variant="body2" sx={{ color: '#EF4444' }}>{delError}</Typography>
+          : 'Сообщение будет скрыто у всех участников.'}
+        confirmLabel="Удалить"
+        danger
+        loading={deleting}
+        onConfirm={removeMsg}
+        onClose={() => { if (!deleting) { setConfirmDel(null); setDelError(null); } }}
+      />
 
       {lightbox && (
         <Box onClick={() => setLightbox(null)} sx={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, cursor: 'zoom-out' }}>

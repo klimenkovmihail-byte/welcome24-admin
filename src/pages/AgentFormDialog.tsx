@@ -10,10 +10,11 @@ import {
   InputAdornment, Chip, Avatar, Stack, Divider, Dialog, DialogTitle,
   DialogContent, DialogActions, IconButton, FormControl, InputLabel,
   Radio, RadioGroup, FormControlLabel, FormLabel, Autocomplete,
-  ToggleButtonGroup, ToggleButton, Alert,
+  ToggleButtonGroup, ToggleButton, Alert, Tooltip, Snackbar,
 } from '@mui/material';
 import SmartAvatar from '../components/SmartAvatar';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import PhotoCameraRoundedIcon from '@mui/icons-material/PhotoCameraRounded';
@@ -25,7 +26,10 @@ import BadgeRoundedIcon from '@mui/icons-material/BadgeRounded';
 import { companySettings } from '../data/mockData';
 import type { Agent, AgentLevel, AgentStatus, AgentSocials } from '../types';
 import { agentsApi } from '../api/agents';
+import { getCurrentUser } from '../auth/auth';
 import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая', 'Загородная'];
 
@@ -86,9 +90,18 @@ interface Props {
 }
 
 export default function AgentFormDialog({ open, onClose, agents, editTarget, canManageRoles, canManagePassword = false, defaultKind = 'agent', onSaved }: Props) {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Снимок исходной формы — чтобы понять, есть ли несохранённые правки (dirty).
+  const [initialForm, setInitialForm] = useState<FormState>(emptyForm);
+  // Показывать предупреждение createIssue только после первой попытки сохранить.
+  const [touched, setTouched] = useState(false);
+  // Подтверждение закрытия при несохранённых правках (клик по фону / крестику).
+  const [confirmClose, setConfirmClose] = useState(false);
+  // Снэк «Скопировано» при копировании сгенерированного пароля.
+  const [copied, setCopied] = useState(false);
 
   // Инициализация при открытии (create или edit).
   useEffect(() => {
@@ -97,7 +110,7 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
       const r = ((editTarget as Agent & { role?: Role }).role || 'agent') as Role;
       // Любая не-агентская роль = тип «Сотрудник» (employee/referral_partner тоже).
       const isStaff = r !== 'agent';
-      setForm({
+      const next: FormState = {
         kind: isStaff ? 'staff' : 'agent',
         staffRole: isStaff ? (r as 'manager' | 'admin' | 'super_admin' | 'lawyer' | 'broker' | 'listing_manager' | 'employee' | 'referral_partner') : 'manager',
         name: editTarget.name, email: editTarget.email, phone: editTarget.phone, city: editTarget.city,
@@ -113,10 +126,16 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
         photo: editTarget.photo || '',
         bio: editTarget.bio || '',
         socials: { ...(editTarget.socials || {}) },
-      });
+      };
+      setForm(next);
+      setInitialForm(next);
     } else {
-      setForm({ ...emptyForm, kind: defaultKind });
+      const next = { ...emptyForm, kind: defaultKind };
+      setForm(next);
+      setInitialForm(next);
     }
+    setTouched(false);
+    setConfirmClose(false);
     setError(null);
   }, [open, editTarget, defaultKind]);
 
@@ -149,7 +168,28 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
     return null;
   }, [editTarget, form.name, form.phone, form.birthDate, agents]);
 
+  // Есть ли несохранённые правки (для подтверждения закрытия по фону/крестику).
+  const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initialForm), [form, initialForm]);
+
+  // Закрытие с проверкой dirty: при несохранённых правках — спросить подтверждение.
+  const requestClose = () => {
+    if (saving) return;
+    if (dirty) { setConfirmClose(true); return; }
+    onClose();
+  };
+
+  // Копирование сгенерированного пароля в буфер + снэк «Скопировано».
+  const copyPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(form.password);
+      setCopied(true);
+    } catch {
+      /* буфер недоступен (нет https/разрешения) — тихо игнорируем */
+    }
+  };
+
   const handleSave = async () => {
+    setTouched(true);
     if (!form.name.trim()) return;
     if (createIssue) { setError(createIssue); return; }
     const parentId = form.parentType === 'company' ? null : form.parentId;
@@ -203,13 +243,25 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
 
   const isStaff = form.kind === 'staff';
 
+  // Защита UI: только super_admin может трогать супер-админ-цель.
+  // (Бэк уже это запрещает — здесь прячем элементы, чтобы не вводить в заблуждение.)
+  const currentUserRole = (getCurrentUser()?.role || 'agent') as Role;
+  const isSuperAdmin = currentUserRole === 'super_admin';
+  const targetRoleNow = ((editTarget as (Agent & { role?: Role }) | null)?.role || 'agent') as Role;
+  const targetIsSuperAdmin = !!editTarget && targetRoleNow === 'super_admin';
+  // Блок «Сброс пароля» скрываем, если не-super_admin редактирует супер-админа.
+  const showPasswordBlock = canManagePassword && !(targetIsSuperAdmin && !isSuperAdmin);
+  // Роль super_admin в выпадающем списке доступна только самому super_admin.
+  const canAssignSuperAdmin = isSuperAdmin;
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={requestClose} maxWidth="sm" fullWidth
+      fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
           {editTarget ? (isStaff ? 'Редактировать сотрудника' : 'Редактировать агента') : (isStaff ? 'Добавить сотрудника' : 'Добавить агента')}
         </Typography>
-        <IconButton size="small" onClick={onClose} sx={{ color: '#64748B' }}>
+        <IconButton size="small" onClick={requestClose} sx={{ color: '#64748B' }}>
           <CloseRoundedIcon />
         </IconButton>
       </DialogTitle>
@@ -254,7 +306,9 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
                     <MenuItem value="employee"    sx={{ color: ROLE_COLOR.employee,    fontWeight: 600 }}>{ROLE_LABEL.employee} — портал как у агента, без админки</MenuItem>
                     <MenuItem value="referral_partner" sx={{ color: ROLE_COLOR.referral_partner, fontWeight: 600 }}>{ROLE_LABEL.referral_partner} — портал: MLM, Акции, Профиль</MenuItem>
                     <MenuItem value="admin"       sx={{ color: ROLE_COLOR.admin,       fontWeight: 600 }}>{ROLE_LABEL.admin} — Агенты/Сделки/Акции/Поддержка/Новости</MenuItem>
-                    <MenuItem value="super_admin" sx={{ color: ROLE_COLOR.super_admin, fontWeight: 600 }}>{ROLE_LABEL.super_admin} — полный доступ</MenuItem>
+                    {canAssignSuperAdmin && (
+                      <MenuItem value="super_admin" sx={{ color: ROLE_COLOR.super_admin, fontWeight: 600 }}>{ROLE_LABEL.super_admin} — полный доступ</MenuItem>
+                    )}
                   </Select>
                 </FormControl>
               )}
@@ -262,16 +316,16 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
           )}
 
           <TextField fullWidth label="ФИО" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} size="small" />
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
             {editTarget && <TextField fullWidth label="Email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} size="small" />}
             <TextField fullWidth label="Телефон" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} size="small" />
           </Box>
           {!editTarget && (
             <Alert severity="info" sx={{ py: 0.5 }}>
-              Email и пароль агент задаёт сам при первом входе в портал (вход по телефону-звонком). Выдавать пароль вручную не нужно.
+              Email и пароль агент задаст сам при первом входе — подтверждение звонком на телефон. Выдавать пароль вручную не нужно.
             </Alert>
           )}
-          {editTarget && canManagePassword && (
+          {editTarget && showPasswordBlock && (
             <Box sx={{
               p: 2, borderRadius: 2, background: 'rgba(67,97,238,0.04)',
               border: '1px solid rgba(67,97,238,0.15)',
@@ -282,11 +336,18 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               <Stack direction="row" spacing={1} alignItems="center">
                 <TextField
                   fullWidth size="small" type="text"
-                  label="Новый пароль (или сгенерируй)"
+                  label="Новый пароль (или сгенерируйте)"
                   value={form.password}
                   onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  placeholder="оставь пусто — пароль не изменится"
+                  placeholder="оставьте пустым — пароль не изменится"
                 />
+                {form.password && (
+                  <Tooltip title="Скопировать пароль">
+                    <IconButton size="small" onClick={copyPassword} sx={{ flexShrink: 0, color: '#64748B', '&:hover': { color: '#4361EE' } }}>
+                      <ContentCopyRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
                 <Button
                   variant="outlined"
                   size="small"
@@ -305,14 +366,14 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               </Stack>
               {form.password && (
                 <Alert severity="warning" sx={{ mt: 1.5, py: 0.5 }}>
-                  Скопируй пароль и отправь агенту вручную (через Telegram/WhatsApp).
+                  Скопируйте пароль и отправьте агенту вручную (через Telegram/WhatsApp).
                   После «Сохранить» пароль будет применён.
                 </Alert>
               )}
             </Box>
           )}
           {editTarget && <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />}
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
             <TextField fullWidth label="Дата присоединения" type="date" value={form.joinDate}
               onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} size="small"
               slotProps={{ inputLabel: { shrink: true } }} />
@@ -477,15 +538,39 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
           </Box>
 
           {error && <Alert severity="error" sx={{ py: 0.5 }} onClose={() => setError(null)}>{error}</Alert>}
-          {!error && createIssue && <Alert severity="warning" sx={{ py: 0.5 }}>{createIssue}</Alert>}
+          {!error && touched && createIssue && <Alert severity="warning" sx={{ py: 0.5 }}>{createIssue}</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button onClick={onClose} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-        <Button variant="contained" onClick={handleSave} disabled={saving || !!createIssue || !form.name.trim() || (!!editTarget && !form.email.trim())}>
+        <Button onClick={requestClose} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+        <Button variant="contained" onClick={handleSave} disabled={saving || !form.name.trim() || (!!editTarget && !form.email.trim())}>
           {saving ? 'Сохранение…' : editTarget ? 'Сохранить' : (isStaff ? 'Создать сотрудника' : 'Создать агента')}
         </Button>
       </DialogActions>
+
+      {/* Подтверждение закрытия при несохранённых правках */}
+      <ConfirmDialog
+        open={confirmClose}
+        title="Закрыть без сохранения?"
+        text="Несохранённые изменения будут потеряны."
+        confirmLabel="Закрыть"
+        cancelLabel="Остаться"
+        danger
+        onConfirm={() => { setConfirmClose(false); onClose(); }}
+        onClose={() => setConfirmClose(false)}
+      />
+
+      {/* Снэк после копирования пароля */}
+      <Snackbar
+        open={copied}
+        autoHideDuration={2000}
+        onClose={() => setCopied(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setCopied(false)} sx={{ borderRadius: 2.5 }}>
+          Скопировано
+        </Alert>
+      </Snackbar>
     </Dialog>
   );
 }

@@ -17,6 +17,8 @@ import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import BoltRoundedIcon from '@mui/icons-material/BoltRounded';
 import { subscriptionAdminApi, type PendingClaim, type PaymentRow } from '../api/subscription';
+import { plural, formatDate, formatDateTime, formatRub } from '../utils/format';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 const RU_MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
@@ -25,9 +27,9 @@ const formatPeriod = (p: string) => {
   return `${RU_MONTHS[m - 1]} ${y}`;
 };
 const METHOD_CFG: Record<PaymentRow['method'], { label: string; color: string; bg: string }> = {
-  auto:   { label: 'Автоматически',  color: '#22C55E', bg: 'rgba(34,197,94,0.12)' },
-  manual: { label: 'Подтверждено',   color: '#94A3B8', bg: 'rgba(148,163,184,0.12)' },
-  direct: { label: 'Прямая оплата',  color: '#4361EE', bg: 'rgba(67,97,238,0.12)' },
+  auto:   { label: 'Автоматически',   color: '#22C55E', bg: 'rgba(34,197,94,0.12)' },
+  manual: { label: 'Вручную (админ)', color: '#94A3B8', bg: 'rgba(148,163,184,0.12)' },
+  direct: { label: 'Прямая оплата',   color: '#4361EE', bg: 'rgba(67,97,238,0.12)' },
 };
 
 // Лента подтверждённых оплат АП с фильтром по ФИО и периоду. Способ оплаты — чипом
@@ -73,7 +75,7 @@ function PaymentsHistory() {
         <TextField
           size="small" placeholder="Поиск по ФИО, email, городу" value={q} onChange={e => setQ(e.target.value)}
           sx={{ flex: '1 1 260px' }}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ color: '#64748B', fontSize: 20 }} /></InputAdornment> }}
+          slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ color: '#64748B', fontSize: 20 }} /></InputAdornment> } }}
         />
         <FormControl size="small" sx={{ minWidth: 170 }}>
           <InputLabel>Период</InputLabel>
@@ -83,7 +85,7 @@ function PaymentsHistory() {
           </Select>
         </FormControl>
         <Box sx={{ flex: 1 }} />
-        <Chip label={`${fmt(total)} оплат · ${fmt(totalAmount)} ₽`} sx={{ background: 'rgba(34,197,94,0.12)', color: '#22C55E', fontWeight: 700 }} />
+        <Chip label={`${fmt(total)} ${plural(total, 'оплата', 'оплаты', 'оплат')} · ${formatRub(totalAmount)}`} sx={{ background: 'rgba(34,197,94,0.12)', color: '#22C55E', fontWeight: 700 }} />
       </Box>
 
       {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr(null)}>{err}</Alert>}
@@ -124,8 +126,8 @@ function PaymentsHistory() {
                     </TableCell>
                     <TableCell><Typography variant="body2" sx={{ color: '#94A3B8' }}>{r.agent_city || '—'}</Typography></TableCell>
                     <TableCell><Chip label={formatPeriod(r.period)} size="small" sx={{ background: 'rgba(67,97,238,0.10)', color: '#4361EE', fontWeight: 700, fontSize: 11 }} /></TableCell>
-                    <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(r.amount)} ₽</Typography></TableCell>
-                    <TableCell><Typography variant="caption" sx={{ color: '#94A3B8' }}>{r.paid_at ? new Date(r.paid_at.replace(' ', 'T') + 'Z').toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</Typography></TableCell>
+                    <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{formatRub(r.amount)}</Typography></TableCell>
+                    <TableCell><Typography variant="caption" sx={{ color: '#94A3B8' }}>{r.paid_at ? formatDateTime(r.paid_at) : '—'}</Typography></TableCell>
                     <TableCell><Chip icon={r.method === 'auto' ? <BoltRoundedIcon sx={{ fontSize: 13 }} /> : undefined} label={mc.label} size="small" sx={{ background: mc.bg, color: mc.color, fontWeight: 700, fontSize: 11, '& .MuiChip-icon': { color: mc.color } }} /></TableCell>
                     <TableCell><Typography variant="caption" sx={{ color: '#64748B', fontFamily: 'monospace' }}>{r.payment_ref && r.payment_ref !== 'MANUAL' && r.payment_ref !== 'DIRECT' ? r.payment_ref : '—'}</Typography></TableCell>
                   </TableRow>
@@ -137,7 +139,7 @@ function PaymentsHistory() {
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
               <Button variant="outlined" disabled={loading} onClick={() => setOffset(o => o + LIMIT)}
                 sx={{ borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C' }}>
-                Показать ещё (показано {rows.length} из {total})
+                Ещё {Math.min(LIMIT, total - rows.length)} · показано {rows.length} из {total}
               </Button>
             </Box>
           )}
@@ -148,6 +150,7 @@ function PaymentsHistory() {
 }
 
 export default function SubscriptionClaims() {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [tab, setTab] = useState(0);
   const [claims, setClaims] = useState<PendingClaim[]>([]);
   const [loading, setLoading] = useState(true);
@@ -207,7 +210,7 @@ export default function SubscriptionClaims() {
             Агенты, нажавшие «Я оплатил» — проверь поступление и подтверди или отклони
           </Typography>
         </Box>
-        <Chip label={`${claims.length} заявок · ${fmt(totalAmount)} ₽`} sx={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontWeight: 700 }} />
+        <Chip label={`${claims.length} ${plural(claims.length, 'заявка', 'заявки', 'заявок')} · ${formatRub(totalAmount)}`} sx={{ background: 'rgba(245,158,11,0.12)', color: '#F59E0B', fontWeight: 700 }} />
       </Box>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid rgba(201,168,76,0.12)', '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, color: '#94A3B8' }, '& .Mui-selected': { color: '#C9A84C !important' }, '& .MuiTabs-indicator': { background: '#C9A84C' } }}>
@@ -226,7 +229,9 @@ export default function SubscriptionClaims() {
           Нет заявок на подтверждение. Когда агент нажмёт «Я оплатил» — заявка появится здесь.
         </Alert>
       ) : (
-        <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
+        <>
+        {/* Десктоп/планшет (sm+) — таблица */}
+        <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: { xs: 'none', sm: 'block' } }}>
           <Table>
             <TableHead>
               <TableRow>
@@ -259,18 +264,18 @@ export default function SubscriptionClaims() {
                     <Chip label={formatPeriod(c.period)} size="small" sx={{ background: 'rgba(67,97,238,0.10)', color: '#4361EE', fontWeight: 700, fontSize: 11 }} />
                   </TableCell>
                   <TableCell align="right">
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(c.amount)} ₽</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{formatRub(c.amount)}</Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption" sx={{ color: '#64748B' }}>
-                      {c.claimed_at ? new Date(c.claimed_at.replace(' ', 'T') + 'Z').toLocaleString('ru-RU') : '—'}
+                      {c.claimed_at ? formatDateTime(c.claimed_at) : '—'}
                     </Typography>
                   </TableCell>
                   <TableCell align="center">
-                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
                       <Tooltip title="Подтвердить с указанием номера транзакции">
                         <span>
-                          <IconButton size="small" disabled={busy === c.id}
+                          <IconButton disabled={busy === c.id}
                             onClick={() => { setPaymentRefFor(c); setPaymentRef(''); }}
                             sx={{ color: '#22C55E', '&:hover': { background: 'rgba(34,197,94,0.10)' } }}
                           >
@@ -280,7 +285,7 @@ export default function SubscriptionClaims() {
                       </Tooltip>
                       <Tooltip title="Отклонить с причиной">
                         <span>
-                          <IconButton size="small" disabled={busy === c.id}
+                          <IconButton disabled={busy === c.id}
                             onClick={() => { setRejectFor(c); setRejectReason(''); }}
                             sx={{ color: '#EF4444', '&:hover': { background: 'rgba(239,68,68,0.10)' } }}
                           >
@@ -295,25 +300,82 @@ export default function SubscriptionClaims() {
             </TableBody>
           </Table>
         </TableContainer>
+
+        {/* Телефон (xs) — карточки: ФИО, период, сумма и две крупные кнопки */}
+        <Box sx={{ display: { xs: 'flex', sm: 'none' }, flexDirection: 'column', gap: 1.5 }}>
+          {claims.map((c, i) => (
+            <motion.div key={c.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}>
+              <Paper sx={{ p: 2, borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                  <Avatar sx={{ width: 36, height: 36, fontSize: 13, background: 'rgba(245,158,11,0.18)', color: '#F59E0B', fontWeight: 700 }}>
+                    {c.agent_name.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                  </Avatar>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }} noWrap>{c.agent_name}</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }} noWrap>
+                      {c.agent_email}{c.agent_city ? ` · ${c.agent_city}` : ''}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
+                  <Chip label={formatPeriod(c.period)} size="small" sx={{ background: 'rgba(67,97,238,0.10)', color: '#4361EE', fontWeight: 700, fontSize: 11 }} />
+                  <Typography variant="body2" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{formatRub(c.amount)}</Typography>
+                </Box>
+                {c.claimed_at && (
+                  <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mb: 1.5 }}>
+                    Заявка от {formatDateTime(c.claimed_at)}
+                  </Typography>
+                )}
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button fullWidth size="small" variant="outlined" disabled={busy === c.id}
+                    startIcon={<CheckCircleRoundedIcon />}
+                    onClick={() => { setPaymentRefFor(c); setPaymentRef(''); }}
+                    sx={{ borderColor: 'rgba(34,197,94,0.4)', color: '#22C55E', '&:hover': { borderColor: '#22C55E', background: 'rgba(34,197,94,0.08)' } }}>
+                    Подтвердить
+                  </Button>
+                  <Button fullWidth size="small" variant="outlined" disabled={busy === c.id}
+                    startIcon={<CancelRoundedIcon />}
+                    onClick={() => { setRejectFor(c); setRejectReason(''); }}
+                    sx={{ borderColor: 'rgba(239,68,68,0.4)', color: '#EF4444', '&:hover': { borderColor: '#EF4444', background: 'rgba(239,68,68,0.08)' } }}>
+                    Отклонить
+                  </Button>
+                </Box>
+              </Paper>
+            </motion.div>
+          ))}
+        </Box>
+        </>
       )}
 
-      <Alert severity="info" sx={{ mt: 3 }} icon={false}>
-        <b>Авто-режим:</b> подключи в личном кабинете YooKassa HTTP-уведомления на URL{' '}
-        <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>{import.meta.env.VITE_API_URL || ''}/api/subscription/yookassa-webhook</code>
-        {' '}— тогда оплаты с правильной меткой будут закрываться автоматически без этой страницы, а строка появится во вкладке «История оплат».
-      </Alert>
+      <Box
+        component="details"
+        sx={{
+          mt: 3, borderRadius: 2, border: '1px solid rgba(67,97,238,0.25)', background: 'rgba(67,97,238,0.06)',
+          '& > summary': { cursor: 'pointer', px: 2, py: 1.25, listStyle: 'none', color: '#94A3B8', fontSize: 13, fontWeight: 600 },
+          '& > summary::-webkit-details-marker': { display: 'none' },
+          '&[open] > summary': { borderBottom: '1px solid rgba(67,97,238,0.2)' },
+        }}
+      >
+        <Box component="summary">Как включить авто-режим (подтверждать оплаты без этой страницы)</Box>
+        <Box sx={{ px: 2, py: 1.5, color: '#94A3B8', fontSize: 13, lineHeight: 1.6 }}>
+          Подключите в личном кабинете YooKassa HTTP-уведомления на URL{' '}
+          <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4, wordBreak: 'break-all' }}>{import.meta.env.VITE_API_URL || ''}/api/subscription/yookassa-webhook</code>
+          {' '}— тогда оплаты с правильной меткой будут закрываться автоматически, а строка появится во вкладке «История оплат».
+        </Box>
+      </Box>
       </>
       )}
 
       {/* Confirm dialog (с опциональным номером транзакции) */}
-      <Dialog open={!!paymentRefFor} onClose={() => setPaymentRefFor(null)} maxWidth="xs" fullWidth>
+      <Dialog open={!!paymentRefFor} onClose={() => setPaymentRefFor(null)} maxWidth="xs" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle>Подтвердить оплату</DialogTitle>
         <DialogContent>
           {paymentRefFor && (
             <>
               <Typography variant="body2" sx={{ color: '#94A3B8', mb: 2 }}>
                 <b style={{ color: '#F1F5F9' }}>{paymentRefFor.agent_name}</b> · период{' '}
-                <b style={{ color: '#F1F5F9' }}>{formatPeriod(paymentRefFor.period)}</b> · {fmt(paymentRefFor.amount)} ₽
+                <b style={{ color: '#F1F5F9' }}>{formatPeriod(paymentRefFor.period)}</b> · {formatRub(paymentRefFor.amount)}
               </Typography>
               <TextField
                 fullWidth size="small"
@@ -321,24 +383,26 @@ export default function SubscriptionClaims() {
                 value={paymentRef}
                 onChange={e => setPaymentRef(e.target.value)}
                 placeholder="напр. 2eb78b58-000f-..."
-                helperText="Если оплачено через YooKassa — вставь ID платежа из кабинета. Иначе можно пропустить."
+                helperText="Если оплачено через YooKassa — вставьте ID платежа из кабинета. Иначе можно пропустить."
               />
             </>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentRefFor(null)}>Отмена</Button>
+          <Button onClick={() => setPaymentRefFor(null)} disabled={!!paymentRefFor && busy === paymentRefFor.id}>Отмена</Button>
           <Button variant="contained" color="success"
             onClick={() => paymentRefFor && handleConfirm(paymentRefFor, paymentRef || undefined)}
             disabled={!paymentRefFor || busy === paymentRefFor.id}
+            startIcon={paymentRefFor && busy === paymentRefFor.id ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : undefined}
           >
-            {paymentRefFor && busy === paymentRefFor.id ? '...' : 'Подтвердить'}
+            Подтвердить
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Reject dialog (с причиной) */}
-      <Dialog open={!!rejectFor} onClose={() => setRejectFor(null)} maxWidth="xs" fullWidth>
+      <Dialog open={!!rejectFor} onClose={() => setRejectFor(null)} maxWidth="xs" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle>Отклонить заявку</DialogTitle>
         <DialogContent>
           {rejectFor && (
@@ -359,12 +423,13 @@ export default function SubscriptionClaims() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRejectFor(null)}>Отмена</Button>
+          <Button onClick={() => setRejectFor(null)} disabled={!!rejectFor && busy === rejectFor.id}>Отмена</Button>
           <Button variant="contained" color="error"
             onClick={handleReject}
             disabled={!rejectFor || busy === rejectFor.id || !rejectReason.trim()}
+            startIcon={rejectFor && busy === rejectFor.id ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : undefined}
           >
-            {rejectFor && busy === rejectFor.id ? '...' : 'Отклонить'}
+            Отклонить
           </Button>
         </DialogActions>
       </Dialog>

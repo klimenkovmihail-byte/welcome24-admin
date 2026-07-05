@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Box, Card, CardContent, Typography, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow, Chip, FormControl, Select, MenuItem } from '@mui/material';
 import { casesAdminApi, type CaseAnalytics, STATUS_RU } from '../api/cases';
 import { getCurrentUser } from '../auth/auth';
-
-const fmt = (n: number) => n.toLocaleString('ru-RU');
+import { formatRub } from '../utils/format';
+import { ErrorState } from './States';
 
 const LEGAL = ['check', 'contract', 'deposit', 'dkp', 'deal', 'act', 'done'];
 const MORT = ['consultation', 'approval', 'approved', 'issued'];
@@ -43,7 +43,7 @@ function Funnel({ funnel, order, title, cancelled }: { funnel: Record<string, nu
             const conv = prev > 0 ? Math.round((n / prev) * 100) : 0;
             return (
               <Box key={s} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Typography variant="caption" sx={{ color: '#94A3B8', width: 160, flexShrink: 0 }}>{STATUS_RU[s] || s}</Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8', width: { xs: 110, sm: 160 }, flexShrink: 0 }}>{STATUS_RU[s] || s}</Typography>
                 <Box sx={{ flex: 1, height: 22, borderRadius: 1, background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
                   <Box sx={{ width: `${(n / max) * 100}%`, height: '100%', minWidth: n ? 26 : 0, background: 'linear-gradient(90deg, #C9A84C, #E2C97E)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', pr: 0.8 }}>
                     {n > 0 && <Typography variant="caption" sx={{ color: '#0A0E1A', fontWeight: 800, fontSize: 11 }}>{n}</Typography>}
@@ -64,14 +64,20 @@ function Funnel({ funnel, order, title, cancelled }: { funnel: Record<string, nu
 export default function CasesAnalytics() {
   const [data, setData] = useState<CaseAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [period, setPeriod] = useState('all');
+  const [reloadKey, setReloadKey] = useState(0);
   const role = getCurrentUser()?.role;
   const isAdmin = role === 'super_admin' || role === 'admin';
 
   useEffect(() => {
     setLoading(true);
-    casesAdminApi.analytics(period).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-  }, [period]);
+    setError(false);
+    casesAdminApi.analytics(period)
+      .then(setData)
+      .catch(() => { setData(null); setError(true); })
+      .finally(() => setLoading(false));
+  }, [period, reloadKey]);
 
   const t = data?.totals;
 
@@ -88,6 +94,8 @@ export default function CasesAnalytics() {
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>
+      ) : error ? (
+        <ErrorState message="Не удалось загрузить аналитику" onRetry={() => setReloadKey(k => k + 1)} />
       ) : !data || !t ? (
         <Typography sx={{ color: '#64748B', textAlign: 'center', py: 4 }}>Нет данных</Typography>
       ) : (
@@ -96,9 +104,9 @@ export default function CasesAnalytics() {
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             <Stat label="Всего задач" value={t.total} />
             <Stat label="В работе" value={t.active} color="#F59E0B" />
-            <Stat label="Закрыто" value={t.closedThisMonth} color="#22C55E" />
+            <Stat label="Закрыто за месяц" value={t.closedThisMonth} color="#22C55E" />
             <Stat label="Проведено сделок" value={t.provenDeals} color="#60A5FA" />
-            <Stat label="ВКД проведённых" value={`${fmt(t.provenVkd)} ₽`} color="#C9A84C" />
+            <Stat label="ВКД проведённых" value={formatRub(t.provenVkd)} color="#C9A84C" />
             {isAdmin && data.stuck != null && <Stat label="Зависшие >7 дн" value={data.stuck} color={data.stuck ? '#EF4444' : '#64748B'} />}
           </Box>
 
@@ -145,8 +153,8 @@ export default function CasesAnalytics() {
                         <TableCell align="right" sx={{ color: '#F1F5F9' }}>{s.total}</TableCell>
                         <TableCell align="right" sx={{ color: '#F59E0B' }}>{s.active}</TableCell>
                         <TableCell align="right" sx={{ color: '#22C55E' }}>{s.done}</TableCell>
-                        <TableCell align="right" sx={{ color: '#C9A84C', fontWeight: 700 }}>{fmt(s.vkd)} ₽</TableCell>
-                        <TableCell align="right" sx={{ color: '#94A3B8' }}>{fmt(s.income)} ₽</TableCell>
+                        <TableCell align="right" sx={{ color: '#C9A84C', fontWeight: 700 }}>{formatRub(s.vkd)}</TableCell>
+                        <TableCell align="right" sx={{ color: '#94A3B8' }}>{formatRub(s.income)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

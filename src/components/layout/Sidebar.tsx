@@ -167,7 +167,7 @@ export default function Sidebar({ isMobile = false, mobileOpen = false, onClose 
           {!collapsed && (
             <Box sx={{ p: 1.5, borderRadius: 2.5, background: `${ROLE_COLOR[role] || '#EF4444'}14`, border: `1px solid ${ROLE_COLOR[role] || '#EF4444'}26`, mb: 1 }}>
               <Typography variant="caption" sx={{ fontWeight: 700, color: '#F1F5F9', display: 'block', fontSize: 12 }}>{user?.name || 'Администратор'}</Typography>
-              <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11, display: 'block' }}>{user?.email || 'admin@w24.agency'}</Typography>
+              <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11, display: 'block' }}>{user?.email || ''}</Typography>
               <Typography variant="caption" sx={{ color: ROLE_COLOR[role] || '#EF4444', fontWeight: 800, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', mt: 0.3, display: 'block' }}>
                 {ROLE_LABEL[role] || role}
               </Typography>

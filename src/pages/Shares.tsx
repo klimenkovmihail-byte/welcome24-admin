@@ -26,6 +26,9 @@ import TablePagination from '@mui/material/TablePagination';
 import { useAgents } from '../hooks/useAgents';
 import { settingsApi } from '../api/settings';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { plural, formatDate, formatRub } from '../utils/format';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
@@ -36,9 +39,9 @@ const todayLocal = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-// Деньги: «N млн ₽» только от 1 млн, иначе обычные рубли (не «0.02 млн»).
+// Деньги: «N млн ₽» только от 1 млн, иначе обычные рубли (не «0.02 млн»).
 const fmtMoney = (n: number) =>
-  Math.abs(n) >= 1_000_000 ? `${(n / 1e6).toFixed(2)} млн ₽` : `${fmt(Math.round(n))} ₽`;
+  Math.abs(n) >= 1_000_000 ? `${(n / 1e6).toFixed(2)} млн ₽` : `${fmt(Math.round(n))} ₽`;
 
 const opConfig: Record<ShareOperationType, { label: string; color: string; bg: string }> = {
   issue: { label: 'Эмиссия', color: '#22C55E', bg: 'rgba(34,197,94,0.12)' },
@@ -52,9 +55,9 @@ type TransferReason = '' | 'first_deal_bonus' | 'recruit_bonus' | 'yearly_2m_vkd
 
 const REASON_OPTIONS: Array<{ value: TransferReason; label: string; priceMode: 'gift' | 'discount' | 'manual' }> = [
   { value: '',                   label: 'Без основания (ручная цена)',          priceMode: 'manual' },
-  { value: 'first_deal_bonus',   label: 'Бонус за первую сделку (1 ₽)',         priceMode: 'gift' },
-  { value: 'recruit_bonus',      label: 'Бонус за первую сделку рекрута (1 ₽)', priceMode: 'gift' },
-  { value: 'yearly_2m_vkd',      label: 'Бонус за 2 млн ВКД за год (1 ₽)',      priceMode: 'gift' },
+  { value: 'first_deal_bonus',   label: 'Бонус за первую сделку (1 ₽)',         priceMode: 'gift' },
+  { value: 'recruit_bonus',      label: 'Бонус за первую сделку рекрута (1 ₽)', priceMode: 'gift' },
+  { value: 'yearly_2m_vkd',      label: 'Бонус за 2 млн ВКД за год (1 ₽)',      priceMode: 'gift' },
   { value: 'discount_purchase',  label: 'Покупка со скидкой 10% от котировки',  priceMode: 'discount' },
 ];
 
@@ -77,6 +80,7 @@ const emptyForm: FormState = {
 };
 
 export default function Shares() {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [ops, setOps] = useState<ShareOperation[]>([]);
   const [holders, setHolders] = useState<ShareHolder[]>([]);
   const { data: agents = [] } = useAgents(); // общий кэш агентов
@@ -98,6 +102,11 @@ export default function Shares() {
 
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
   const [quoteForm, setQuoteForm] = useState({ date: todayLocal(), price: '', note: '' });
+
+  // Подтверждения удаления (замена window.confirm / тихого удаления котировки).
+  const [quoteToDelete, setQuoteToDelete] = useState<ShareQuote | null>(null);
+  const [opToDelete, setOpToDelete] = useState<ShareOperation | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const reloadAll = () => Promise.all([
     sharesApi.operations().then(setOps).catch(() => { /* tolerate */ }),
@@ -126,16 +135,45 @@ export default function Shares() {
     }
   };
 
-  const handleDeleteQuote = async (id: number) => {
+  const handleDeleteQuote = async () => {
+    if (!quoteToDelete) return;
+    setConfirmBusy(true);
     try {
-      await sharesApi.deleteQuote(id);
+      await sharesApi.deleteQuote(quoteToDelete.id);
       await reloadAll();
+      setQuoteToDelete(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось удалить котировку');
+    } finally {
+      setConfirmBusy(false);
+    }
+  };
+
+  const handleDeleteOp = async () => {
+    if (!opToDelete) return;
+    setConfirmBusy(true);
+    try {
+      await sharesApi.deleteOperation(opToDelete.id);
+      await reloadAll();
+      setOpToDelete(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось откатить операцию');
+    } finally {
+      setConfirmBusy(false);
     }
   };
 
   const totalAmount = useMemo(() => Math.round((parseFloat(form.quantity) || 0) * (parseFloat(form.pricePerShare) || 0)), [form.quantity, form.pricePerShare]);
+
+  // Форма операции готова: положительные qty/price + выбраны нужные по типу агенты.
+  const opFormValid = useMemo(() => {
+    const qty = parseInt(form.quantity);
+    const price = parseFloat(form.pricePerShare);
+    if (!(qty > 0) || !(price > 0)) return false;
+    if (form.type === 'issue') return !!form.toAgentId;
+    if (form.type === 'transfer') return !!form.fromAgentId && !!form.toAgentId;
+    return !!form.fromAgentId; // buyback
+  }, [form.type, form.quantity, form.pricePerShare, form.fromAgentId, form.toAgentId]);
 
   const filtered = useMemo(() => {
     const q = opSearch.trim().toLowerCase();
@@ -165,7 +203,7 @@ export default function Shares() {
   const handleOpSave = async () => {
     const qty = parseInt(form.quantity);
     const price = parseFloat(form.pricePerShare);
-    if (!qty || !price) return;
+    if (!(qty > 0) || !(price > 0)) return;
 
     if (form.type === 'issue' && !form.toAgentId) return;
     if (form.type === 'transfer' && (!form.fromAgentId || !form.toAgentId)) return;
@@ -176,6 +214,15 @@ export default function Shares() {
       const inCirculation = totalIssued - totalBuyback;
       if (inCirculation + qty > settings.totalSharesIssued) {
         setError(`Превышен лимит: всего акций ${fmt(settings.totalSharesIssued)}, в обращении ${fmt(inCirculation)}, можно эмитировать максимум ${fmt(settings.totalSharesIssued - inCirculation)} шт. Увеличьте лимит или измените количество.`);
+        return;
+      }
+    }
+
+    // Контроль баланса: передача/выкуп не могут списать больше, чем есть у агента.
+    if ((form.type === 'transfer' || form.type === 'buyback') && form.fromAgentId) {
+      const available = agentShares.get(form.fromAgentId) || 0;
+      if (qty > available) {
+        setError(`У агента только ${fmt(available)} акций — нельзя списать ${fmt(qty)}.`);
         return;
       }
     }
@@ -206,6 +253,8 @@ export default function Shares() {
 
   return (
     <Box>
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
       {/* Share price hero */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <Box sx={{ mb: 3, p: 3, borderRadius: 3, background: 'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.04) 100%)', border: '1px solid rgba(201,168,76,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
@@ -215,7 +264,7 @@ export default function Shares() {
             </Box>
             <Box>
               <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Текущий курс акции</Typography>
-              <Typography variant="h3" sx={{ fontWeight: 900, color: '#C9A84C', lineHeight: 1 }}>{fmt(settings.sharePrice)} ₽</Typography>
+              <Typography variant="h3" sx={{ fontWeight: 900, color: '#C9A84C', lineHeight: 1 }}>{fmt(settings.sharePrice)} ₽</Typography>
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -232,14 +281,14 @@ export default function Shares() {
             </Box>
             <Box sx={{ textAlign: 'right' }}>
               <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>Капитализация</Typography>
-              <Typography variant="h6" sx={{ fontWeight: 800, color: '#22C55E' }}>{(totalMarketCap / 1e6).toFixed(0)} млн ₽</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800, color: '#22C55E' }}>{(totalMarketCap / 1e6).toFixed(0)} млн ₽</Typography>
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1.5 }}>
             {/* Курс реально меняется ТОЛЬКО котировкой (бэк отдаёт последнюю из share_quotes).
                 Раньше тут был диалог, менявший цену лишь в памяти экрана — обманка. */}
             <Button variant="outlined" startIcon={<TrendingUpRoundedIcon />}
-              onClick={() => { setQuoteForm({ date: todayLocal(), price: String(settings.sharePrice), note: '' }); setQuoteDialogOpen(true); }}
+              onClick={() => { setQuoteForm({ date: todayLocal(), price: '', note: '' }); setQuoteDialogOpen(true); }}
               sx={{ borderColor: 'rgba(201,168,76,0.4)', color: '#C9A84C', '&:hover': { borderColor: '#C9A84C', background: 'rgba(201,168,76,0.08)' } }}>
               Изменить курс
             </Button>
@@ -267,10 +316,10 @@ export default function Shares() {
                 <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: `1px solid ${cfg.color}20` }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                     <Chip label={cfg.label} size="small" sx={{ background: cfg.bg, color: cfg.color, fontWeight: 700, fontSize: 11 }} />
-                    <Typography variant="caption" sx={{ color: '#64748B' }}>{typeOps.length} {typeOps.length === 1 ? 'операция' : typeOps.length < 5 ? 'операции' : 'операций'}</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{typeOps.length} {plural(typeOps.length, 'операция', 'операции', 'операций')}</Typography>
                   </Box>
                   <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{fmt(totalQty)} акц.</Typography>
-                  <Typography variant="caption" sx={{ color: cfg.color, fontWeight: 600 }}>{(totalVal / 1e6).toFixed(1)} млн ₽</Typography>
+                  <Typography variant="caption" sx={{ color: cfg.color, fontWeight: 600 }}>{(totalVal / 1e6).toFixed(1)} млн ₽</Typography>
                 </Box>
               </Tooltip>
             </motion.div>
@@ -285,7 +334,7 @@ export default function Shares() {
             <ShowChartRoundedIcon sx={{ color: '#C9A84C' }} />
             <Box>
               <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Котировки акции</Typography>
-              <Typography variant="caption" sx={{ color: '#64748B' }}>{quotes.length} записей · обновляется вручную администратором</Typography>
+              <Typography variant="caption" sx={{ color: '#64748B' }}>{quotes.length} {plural(quotes.length, 'запись', 'записи', 'записей')} · обновляется вручную администратором</Typography>
             </Box>
           </Box>
           <Button size="small" variant="contained" startIcon={<AddRoundedIcon />} onClick={() => { setQuoteForm({ date: todayLocal(), price: '', note: '' }); setQuoteDialogOpen(true); }}>
@@ -309,7 +358,7 @@ export default function Shares() {
             <RechartTooltip
               contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }}
               labelFormatter={(v: string) => new Date(v).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
-              formatter={(v: number) => [`${fmt(v)} ₽`, 'Цена']}
+              formatter={(v: number) => [`${fmt(v)} ₽`, 'Цена']}
             />
             <Area type="monotone" dataKey="price" stroke="#C9A84C" strokeWidth={2.5} fill="url(#adminQuoteGrad)" dot={{ fill: '#C9A84C', r: 3 }} activeDot={{ r: 5 }} />
           </AreaChart>
@@ -334,16 +383,16 @@ export default function Shares() {
                   <TableRow key={q.id}>
                     <TableCell>
                       <Typography variant="body2" sx={{ color: '#94A3B8' }}>
-                        {new Date(q.date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        {formatDate(q.date)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{fmt(q.price)} ₽</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C' }}>{formatRub(q.price)}</Typography>
                     </TableCell>
                     <TableCell align="right">
                       {prev ? (
                         <Chip
-                          label={`${delta >= 0 ? '+' : ''}${fmt(delta)} ₽ (${delta >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)`}
+                          label={`${delta >= 0 ? '+' : ''}${fmt(delta)} ₽ (${delta >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)`}
                           size="small"
                           sx={{ background: delta >= 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: delta >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700, fontSize: 11 }}
                         />
@@ -352,7 +401,7 @@ export default function Shares() {
                       )}
                     </TableCell>
                     <TableCell align="center">
-                      <IconButton size="small" onClick={() => handleDeleteQuote(q.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                      <IconButton size="small" onClick={() => setQuoteToDelete(q)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                         <DeleteRoundedIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
@@ -372,7 +421,7 @@ export default function Shares() {
             <Box>
               <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Акционеры</Typography>
               <Typography variant="caption" sx={{ color: '#64748B' }}>
-                {holders.length} {holders.length === 1 ? 'акционер' : holders.length < 5 ? 'акционера' : 'акционеров'} ·
+                {holders.length} {plural(holders.length, 'акционер', 'акционера', 'акционеров')} ·
                 всего {fmt(holders.reduce((s, h) => s + h.shares, 0))} акций
               </Typography>
             </Box>
@@ -434,7 +483,7 @@ export default function Shares() {
       {/* Filter + table */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9' }}>
-          История операций <Typography component="span" variant="caption" sx={{ color: '#64748B', ml: 1 }}>· {filtered.length} всего</Typography>
+          История операций <Typography component="span" variant="caption" sx={{ color: '#64748B', ml: 1 }}>· всего {filtered.length} {plural(filtered.length, 'операция', 'операции', 'операций')}</Typography>
         </Typography>
         <ToggleButtonGroup exclusive value={filterType} onChange={(_, v) => { if (v) { setFilterType(v); setOpsPage(0); } }} size="small">
           {(['all', 'issue', 'transfer', 'buyback'] as const).map(t => (
@@ -508,28 +557,20 @@ export default function Shares() {
                     <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{fmt(op.quantity)}</Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <Typography variant="body2" sx={{ color: '#94A3B8' }}>{fmt(op.pricePerShare)} ₽</Typography>
+                    <Typography variant="body2" sx={{ color: '#94A3B8' }}>{fmt(op.pricePerShare)} ₽</Typography>
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="body2" sx={{ fontWeight: 700, color: cfg.color }}>{fmtMoney(op.totalAmount)}</Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="caption" sx={{ color: '#64748B' }}>{op.date}</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B' }}>{formatDate(op.date)}</Typography>
                   </TableCell>
                   <TableCell align="center">
                     <Tooltip title="Удалить операцию (откатит баланс)">
                       <IconButton
                         size="small"
                         sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}
-                        onClick={async () => {
-                          if (!confirm(`Удалить операцию #${op.id}? Баланс агентов будет откатан.`)) return;
-                          try {
-                            await sharesApi.deleteOperation(op.id);
-                            await reloadAll();
-                          } catch (e) {
-                            setError(e instanceof Error ? e.message : 'Не удалось удалить');
-                          }
-                        }}
+                        onClick={() => setOpToDelete(op)}
                       >
                         <DeleteRoundedIcon fontSize="small" />
                       </IconButton>
@@ -554,7 +595,8 @@ export default function Shares() {
       </TableContainer>
 
       {/* New operation dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Новая операция с акциями</Typography>
           <IconButton size="small" onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
@@ -567,7 +609,7 @@ export default function Shares() {
               <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1 }}>
                 Тип операции
               </Typography>
-              <ToggleButtonGroup exclusive value={form.type} onChange={(_, v) => v && setForm(f => ({ ...f, type: v as ShareOperationType, fromAgentId: null, fromAgentName: null, toAgentId: null, toAgentName: null }))} fullWidth size="small">
+              <ToggleButtonGroup exclusive value={form.type} onChange={(_, v) => v && setForm(f => ({ ...f, type: v as ShareOperationType, fromAgentId: null, fromAgentName: null, toAgentId: null, toAgentName: null, reason: '', pricePerShare: String(settings.sharePrice) }))} fullWidth size="small">
                 {(Object.entries(opConfig) as [ShareOperationType, typeof opConfig[ShareOperationType]][]).map(([t, cfg]) => (
                   <ToggleButton key={t} value={t} sx={{ flex: 1, borderColor: 'rgba(201,168,76,0.15)', '&.Mui-selected': { background: cfg.bg, color: cfg.color, borderColor: `${cfg.color}40` } }}>
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>{cfg.label}</Typography>
@@ -642,23 +684,24 @@ export default function Shares() {
               <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
                 Параметры
               </Typography>
-              <Box sx={{ display: 'flex', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
                 <TextField fullWidth label="Кол-во акций *" type="number" value={form.quantity}
-                  onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} size="small" />
+                  onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} size="small"
+                  slotProps={{ htmlInput: { min: 0 } }} />
                 <TextField fullWidth label="Цена за акцию *" type="number" value={form.pricePerShare}
                   onChange={e => setForm(f => ({ ...f, pricePerShare: e.target.value }))} size="small"
-                  slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }}
+                  slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> }, htmlInput: { min: 0 } }}
                   helperText={
-                    form.reason === 'discount_purchase' ? `Котировка ${fmt(settings.sharePrice)} ₽ × 0.9 = ${fmt(Math.round(settings.sharePrice * 0.9))} ₽` :
-                    (form.reason && form.reason !== '') ? 'Подарочная акция — номинал 1 ₽' :
-                    `Текущая котировка: ${fmt(settings.sharePrice)} ₽`
+                    form.reason === 'discount_purchase' ? `Котировка ${fmt(settings.sharePrice)} ₽ × 0.9 = ${fmt(Math.round(settings.sharePrice * 0.9))} ₽` :
+                    (form.reason && form.reason !== '') ? 'Подарочная акция — номинал 1 ₽' :
+                    `Текущая котировка: ${fmt(settings.sharePrice)} ₽`
                   }
                 />
               </Box>
               {totalAmount > 0 && (
                 <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'space-between' }}>
                   <Typography variant="caption" sx={{ color: '#64748B' }}>Итого:</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 800, color: '#C9A84C' }}>{fmt(totalAmount)} ₽</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 800, color: '#C9A84C' }}>{fmt(totalAmount)} ₽</Typography>
                 </Box>
               )}
             </Box>
@@ -673,14 +716,15 @@ export default function Shares() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={handleOpSave} disabled={!form.quantity || !form.pricePerShare}>
+          <Button variant="contained" onClick={handleOpSave} disabled={!opFormValid}>
             Провести операцию
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Изменить общее число акций */}
-      <Dialog open={totalDialogOpen} onClose={() => setTotalDialogOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={totalDialogOpen} onClose={() => setTotalDialogOpen(false)} maxWidth="xs" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Общее количество акций</Typography>
         </DialogTitle>
@@ -726,9 +770,10 @@ export default function Shares() {
       </Dialog>
 
       {/* Add quote dialog */}
-      <Dialog open={quoteDialogOpen} onClose={() => setQuoteDialogOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={quoteDialogOpen} onClose={() => setQuoteDialogOpen(false)} maxWidth="xs" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ pb: 1 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Новая котировка</Typography>
+          <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Изменить курс (новая котировка)</Typography>
         </DialogTitle>
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 3 }}>
@@ -738,7 +783,8 @@ export default function Shares() {
               slotProps={{ inputLabel: { shrink: true } }} />
             <TextField fullWidth size="small" label="Цена за акцию (₽)" type="number" value={quoteForm.price}
               onChange={e => setQuoteForm(f => ({ ...f, price: e.target.value }))}
-              slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }} />
+              placeholder={`Текущий курс: ${fmt(settings.sharePrice)}`}
+              slotProps={{ inputLabel: { shrink: true }, input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }} />
             <Alert severity="info" sx={{ py: 0.5 }}>
               После добавления курс автоматически синхронизируется с последней котировкой
             </Alert>
@@ -751,6 +797,32 @@ export default function Shares() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Подтверждение удаления котировки */}
+      <ConfirmDialog
+        open={!!quoteToDelete}
+        title="Удалить котировку?"
+        text={quoteToDelete
+          ? `Удалить котировку от ${formatDate(quoteToDelete.date)} (${formatRub(quoteToDelete.price)})? Текущий курс пересчитается по предыдущей.`
+          : ''}
+        confirmLabel="Удалить"
+        danger
+        loading={confirmBusy}
+        onConfirm={handleDeleteQuote}
+        onClose={() => setQuoteToDelete(null)}
+      />
+
+      {/* Подтверждение отката операции */}
+      <ConfirmDialog
+        open={!!opToDelete}
+        title="Откатить операцию?"
+        text="Балансы агентов будут пересчитаны, операция исчезнет из истории."
+        confirmLabel="Откатить"
+        danger
+        loading={confirmBusy}
+        onConfirm={handleDeleteOp}
+        onClose={() => setOpToDelete(null)}
+      />
     </Box>
   );
 }

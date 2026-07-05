@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useDeferredValue } from 'react';
+import type { ReactNode } from 'react';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
@@ -48,19 +49,14 @@ import { queryClient } from '../lib/queryClient';
 import { AGENTS_QUERY_KEY } from '../hooks/useAgents';
 import { CircularProgress } from '@mui/material';
 import AgentFormDialog from './AgentFormDialog';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { plural, formatDate, formatRub } from '../utils/format';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 
 // Расширяем тип Agent (role приходит из бэка, добавлен в normalizeAgent).
 type AgentWithRole = Agent & { role?: Role };
 
 const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая', 'Загородная'];
-
-// Русское склонение: plural(2, 'год','года','лет') → 'года'
-function plural(n: number, one: string, few: string, many: string): string {
-  const m = n % 10, d = n % 100;
-  if (m === 1 && d !== 11) return one;
-  if (m >= 2 && m <= 4 && (d < 10 || d >= 20)) return few;
-  return many;
-}
 
 const levelColor = (level: AgentLevel) => ({
   1: { bg: 'rgba(100,116,139,0.15)', color: '#94A3B8', label: 'Уровень 1' },
@@ -76,9 +72,8 @@ const statusConfig = {
   blocked: { label: 'Заблокирован', color: '#EF4444', bg: 'rgba(239,68,68,0.12)', icon: <BlockRoundedIcon sx={{ fontSize: 13 }} /> },
 };
 
-const fmt = (n: number) => n.toLocaleString('ru-RU');
-
 export default function Agents() {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +100,30 @@ export default function Agents() {
   const [reviewsDlgFor, setReviewsDlgFor] = useState<Agent | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const pendingReviewsCount = pendingCount;
+
+  // Единое подтверждение опасных действий (замена window.confirm/alert).
+  // payload описывает конкретное действие; onConfirm вызывается при подтверждении.
+  type ConfirmPayload = {
+    title: string;
+    text?: ReactNode;
+    confirmLabel: string;
+    danger: boolean;
+    onConfirm: () => Promise<void> | void;
+  };
+  const [confirmState, setConfirmState] = useState<ConfirmPayload | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const runConfirm = async () => {
+    if (!confirmState) return;
+    setConfirmLoading(true);
+    try {
+      await confirmState.onConfirm();
+      setConfirmState(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось выполнить действие');
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
 
   const reloadAgents = () => {
     setLoading(true);
@@ -149,11 +168,19 @@ export default function Agents() {
     reloadPending();
     reloadAgents(); // у агента пересчитался rating
   };
-  const deleteReview = async (id: number) => {
-    await agentsApi.deleteReview(id);
-    setReviews(prev => prev.filter(r => r.id !== id));
-    reloadPending();
-    reloadAgents();
+  const askDeleteReview = (id: number) => {
+    setConfirmState({
+      title: 'Удалить отзыв навсегда?',
+      text: 'Его нельзя восстановить — возможно, лучше «Отклонить».',
+      confirmLabel: 'Удалить',
+      danger: true,
+      onConfirm: async () => {
+        await agentsApi.deleteReview(id);
+        setReviews(prev => prev.filter(r => r.id !== id));
+        reloadPending();
+        reloadAgents();
+      },
+    });
   };
 
   // Верхняя вкладка: «Агенты» (role==='agent') или «Сотрудники» (admin/manager/super_admin).
@@ -216,7 +243,7 @@ export default function Agents() {
     setDialogOpen(true);
   };
 
-  const toggleStatus = async (id: number, status: AgentStatus) => {
+  const applyStatus = async (id: number, status: AgentStatus) => {
     try {
       await agentsApi.update(id, { status });
       setAgents(prev => enrichAgents(prev.map(a => a.id === id ? { ...a, status } : a)));
@@ -225,14 +252,29 @@ export default function Agents() {
     }
   };
 
-  const handleDelete = async (agent: Agent) => {
-    if (!window.confirm(`Удалить учётку «${agent.name}» навсегда? Действие необратимо.\n(Удаление запрещено, если у агента есть сделки.)`)) return;
-    try {
-      await agentsApi.remove(agent.id);
-      setAgents(prev => enrichAgents(prev.filter(a => a.id !== agent.id)));
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Не удалось удалить');
-    }
+  // Блокировка требует подтверждения (агент теряет доступ), активация — сразу.
+  const toggleStatus = (agent: Agent, status: AgentStatus) => {
+    if (status === 'active') { applyStatus(agent.id, 'active'); return; }
+    setConfirmState({
+      title: `Заблокировать ${agent.name}?`,
+      text: 'Агент потеряет доступ к порталу.',
+      confirmLabel: 'Заблокировать',
+      danger: true,
+      onConfirm: () => applyStatus(agent.id, 'blocked'),
+    });
+  };
+
+  const handleDelete = (agent: Agent) => {
+    setConfirmState({
+      title: `Удалить учётку ${agent.name} навсегда?`,
+      text: 'Действие необратимо. Удаление запрещено, если у агента есть сделки.',
+      confirmLabel: 'Удалить',
+      danger: true,
+      onConfirm: async () => {
+        await agentsApi.remove(agent.id);
+        setAgents(prev => enrichAgents(prev.filter(a => a.id !== agent.id)));
+      },
+    });
   };
 
   // Смена роли (только super_admin видит этот UI).
@@ -242,13 +284,27 @@ export default function Agents() {
   // Менять пароль агенту могут super_admin и admin.
   const canManagePassword = currentRole === 'super_admin' || currentRole === 'admin';
 
-  const changeRole = async (id: number, role: Role) => {
+  const applyRole = async (id: number, role: Role) => {
     try {
       const updated = await agentsApi.setRole(id, role);
       setAgents(prev => enrichAgents(prev.map(a => a.id === id ? { ...a, ...updated } : a)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось сменить роль');
     }
+  };
+
+  // Смена роли через inline-Select — с подтверждением. danger при переходе
+  // в/из привилегированных ролей (super_admin/admin).
+  const changeRole = (agent: Agent, role: Role) => {
+    const from = ((agent as AgentWithRole).role || 'agent') as Role;
+    if (from === role) return;
+    const privileged = (r: Role) => r === 'super_admin' || r === 'admin';
+    setConfirmState({
+      title: `Сменить роль ${agent.name} на «${ROLE_LABEL[role]}»?`,
+      confirmLabel: 'Сменить роль',
+      danger: privileged(from) || privileged(role),
+      onConfirm: () => applyRole(agent.id, role),
+    });
   };
 
   // Объединение дубликатов (смена фамилии и т.п.)
@@ -274,19 +330,25 @@ export default function Agents() {
     return () => { cancelled = true; };
   }, [mentorHistoryFor]);
 
-  const handleMerge = async () => {
+  const handleMerge = () => {
     if (!mergeSource || !mergeTarget) return;
-    if (!confirm(`Перенести все сделки/акции/команду от «${mergeSource.name}» к «${mergeTarget.name}» и удалить «${mergeSource.name}»? Действие необратимо.`)) return;
-    setMerging(true); setError(null);
-    try {
-      await agentsApi.mergeInto(mergeTarget.id, mergeSource.id);
-      setMergeSource(null); setMergeTarget(null);
-      await reloadAgents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось объединить');
-    } finally {
-      setMerging(false);
-    }
+    const source = mergeSource, target = mergeTarget;
+    setConfirmState({
+      title: 'Объединить дубликат?',
+      text: `Все сделки, акции и команда «${source.name}» перенесутся к «${target.name}», а карточка «${source.name}» будет удалена. Действие необратимо.`,
+      confirmLabel: 'Объединить',
+      danger: true,
+      onConfirm: async () => {
+        setMerging(true);
+        try {
+          await agentsApi.mergeInto(target.id, source.id);
+          setMergeSource(null); setMergeTarget(null);
+          await reloadAgents();
+        } finally {
+          setMerging(false);
+        }
+      },
+    });
   };
 
   const stats = useMemo(() => ({
@@ -427,6 +489,9 @@ export default function Agents() {
             {SPECIALIZATIONS.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
           </Select>
         </FormControl>
+        {/* Фильтр «Роль» имеет смысл только на вкладке «Сотрудники» — на вкладке
+            «Агенты» все записи и так role==='agent', селект был мёртвым. */}
+        {view === 'staff' && (
         <FormControl size="small" sx={{ minWidth: 170 }}>
           <InputLabel>Роль</InputLabel>
           <Select value={filterRole} label="Роль" onChange={e => setFilterRole(e.target.value as 'all' | 'staff' | Role)}>
@@ -445,6 +510,7 @@ export default function Agents() {
             <MenuItem value="agent"       sx={{ color: ROLE_COLOR.agent,       fontWeight: 600 }}>{ROLE_LABEL.agent}</MenuItem>
           </Select>
         </FormControl>
+        )}
         <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate} sx={{ ml: 'auto', flexShrink: 0 }}>
           {isStaffView ? 'Добавить сотрудника' : 'Добавить агента'}
         </Button>
@@ -460,13 +526,13 @@ export default function Agents() {
       )}
 
       {/* Table */}
-      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: loading ? 'none' : 'block' }}>
-        <Table>
+      <TableContainer component={Paper} sx={{ borderRadius: 3, border: '1px solid rgba(201,168,76,0.1)', display: loading ? 'none' : 'block', overflowX: 'auto' }}>
+        <Table sx={{ minWidth: { xs: 560, md: 0 } }}>
           <TableHead>
             <TableRow>
               <TableCell>Агент</TableCell>
               <TableCell>Уровень</TableCell>
-              <TableCell>Источник / Ментор</TableCell>
+              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Источник / Ментор</TableCell>
               <TableCell>Статус</TableCell>
               <TableCell>Роль</TableCell>
               <TableCell align="center">Действия</TableCell>
@@ -490,8 +556,8 @@ export default function Agents() {
                         </Typography>
                         <Typography variant="caption" sx={{ color: agent.terminatedAt ? '#EF4444' : '#94A3B8', fontSize: 11, fontWeight: 600, display: 'block', mt: 0.2 }}>
                           {agent.terminatedAt
-                            ? `с ${agent.joinDate} · уволен ${agent.terminatedAt}`
-                            : `присоединился ${agent.joinDate}`}
+                            ? `в компании с ${formatDate(agent.joinDate)} · дата ухода ${formatDate(agent.terminatedAt)}`
+                            : `в компании с ${formatDate(agent.joinDate)}`}
                         </Typography>
                         {(!!agent.experienceYears || (agent.specialization || []).length > 0) && (
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4, mt: 0.4, alignItems: 'center' }}>
@@ -511,7 +577,7 @@ export default function Agents() {
                   <TableCell>
                     <Chip label={lc.label} size="small" sx={{ background: lc.bg, color: lc.color, fontWeight: 700, fontSize: 11 }} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                     {agent.parentId ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
                         <AccountTreeRoundedIcon sx={{ fontSize: 14, color: '#4361EE' }} />
@@ -543,7 +609,7 @@ export default function Agents() {
                             size="small"
                             variant="standard"
                             disableUnderline
-                            onChange={e => changeRole(agent.id, e.target.value as Role)}
+                            onChange={e => changeRole(agent, e.target.value as Role)}
                             sx={{ fontSize: 11, fontWeight: 700, color: c, '& .MuiSelect-select': { p: 0, pr: '20px !important' }, '& .MuiSvgIcon-root': { color: c, fontSize: 16 } }}
                           >
                             {(['super_admin', 'admin', 'manager', 'lawyer', 'broker', 'listing_manager', 'employee', 'referral_partner', 'agent'] as Role[]).map(opt => (
@@ -560,9 +626,19 @@ export default function Agents() {
                     })()}
                   </TableCell>
                   <TableCell align="center">
-                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                    <Box sx={{
+                      display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: { xs: 'wrap', md: 'nowrap' },
+                      // На телефоне зона тапа иконок ≥40px (padding больше), визуал иконки не меняем.
+                      '& .MuiIconButton-root': { p: { xs: 1, md: 0.5 } },
+                    }}>
                       <Tooltip title="Войти как этот агент">
-                        <IconButton size="small" onClick={() => impersonate(agent.id, agent.name)} sx={{ color: '#64748B', '&:hover': { color: '#4361EE' } }}>
+                        <IconButton size="small" onClick={() => setConfirmState({
+                          title: `Войти в портал как ${agent.name}?`,
+                          text: 'Вы окажетесь в его сессии.',
+                          confirmLabel: 'Войти',
+                          danger: false,
+                          onConfirm: () => impersonate(agent.id, agent.name),
+                        })} sx={{ color: '#64748B', '&:hover': { color: '#4361EE' } }}>
                           <LoginRoundedIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -600,14 +676,14 @@ export default function Agents() {
                       )}
                       {agent.status !== 'active' && (
                         <Tooltip title="Активировать">
-                          <IconButton size="small" onClick={() => toggleStatus(agent.id, 'active')} sx={{ color: '#64748B', '&:hover': { color: '#22C55E' } }}>
+                          <IconButton size="small" onClick={() => toggleStatus(agent, 'active')} sx={{ color: '#64748B', '&:hover': { color: '#22C55E' } }}>
                             <CheckCircleRoundedIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
                       {agent.status !== 'blocked' && (
                         <Tooltip title="Заблокировать">
-                          <IconButton size="small" onClick={() => toggleStatus(agent.id, 'blocked')} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                          <IconButton size="small" onClick={() => toggleStatus(agent, 'blocked')} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                             <BlockRoundedIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -635,7 +711,7 @@ export default function Agents() {
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
             <Button variant="outlined" onClick={() => setVisibleCount(v => v + PAGE_SIZE)}
               sx={{ borderColor: 'rgba(201,168,76,0.3)', color: '#C9A84C' }}>
-              Показать ещё ({filtered.length - visibleCount})
+              Показать ещё {PAGE_SIZE} (показано {Math.min(visibleCount, filtered.length)} из {filtered.length})
             </Button>
           </Box>
         )}
@@ -661,12 +737,13 @@ export default function Agents() {
       />
 
       {/* Mentor history dialog */}
-      <Dialog open={!!mentorHistoryFor} onClose={() => setMentorHistoryFor(null)} maxWidth="md" fullWidth>
+      <Dialog open={!!mentorHistoryFor} onClose={() => setMentorHistoryFor(null)} maxWidth="md" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', pb: 1 }}>
           <Box>
             <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>История менторов</Typography>
             <Typography variant="caption" sx={{ color: '#64748B' }}>
-              {mentorHistoryFor?.name} · вступил {mentorHistoryFor?.joinDate}
+              {mentorHistoryFor?.name} · в компании с {formatDate(mentorHistoryFor?.joinDate)}
             </Typography>
           </Box>
           <IconButton size="small" onClick={() => setMentorHistoryFor(null)} sx={{ color: '#64748B' }}>
@@ -701,9 +778,9 @@ export default function Agents() {
                           {h.parentName || 'Welcome 24 (без ментора)'}
                         </Typography>
                         <Typography variant="caption" sx={{ color: '#94A3B8' }}>
-                          {new Date(h.effectiveFrom).toLocaleDateString('ru-RU')} →{' '}
+                          {formatDate(h.effectiveFrom)} →{' '}
                           {h.effectiveUntil
-                            ? new Date(h.effectiveUntil).toLocaleDateString('ru-RU')
+                            ? formatDate(h.effectiveUntil)
                             : 'сейчас'}
                           {' · '}<b style={{ color: '#F1F5F9' }}>{days} дн.</b>
                         </Typography>
@@ -722,11 +799,11 @@ export default function Agents() {
                       </Box>
                       <Box>
                         <Typography variant="caption" sx={{ color: '#64748B' }}>ВКД за период</Typography>
-                        <Typography variant="body2" sx={{ color: '#C9A84C', fontWeight: 700 }}>{fmt(h.periodVkd)} ₽</Typography>
+                        <Typography variant="body2" sx={{ color: '#C9A84C', fontWeight: 700 }}>{formatRub(h.periodVkd)}</Typography>
                       </Box>
                       <Box>
                         <Typography variant="caption" sx={{ color: '#64748B' }}>Доход агента</Typography>
-                        <Typography variant="body2" sx={{ color: '#22C55E', fontWeight: 700 }}>{fmt(h.periodIncome)} ₽</Typography>
+                        <Typography variant="body2" sx={{ color: '#22C55E', fontWeight: 700 }}>{formatRub(h.periodIncome)}</Typography>
                       </Box>
                     </Box>
                     {h.reason && (
@@ -746,7 +823,8 @@ export default function Agents() {
       </Dialog>
 
       {/* Merge dialog */}
-      <Dialog open={!!mergeSource} onClose={() => { if (!merging) { setMergeSource(null); setMergeTarget(null); } }} maxWidth="sm" fullWidth>
+      <Dialog open={!!mergeSource} onClose={() => { if (!merging) { setMergeSource(null); setMergeTarget(null); } }} maxWidth="sm" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Объединить дубликат</Typography>
           <Typography variant="caption" sx={{ color: '#64748B' }}>
@@ -771,7 +849,7 @@ export default function Agents() {
               getOptionLabel={a => a.name}
               value={mergeTarget}
               onChange={(_, v) => setMergeTarget(v)}
-              renderInput={params => <TextField {...params} label="Основная карточка (target) *" size="small" />}
+              renderInput={params => <TextField {...params} label="Куда перенести (основная карточка) *" size="small" />}
               renderOption={(props, a) => (
                 <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1 }}>
                   <Avatar sx={{ width: 28, height: 28, fontSize: 11, background: 'rgba(139,92,246,0.2)', color: '#8B5CF6' }}>
@@ -808,7 +886,8 @@ export default function Agents() {
       </Dialog>
 
       {/* ===== Reviews moderation dialog ===== */}
-      <Dialog open={!!reviewsDlgFor} onClose={() => setReviewsDlgFor(null)} maxWidth="md" fullWidth>
+      <Dialog open={!!reviewsDlgFor} onClose={() => setReviewsDlgFor(null)} maxWidth="md" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Box>
             <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
@@ -886,7 +965,7 @@ export default function Agents() {
                           </Button>
                         )}
                         <Button size="small" startIcon={<CloseRoundedIcon />}
-                          onClick={() => deleteReview(r.id)}
+                          onClick={() => askDeleteReview(r.id)}
                           sx={{ color: '#64748B', ml: 'auto', '&:hover': { color: '#EF4444' } }}>
                           Удалить
                         </Button>
@@ -901,13 +980,14 @@ export default function Agents() {
       </Dialog>
 
       {/* ===== Глобальная очередь модерации отзывов (по всем агентам) ===== */}
-      <Dialog open={pendingDlgOpen} onClose={() => setPendingDlgOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={pendingDlgOpen} onClose={() => setPendingDlgOpen(false)} maxWidth="md" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Box>
             <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Отзывы на модерации</Typography>
             <Typography variant="caption" sx={{ color: '#94A3B8' }}>
               {pendingList.length
-                ? `${pendingList.length} ${pendingList.length === 1 ? 'отзыв ждёт' : pendingList.length < 5 ? 'отзыва ждут' : 'отзывов ждут'} решения — по всем агентам`
+                ? `${pendingList.length} ${plural(pendingList.length, 'отзыв ждёт', 'отзыва ждут', 'отзывов ждут')} решения — по всем агентам`
                 : 'Очередь пуста'}
             </Typography>
           </Box>
@@ -961,6 +1041,18 @@ export default function Agents() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Единое подтверждение опасных действий (роль/блокировка/удаление/merge/impersonate) */}
+      <ConfirmDialog
+        open={!!confirmState}
+        title={confirmState?.title || ''}
+        text={confirmState?.text}
+        confirmLabel={confirmState?.confirmLabel}
+        danger={confirmState?.danger}
+        loading={confirmLoading}
+        onConfirm={runConfirm}
+        onClose={() => setConfirmState(null)}
+      />
     </Box>
   );
 }
@@ -970,9 +1062,11 @@ function SectionsDialog({ agent, onClose, onSaved }: {
   agent: (Agent & { role?: Role; sectionAccess?: string[] | null }) | null;
   onClose: () => void; onSaved: () => void;
 }) {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [custom, setCustom] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const role = (agent?.role || 'admin') as Role;
   const roleDefault = useMemo(
     () => new Set(SECTION_LIST.filter(s => (ROLE_ACCESS[s.path] || []).includes(role)).map(s => s.path)),
@@ -981,6 +1075,7 @@ function SectionsDialog({ agent, onClose, onSaved }: {
 
   useEffect(() => {
     if (!agent) return;
+    setErr(null);
     const sa = agent.sectionAccess;
     if (Array.isArray(sa)) { setCustom(true); setChecked(new Set(sa)); }
     else { setCustom(false); setChecked(new Set(roleDefault)); }
@@ -993,16 +1088,17 @@ function SectionsDialog({ agent, onClose, onSaved }: {
 
   const save = async (resetToRole: boolean) => {
     if (!agent) return;
-    setBusy(true);
+    setBusy(true); setErr(null);
     try {
       await agentsApi.setSections(agent.id, resetToRole ? null : Array.from(checked));
       onSaved();
-    } catch (e) { alert(e instanceof Error ? e.message : 'Не удалось сохранить'); }
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Не удалось сохранить'); }
     finally { setBusy(false); }
   };
 
   return (
-    <Dialog open={!!agent} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={!!agent} onClose={onClose} maxWidth="xs" fullWidth
+      fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
       <DialogTitle sx={{ pb: 0.5 }}>
         <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Доступ к разделам</Typography>
         <Typography variant="caption" sx={{ color: '#64748B' }}>{agent?.name} · {ROLE_LABEL[role]}</Typography>
@@ -1022,6 +1118,7 @@ function SectionsDialog({ agent, onClose, onSaved }: {
           ))}
         </Stack>
         <Alert severity="info" sx={{ mt: 1 }}>Настройки, AI-промпты и управление ролями — всегда только у супер-админа.</Alert>
+        {err && <Alert severity="error" sx={{ mt: 1 }} onClose={() => setErr(null)}>{err}</Alert>}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={() => save(true)} disabled={busy} sx={{ color: '#94A3B8' }}>Сбросить к роли</Button>

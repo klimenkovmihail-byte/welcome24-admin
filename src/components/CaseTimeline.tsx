@@ -19,21 +19,31 @@ const KIND: Record<string, { icon: React.ReactNode; color: string }> = {
   deal_created: { icon: <CheckCircleRoundedIcon sx={{ fontSize: 16 }} />, color: '#22C55E' },
 };
 
+// Дата события: день/месяц/время; год добавляем, только если событие не этого года.
 function fmt(s: string) {
   const d = new Date(s.replace(' ', 'T') + 'Z');
-  return isNaN(d.getTime()) ? '' : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  if (isNaN(d.getTime())) return '';
+  const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleString('ru-RU', opts);
 }
 
 export default function CaseTimeline({ caseId, refreshKey }: { caseId: number; refreshKey?: number }) {
   const [events, setEvents] = useState<CaseEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     setLoading(true);
-    casesAdminApi.events(caseId).then(setEvents).catch(() => setEvents([])).finally(() => setLoading(false));
+    setError(false);
+    casesAdminApi.events(caseId)
+      .then(setEvents)
+      .catch(() => { setEvents([]); setError(true); })
+      .finally(() => setLoading(false));
   }, [caseId, refreshKey]);
 
   if (loading) return <Box sx={{ py: 2, textAlign: 'center' }}><CircularProgress size={18} sx={{ color: '#C9A84C' }} /></Box>;
+  if (error) return <Typography variant="caption" sx={{ color: '#EF4444' }}>Не удалось загрузить историю.</Typography>;
   if (events.length === 0) return <Typography variant="caption" sx={{ color: '#64748B' }}>Событий пока нет.</Typography>;
 
   return (

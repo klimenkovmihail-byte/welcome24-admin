@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Box, Typography, Paper, CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import { Box, Typography, Paper, CircularProgress, LinearProgress, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { motion } from 'framer-motion';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -7,18 +7,37 @@ import {
 } from 'recharts';
 import { statsApi, type OverviewResponse } from '../api/stats';
 import { sharesApi, type ShareQuote } from '../api/shares';
+import { ErrorState } from '../components/States';
 import PortalActivity from '../components/PortalActivity';
+import { formatNumber, plural } from '../utils/format';
 
-const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
+// Дробное по-русски: запятая, максимум 1/2 знака («13,9», «0,25»).
+const ru1 = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+const ru2 = (n: number) => n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Неразрывный пробел — «₽» и единицы не отрываются при переносе.
+const NBSP = ' ';
+
+const CustomTooltip = ({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color: string; payload?: { deals?: number } }>;
+  label?: string;
+}) => {
   if (!active || !payload?.length) return null;
+  // Число сделок за месяц лежит в payload точки (собственной серии на графике нет).
+  const deals = payload[0]?.payload?.deals;
   return (
     <Box sx={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 2, p: 1.5 }}>
       <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mb: 0.5 }}>{label}</Typography>
       {payload.map(p => (
         <Typography key={p.name} variant="body2" sx={{ color: p.color || '#94A3B8', fontWeight: 600 }}>
-          {p.name}: {typeof p.value === 'number' ? (p.name.includes('Сделок') ? p.value : `${p.value.toFixed(1)} млн ₽`) : p.value}
+          {p.name}: {typeof p.value === 'number' ? `${ru1(p.value)} млн ₽` : p.value}
         </Typography>
       ))}
+      {typeof deals === 'number' && (
+        <Typography variant="body2" sx={{ color: '#94A3B8', fontWeight: 600 }}>
+          Сделок: {formatNumber(deals)}
+        </Typography>
+      )}
     </Box>
   );
 };
@@ -41,6 +60,7 @@ export default function Analytics() {
   const [quotes, setQuotes] = useState<ShareQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const currentYear = String(new Date().getFullYear());
   const [filterYear, setFilterYear] = useState<string>(currentYear);
   const [filterMonth, setFilterMonth] = useState<string>('all');
@@ -48,6 +68,7 @@ export default function Analytics() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
     const opts: { year?: string; month?: string } = {};
     if (filterYear !== 'all') opts.year = filterYear;
     if (filterMonth !== 'all' && filterYear !== 'all') opts.month = filterMonth;
@@ -59,10 +80,10 @@ export default function Analytics() {
       .catch(err => { if (!cancelled) setError(err?.message || 'Ошибка загрузки'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [filterYear, filterMonth]);
+  }, [filterYear, filterMonth, reloadKey]);
 
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
-  if (error)   return <Alert severity="error">{error}</Alert>;
+  if (loading && !data) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>;
+  if (error && !data)   return <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />;
   if (!data)   return null;
 
   const totalVKD = data.deals.totalVkd;
@@ -103,6 +124,10 @@ export default function Analytics() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Box>
+        <Typography variant="h5" sx={{ fontWeight: 800, color: '#F1F5F9' }}>Аналитика</Typography>
+        <Typography variant="caption" sx={{ color: '#64748B' }}>Ключевые показатели компании, агентов и акций</Typography>
+      </Box>
       {/* Фильтр периода */}
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <Typography variant="body2" sx={{ color: '#94A3B8' }}>Период:</Typography>
@@ -125,17 +150,22 @@ export default function Analytics() {
         </Typography>
       </Box>
 
+      {loading && <LinearProgress sx={{ borderRadius: 1, '& .MuiLinearProgress-bar': { background: '#C9A84C' }, background: 'rgba(201,168,76,0.12)' }} />}
+      {error && <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} />}
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, opacity: loading ? 0.5 : 1, transition: 'opacity 0.2s', pointerEvents: loading ? 'none' : 'auto' }}>
+
       {/* KPI row */}
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         {[
-          { label: 'Общий ВКД', value: `${(totalVKD / 1e6).toFixed(1)} млн ₽`, sub: periodLabel, color: '#C9A84C' },
-          { label: 'Доход агентов', value: `${(totalIncome / 1e6).toFixed(1)} млн ₽`, sub: 'выплачено агентам', color: '#3B82F6' },
-          { label: 'Комиссия компании', value: `${(companyIncome / 1e6).toFixed(1)} млн ₽`, sub: 'ВКД − доход агентов', color: '#22C55E' },
-          { label: 'Средняя сделка', value: `${(avgDeal / 1000).toFixed(0)} тыс ₽`, sub: 'ВКД на сделку', color: '#7B2FBE' },
-          { label: 'Сделок/агент/мес', value: dealsPerMonth.toFixed(2), sub: 'за выбранный период', color: '#F59E0B' },
-          { label: 'LTV агента', value: ltvYears >= 1 ? `${ltvYears.toFixed(1)} г.` : `${Math.round(data.metrics?.agentLtvDays || 0)} дн.`, sub: 'средний срок жизни', color: '#06B6D4' },
-          { label: 'Всего агентов', value: String(data.agents.total), sub: `${data.agents.active} активных · ${data.agents.blocked + data.agents.inactive} заблокированных`, color: '#8B5CF6' },
-          { label: 'Акционеров', value: String(data.shareholders?.count || 0), sub: `${(data.settings.sharesInCirculation / 1000).toFixed(1)}К акций в обращении`, color: '#EC4899' },
+          { label: 'Общий ВКД', value: `${ru1(totalVKD / 1e6)}${NBSP}млн${NBSP}₽`, sub: periodLabel, color: '#C9A84C' },
+          { label: 'Доход агентов', value: `${ru1(totalIncome / 1e6)}${NBSP}млн${NBSP}₽`, sub: 'выплачено агентам', color: '#3B82F6' },
+          { label: 'Комиссия компании', value: `${ru1(companyIncome / 1e6)}${NBSP}млн${NBSP}₽`, sub: 'ВКД − доход агентов', color: '#22C55E' },
+          { label: 'Средняя сделка', value: `${formatNumber(avgDeal / 1000)}${NBSP}тыс${NBSP}₽`, sub: 'ВКД на сделку', color: '#7B2FBE' },
+          { label: 'Сделок/агент/мес', value: ru2(dealsPerMonth), sub: 'за выбранный период', color: '#F59E0B' },
+          { label: 'LTV агента', value: ltvYears >= 1 ? `${ru1(ltvYears)}${NBSP}г.` : `${Math.round(data.metrics?.agentLtvDays || 0)}${NBSP}дн.`, sub: 'средний срок жизни', color: '#06B6D4' },
+          { label: 'Всего агентов', value: String(data.agents.total), sub: `${data.agents.active} активных · ${data.agents.inactive} неактивных · ${data.agents.blocked} заблокированных`, color: '#8B5CF6' },
+          { label: 'Акционеров', value: String(data.shareholders?.count || 0), sub: `${ru1(data.settings.sharesInCirculation / 1000)}${NBSP}тыс акций в обращении`, color: '#EC4899' },
         ].map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.07 }} style={{ flex: '1 1 180px' }}>
             <Box sx={{ p: 2.5, borderRadius: 3, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: `1px solid ${s.color}20` }}>
@@ -179,6 +209,11 @@ export default function Analytics() {
         {card(
           <>
             <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#F1F5F9', mb: 2.5 }}>Агенты по уровням</Typography>
+            {levelData.every(d => d.value === 0) ? (
+              <Box sx={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Typography variant="body2" sx={{ color: '#64748B' }}>Нет данных</Typography>
+              </Box>
+            ) : (
             <ResponsiveContainer width="100%" height={180}>
               <PieChart>
                 <Pie data={levelData} cx="50%" cy="50%" innerRadius={52} outerRadius={78} paddingAngle={3} dataKey="value">
@@ -187,6 +222,7 @@ export default function Analytics() {
                 <Tooltip contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }} />
               </PieChart>
             </ResponsiveContainer>
+            )}
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8, mt: 1 }}>
               {levelData.map(d => (
                 <Box key={d.name} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -231,7 +267,7 @@ export default function Analytics() {
                   <Box sx={{ flex: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9', fontSize: 13 }}>{a.name.split(' ').slice(0, 2).join(' ')}</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C', fontSize: 13 }}>{(a.vkd / 1e6).toFixed(1)} млн</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#C9A84C', fontSize: 13 }}>{ru1(a.vkd / 1e6)}{NBSP}млн</Typography>
                     </Box>
                     <Box sx={{ height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.06)' }}>
                       <Box sx={{ height: '100%', borderRadius: 99, background: i === 0 ? 'linear-gradient(90deg,#C9A84C,#E2C97E)' : '#4361EE', width: `${(a.vkd / maxTop) * 100}%`, transition: 'width 0.8s ease' }} />
@@ -261,9 +297,9 @@ export default function Analytics() {
                       {s.city && <Typography component="span" variant="caption" sx={{ color: '#64748B', ml: 1 }}>· {s.city}</Typography>}
                     </Typography>
                     <Typography variant="body2" sx={{ fontWeight: 700, color: '#EC4899', fontSize: 13 }}>
-                      {s.shares.toLocaleString('ru-RU')} акц.
+                      {s.shares.toLocaleString('ru-RU')} {plural(s.shares, 'акция', 'акции', 'акций')}
                       <Typography component="span" variant="caption" sx={{ color: '#94A3B8', ml: 1 }}>
-                        {((s.shares * data.settings.sharePrice) / 1e6).toFixed(2)} млн ₽
+                        {ru2((s.shares * data.settings.sharePrice) / 1e6)}{NBSP}млн{NBSP}₽
                       </Typography>
                     </Typography>
                   </Box>
@@ -290,10 +326,11 @@ export default function Analytics() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false}
+                tickFormatter={(d: string) => { const [, m, day] = String(d).split('-'); return day && m ? `${day}.${m}` : d; }} />
               <YAxis tick={{ fill: '#64748B', fontSize: 11 }} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
               <Tooltip contentStyle={{ background: '#0F1629', border: '1px solid rgba(201,168,76,0.2)', borderRadius: 8 }}
-                formatter={(v: number) => [`${v.toLocaleString('ru-RU')} ₽`, 'Курс']} />
+                formatter={(v: number) => [`${v.toLocaleString('ru-RU')}${NBSP}₽`, 'Курс']} />
               <Area type="monotone" dataKey="price" stroke="#C9A84C" fill="url(#gShare)" strokeWidth={2.5} dot={{ fill: '#C9A84C', r: 4 }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -303,6 +340,7 @@ export default function Analytics() {
       {/* Активность портала агентов (DAU/WAU/MAU + детализация) */}
       <Box sx={{ mt: 2, pt: 3, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         <PortalActivity />
+      </Box>
       </Box>
     </Box>
   );

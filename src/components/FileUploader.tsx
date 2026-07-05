@@ -18,6 +18,19 @@ import ImageCropper from './ImageCropper';
 
 type UploadType = 'cover' | 'avatar' | 'doc' | 'other';
 
+// Проверка файла против маски accept (например 'image/*', 'application/pdf,.png').
+// Пустая маска или '*' — принимаем всё. Поддержаны: тип/* , точный MIME, расширение (.pdf).
+function matchesAccept(file: File, accept?: string): boolean {
+  if (!accept || accept.trim() === '' || accept.includes('*/*')) return true;
+  const name = file.name.toLowerCase();
+  const mime = (file.type || '').toLowerCase();
+  return accept.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).some(rule => {
+    if (rule.startsWith('.')) return name.endsWith(rule);
+    if (rule.endsWith('/*')) return mime.startsWith(rule.slice(0, -1)); // 'image/' → image/png
+    return mime === rule;
+  });
+}
+
 interface Props {
   value: string;
   onChange: (url: string) => void;
@@ -95,7 +108,13 @@ export default function FileUploader({
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
-    if (f) handleFile(f);
+    if (!f) return;
+    // Drag-and-drop минует фильтр <input accept> — проверяем тип вручную.
+    if (!matchesAccept(f, accept)) {
+      setErr('Неподходящий тип файла. Выберите другой.');
+      return;
+    }
+    handleFile(f);
   };
 
   return (

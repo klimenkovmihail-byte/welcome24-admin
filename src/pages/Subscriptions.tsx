@@ -25,24 +25,35 @@ import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { subscriptionAdminApi, type AgentSubOverview, type AgentSubFull } from '../api/subscription';
 import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
+import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded';
 import BlockRoundedIcon from '@mui/icons-material/BlockRounded';
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { plural, formatDate, formatRub } from '../utils/format';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 
-const fmt = (n: number) => n.toLocaleString('ru-RU');
 const RU_MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+// Именительный падеж: «Июль 2026» (для заголовков-периодов).
 const formatPeriod = (p: string) => {
   const [y, m] = p.split('-').map(Number);
   return `${RU_MONTHS[m - 1]} ${y}`;
 };
+// Родительный падеж: «июля 2026» (после предлога «с»: «АП с июля 2026»).
+const RU_MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const formatPeriodGen = (p: string) => {
+  const [y, m] = p.split('-').map(Number);
+  return `${RU_MONTHS_GEN[m - 1]} ${y}`;
+};
 
-type FilterKey = 'all' | 'lifetime' | 'blocked' | 'overdue' | 'current';
+type FilterKey = 'all' | 'lifetime' | 'blocked' | 'overdue' | 'unpaid' | 'current';
 
 const filterLabels: Record<FilterKey, string> = {
   all:      'Все агенты',
   lifetime: 'Навсегда отменено (1 млн ВКД)',
   blocked:  'Заблокированы (2+ просрочки)',
   overdue:  'Есть просрочки',
-  current:  'АП в порядке',
+  unpaid:   'Ожидают оплаты (без просрочек)',
+  current:  'АП оплачена',
 };
 
 interface RowStatusCfg { label: string; color: string; bg: string; icon: React.ReactNode }
@@ -60,13 +71,14 @@ const periodStatusConfig: Record<string, { label: string; color: string; bg: str
   pending_review:  { label: 'На подтверждении',   color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' },
   unpaid:          { label: 'Ожидает',             color: '#94A3B8', bg: 'rgba(148,163,184,0.12)' },
   overdue:         { label: 'Просрочено',          color: '#EF4444', bg: 'rgba(239,68,68,0.15)' },
-  exempt_quarter:  { label: 'ВКД ≥ 200к',         color: '#06B6D4', bg: 'rgba(6,182,212,0.12)' },
+  exempt_quarter:  { label: 'ВКД ≥ 200 тыс.',     color: '#06B6D4', bg: 'rgba(6,182,212,0.12)' },
   exempt_lifetime: { label: 'Отменено навсегда',  color: '#C9A84C', bg: 'rgba(201,168,76,0.12)' },
   refunded:        { label: 'Возвращено',         color: '#06B6D4', bg: 'rgba(6,182,212,0.12)' },
   rejected:        { label: 'Отклонено',           color: '#EF4444', bg: 'rgba(239,68,68,0.15)' },
 };
 
 export default function Subscriptions() {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [list, setList] = useState<AgentSubOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,19 +89,24 @@ export default function Subscriptions() {
   const [drillFor, setDrillFor] = useState<AgentSubOverview | null>(null);
   const [drillData, setDrillData] = useState<AgentSubFull | null>(null);
   const [drillLoading, setDrillLoading] = useState(false);
+  const [drillError, setDrillError] = useState<string | null>(null);
   const [markBusy, setMarkBusy] = useState<string | null>(null);
+  // Период, ожидающий подтверждения отметки об оплате (и направление действия).
+  const [markConfirm, setMarkConfirm] = useState<{ period: string; paid: boolean } | null>(null);
 
   // Отметить период оплаченным вручную / снять отметку (прямая оплата в компанию).
   const handleMarkPaid = async (period: string, paid: boolean) => {
     if (!drillFor) return;
     setMarkBusy(period);
+    setDrillError(null);
     try {
       await subscriptionAdminApi.markPaid(drillFor.id, period, paid);
       const fresh = await subscriptionAdminApi.agent(drillFor.id);
       setDrillData(fresh);
+      setMarkConfirm(null);
       subscriptionAdminApi.overview().then(setList).catch(() => { /* tolerate */ });
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Не удалось обновить период');
+      setDrillError(e instanceof Error ? e.message : 'Не удалось обновить период');
     } finally {
       setMarkBusy(null);
     }
@@ -106,6 +123,7 @@ export default function Subscriptions() {
   useEffect(() => {
     if (!drillFor) { setDrillData(null); return; }
     let cancelled = false;
+    setDrillError(null);
     setDrillLoading(true);
     subscriptionAdminApi.agent(drillFor.id)
       .then(d => { if (!cancelled) setDrillData(d); })
@@ -119,7 +137,10 @@ export default function Subscriptions() {
     lifetime: list.filter(a => a.exempt === 'lifetime').length,
     blocked:  list.filter(a => a.blocked && a.exempt !== 'lifetime').length,
     overdue:  list.filter(a => !a.blocked && a.overdueCount > 0 && a.exempt !== 'lifetime').length,
-    current:  list.filter(a => !a.blocked && a.overdueCount === 0 && a.exempt !== 'lifetime').length,
+    // Ожидают оплаты — есть неоплаченные периоды, но ещё без просрочки (не в «в порядке»).
+    unpaid:   list.filter(a => !a.blocked && a.overdueCount === 0 && a.unpaidCount > 0 && a.exempt !== 'lifetime').length,
+    // Оплачено — ни просрочек, ни неоплаченных периодов.
+    current:  list.filter(a => !a.blocked && a.overdueCount === 0 && a.unpaidCount === 0 && a.exempt !== 'lifetime').length,
     totalDue: list.reduce((s, a) => s + a.totalDue, 0),
   }), [list]);
 
@@ -132,7 +153,8 @@ export default function Subscriptions() {
       : filter === 'lifetime' ? a.exempt === 'lifetime'
       : filter === 'blocked'  ? (a.blocked && a.exempt !== 'lifetime')
       : filter === 'overdue'  ? (!a.blocked && a.overdueCount > 0 && a.exempt !== 'lifetime')
-      : filter === 'current'  ? (!a.blocked && a.overdueCount === 0 && a.exempt !== 'lifetime')
+      : filter === 'unpaid'   ? (!a.blocked && a.overdueCount === 0 && a.unpaidCount > 0 && a.exempt !== 'lifetime')
+      : filter === 'current'  ? (!a.blocked && a.overdueCount === 0 && a.unpaidCount === 0 && a.exempt !== 'lifetime')
       : true;
       return matchQ && matchFilter;
     });
@@ -157,7 +179,8 @@ export default function Subscriptions() {
           { label: 'Отменено навсегда', value: stats.lifetime, icon: <EmojiEventsRoundedIcon />, color: '#C9A84C', filterTo: 'lifetime' as FilterKey },
           { label: 'Заблокированы',  value: stats.blocked, icon: <LockRoundedIcon />, color: '#EF4444', filterTo: 'blocked' as FilterKey },
           { label: 'Просрочки',       value: stats.overdue, icon: <ErrorRoundedIcon />, color: '#F59E0B', filterTo: 'overdue' as FilterKey },
-          { label: 'АП в порядке',   value: stats.current, icon: <CheckCircleRoundedIcon />, color: '#22C55E', filterTo: 'current' as FilterKey },
+          { label: 'Ожидают оплаты', value: stats.unpaid, icon: <HourglassEmptyRoundedIcon />, color: '#94A3B8', filterTo: 'unpaid' as FilterKey },
+          { label: 'АП оплачена',    value: stats.current, icon: <CheckCircleRoundedIcon />, color: '#22C55E', filterTo: 'current' as FilterKey },
         ].map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} style={{ flex: '1 1 160px' }}>
             <Box
@@ -185,10 +208,10 @@ export default function Subscriptions() {
         ))}
       </Box>
 
-      {/* К оплате (сумма всех долгов) */}
+      {/* К оплате (сумма всех неоплаченных периодов: и просроченных, и ещё в срок) */}
       {stats.totalDue > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Всего к получению: <b>{fmt(stats.totalDue)} ₽</b> от агентов с просрочками
+          Всего к получению: <b>{formatRub(stats.totalDue)}</b> по всем неоплаченным периодам
         </Alert>
       )}
 
@@ -221,7 +244,7 @@ export default function Subscriptions() {
               <TableRow>
                 <TableCell>Агент</TableCell>
                 <TableCell>Дата присоединения</TableCell>
-                <TableCell align="right">Lifetime ВКД</TableCell>
+                <TableCell align="right">ВКД за всё время</TableCell>
                 <TableCell>Статус АП</TableCell>
                 <TableCell align="right">Неоплачено</TableCell>
                 <TableCell align="right">К оплате</TableCell>
@@ -247,16 +270,16 @@ export default function Subscriptions() {
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2" sx={{ color: '#94A3B8' }}>{a.joinDate}</Typography>
+                      <Typography variant="body2" sx={{ color: '#94A3B8' }}>{formatDate(a.joinDate)}</Typography>
                       {a.firstBillingMonth && (
                         <Typography variant="caption" sx={{ color: '#475569', fontSize: 10 }}>
-                          АП с {formatPeriod(a.firstBillingMonth)}
+                          АП с {formatPeriodGen(a.firstBillingMonth)}
                         </Typography>
                       )}
                     </TableCell>
                     <TableCell align="right" sx={{ minWidth: 180 }}>
                       <Typography variant="body2" sx={{ fontWeight: 700, color: a.exempt === 'lifetime' ? '#C9A84C' : '#F1F5F9' }}>
-                        {fmt(a.lifetimeVkd)} ₽
+                        {formatRub(a.lifetimeVkd)}
                       </Typography>
                       <LinearProgress
                         variant="determinate" value={progressPct}
@@ -277,13 +300,13 @@ export default function Subscriptions() {
                       </Typography>
                       {a.overdueCount > 0 && (
                         <Typography variant="caption" sx={{ color: '#EF4444', fontSize: 10 }}>
-                          {a.overdueCount} просрочено
+                          {plural(a.overdueCount, 'просрочен', 'просрочено', 'просрочено')} {a.overdueCount} {plural(a.overdueCount, 'период', 'периода', 'периодов')}
                         </Typography>
                       )}
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" sx={{ fontWeight: 700, color: a.totalDue > 0 ? '#F59E0B' : '#64748B' }}>
-                        {a.totalDue > 0 ? `${fmt(a.totalDue)} ₽` : '—'}
+                        {a.totalDue > 0 ? formatRub(a.totalDue) : '—'}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -313,12 +336,13 @@ export default function Subscriptions() {
       )}
 
       {/* Drill-in dialog */}
-      <Dialog open={!!drillFor} onClose={() => setDrillFor(null)} maxWidth="md" fullWidth>
+      <Dialog open={!!drillFor} onClose={() => setDrillFor(null)} maxWidth="md" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Box>
             <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>{drillFor?.name}</Typography>
             <Typography variant="caption" sx={{ color: '#64748B' }}>
-              {drillFor?.email} · присоединился {drillFor?.joinDate}
+              {drillFor?.email} · присоединился {formatDate(drillFor?.joinDate)}
             </Typography>
           </Box>
           <IconButton size="small" onClick={() => setDrillFor(null)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
@@ -326,11 +350,12 @@ export default function Subscriptions() {
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 3 }}>
           {drillLoading && <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>}
+          {drillError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDrillError(null)}>{drillError}</Alert>}
           {drillData && (
             <>
               {drillData.exempt === 'lifetime' && (
                 <Alert severity="success" sx={{ mb: 2 }} icon={<EmojiEventsRoundedIcon />}>
-                  Общий ВКД {fmt(drillData.lifetimeVkd)} ₽ ≥ 1 млн — АП отменена навсегда.
+                  Общий ВКД {formatRub(drillData.lifetimeVkd)} ≥ 1 млн — АП отменена навсегда.
                 </Alert>
               )}
               {drillData.exempt === 'manual_forever' && (
@@ -340,7 +365,7 @@ export default function Subscriptions() {
               )}
               {drillData.exempt === 'paused' && drillData.override?.until && (
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  АП на паузе до {new Date(drillData.override.until).toLocaleDateString('ru-RU')}{drillData.override.note ? ` · «${drillData.override.note}»` : ''}.
+                  АП на паузе до {formatDate(drillData.override.until)}{drillData.override.note ? ` · «${drillData.override.note}»` : ''}.
                 </Alert>
               )}
               {drillData.exempt === 'inactive' && (
@@ -350,7 +375,7 @@ export default function Subscriptions() {
               )}
               {drillData.blocked && (
                 <Alert severity="error" sx={{ mb: 2 }} icon={<LockRoundedIcon />}>
-                  Портал агента заблокирован: {drillData.overdueCount} просроченных периода, к оплате {fmt(drillData.totalDue)} ₽.
+                  Портал агента заблокирован: {drillData.overdueCount} {plural(drillData.overdueCount, 'просроченный период', 'просроченных периода', 'просроченных периодов')}, к оплате {formatRub(drillData.totalDue)}.
                 </Alert>
               )}
 
@@ -367,7 +392,8 @@ export default function Subscriptions() {
                   Период оплаты ещё не начался. Первый платёж: {drillData.firstBillingMonth ? formatPeriod(drillData.firstBillingMonth) : '—'}.
                 </Alert>
               ) : (
-                <Table size="small">
+                <TableContainer sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ minWidth: 520 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Месяц</TableCell>
@@ -385,7 +411,7 @@ export default function Subscriptions() {
                           <TableCell><Typography variant="body2" sx={{ color: '#F1F5F9' }}>{formatPeriod(p.period)}</Typography></TableCell>
                           <TableCell>
                             <Typography variant="caption" sx={{ color: '#94A3B8' }}>
-                              Q{p.quarter} · {fmt(p.quarterVkd)} ₽
+                              Q{p.quarter} · {formatRub(p.quarterVkd)}
                             </Typography>
                           </TableCell>
                           <TableCell>
@@ -393,19 +419,19 @@ export default function Subscriptions() {
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="caption" sx={{ color: '#64748B' }}>
-                              {p.paidAt ? new Date(p.paidAt.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU') : '—'}
+                              {p.paidAt ? formatDate(p.paidAt) : '—'}
                             </Typography>
                           </TableCell>
                           <TableCell align="right">
                             {p.status === 'paid' ? (
                               <Button size="small" disabled={markBusy === p.period}
-                                onClick={() => handleMarkPaid(p.period, false)}
+                                onClick={() => setMarkConfirm({ period: p.period, paid: false })}
                                 sx={{ color: '#64748B', fontSize: 11, minWidth: 0, '&:hover': { color: '#EF4444' } }}>
                                 Снять
                               </Button>
                             ) : (p.status === 'unpaid' || p.status === 'overdue' || p.status === 'pending_review') ? (
                               <Button size="small" variant="outlined" disabled={markBusy === p.period}
-                                onClick={() => handleMarkPaid(p.period, true)}
+                                onClick={() => setMarkConfirm({ period: p.period, paid: true })}
                                 sx={{ fontSize: 11, py: 0.2, px: 1, borderColor: 'rgba(34,197,94,0.4)', color: '#22C55E', '&:hover': { borderColor: '#22C55E', background: 'rgba(34,197,94,0.08)' } }}>
                                 Оплачено
                               </Button>
@@ -416,6 +442,7 @@ export default function Subscriptions() {
                     })}
                   </TableBody>
                 </Table>
+                </TableContainer>
               )}
             </>
           )}
@@ -424,6 +451,20 @@ export default function Subscriptions() {
           <Button onClick={() => setDrillFor(null)}>Закрыть</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Подтверждение отметки об оплате периода */}
+      <ConfirmDialog
+        open={!!markConfirm}
+        title={markConfirm?.paid ? 'Отметить период оплаченным' : 'Снять отметку об оплате'}
+        text={markConfirm && (markConfirm.paid
+          ? `Отметить период ${formatPeriod(markConfirm.period)} как оплаченный?`
+          : `Снять отметку об оплате за ${formatPeriod(markConfirm.period)}? Период станет неоплаченным.`)}
+        confirmLabel={markConfirm?.paid ? 'Отметить оплаченным' : 'Снять отметку'}
+        danger={markConfirm ? !markConfirm.paid : false}
+        loading={!!markConfirm && markBusy === markConfirm.period}
+        onConfirm={() => { if (markConfirm) handleMarkPaid(markConfirm.period, markConfirm.paid); }}
+        onClose={() => setMarkConfirm(null)}
+      />
     </Box>
   );
 }
@@ -433,20 +474,24 @@ export default function Subscriptions() {
 function OverrideControls({
   agentId, current, onChange,
 }: { agentId: number; current: AgentSubFull; onChange: (next: AgentSubFull) => void }) {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [busy, setBusy] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [pauseMonths, setPauseMonths] = useState<1 | 2 | 3>(1);
   const [note, setNote] = useState('');
   const [forceOpen, setForceOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const apply = async (payload: { type: 'force_exempt' | 'pause' | null; months?: 1 | 2 | 3; note?: string }) => {
     setBusy(true);
+    setErr(null);
     try {
       const updated = await subscriptionAdminApi.setOverride(agentId, payload);
       onChange(updated);
-      setPauseOpen(false); setForceOpen(false); setNote('');
+      setPauseOpen(false); setForceOpen(false); setResetOpen(false); setNote('');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Не удалось применить');
+      setErr(e instanceof Error ? e.message : 'Не удалось применить');
     } finally {
       setBusy(false);
     }
@@ -459,6 +504,7 @@ function OverrideControls({
       <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
         Управление АП
       </Typography>
+      {err && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setErr(null)}>{err}</Alert>}
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Button size="small" variant="outlined" startIcon={<BlockRoundedIcon />}
           disabled={busy || current.exempt === 'manual_forever'}
@@ -475,15 +521,16 @@ function OverrideControls({
         {hasOverride && (
           <Button size="small" variant="outlined" color="warning" startIcon={<RestartAltRoundedIcon />}
             disabled={busy}
-            onClick={() => apply({ type: null })}
+            onClick={() => setResetOpen(true)}
           >
-            Сбросить override
+            Вернуть авторежим
           </Button>
         )}
       </Stack>
 
       {/* Pause dialog */}
-      <Dialog open={pauseOpen} onClose={() => setPauseOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={pauseOpen} onClose={() => setPauseOpen(false)} maxWidth="xs" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle>Поставить АП на паузу</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
@@ -514,11 +561,12 @@ function OverrideControls({
       </Dialog>
 
       {/* Force exempt dialog */}
-      <Dialog open={forceOpen} onClose={() => setForceOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={forceOpen} onClose={() => setForceOpen(false)} maxWidth="xs" fullWidth
+        fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle>Отключить АП навсегда</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
-            <Alert severity="info">Используй когда нужно освободить агента от АП по индивидуальному решению, минуя автоматическое правило 1 млн ВКД.</Alert>
+            <Alert severity="info">Используйте, когда нужно освободить агента от АП по индивидуальному решению, минуя автоматическое правило 1 млн ВКД.</Alert>
             <TextField
               fullWidth size="small" multiline rows={2}
               label="Причина"
@@ -536,6 +584,17 @@ function OverrideControls({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Подтверждение сброса override */}
+      <ConfirmDialog
+        open={resetOpen}
+        title="Вернуть автоматический режим АП"
+        text="Вернуть автоматический режим АП? Агенту снова начнут начисляться платежи."
+        confirmLabel="Вернуть автоматический режим"
+        loading={busy}
+        onConfirm={() => apply({ type: null })}
+        onClose={() => setResetOpen(false)}
+      />
     </Box>
   );
 }

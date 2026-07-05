@@ -23,22 +23,42 @@ import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
+import MoveToInboxRoundedIcon from '@mui/icons-material/MoveToInboxRounded';
+import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
+import CampaignRoundedIcon from '@mui/icons-material/CampaignRounded';
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
+import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
+import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
+import ContactSupportRoundedIcon from '@mui/icons-material/ContactSupportRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import Sidebar from './Sidebar';
+import { EmptyState } from '../States';
 import PushBanner from '../PushBanner';
 import { syncPushSubscription } from '../../push';
 import { logout, getCurrentUser, PORTAL_URL } from '../../auth/auth';
-import { agents, deals } from '../../data/mockData';
+import { plural } from '../../utils/format';
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/dashboard': { title: 'Обзор', subtitle: 'Общая статистика платформы' },
+  '/inbox': { title: 'Инбокс', subtitle: 'Входящие сообщения и обращения' },
   '/agents': { title: 'Управление агентами', subtitle: 'Создание, редактирование, MLM-структура' },
   '/deals': { title: 'Сделки', subtitle: 'Верификация и управление сделками' },
+  '/cases': { title: 'Заявки', subtitle: 'Задачи для специалистов: юристы, ипотека' },
+  '/ad-requests': { title: 'Отдел рекламы', subtitle: 'Заявки на рекламу и продвижение' },
   '/shares': { title: 'Акции', subtitle: 'Эмиссия, курс, передача акций' },
   '/academy': { title: 'Академия', subtitle: 'Управление курсами и уроками' },
   '/news': { title: 'Новости', subtitle: 'Публикации и редактор контента' },
+  '/docs': { title: 'База документов', subtitle: 'Шаблоны, инструкции и материалы' },
+  '/ai-prompts': { title: 'AI-промпты', subtitle: 'Управление системными подсказками' },
+  '/ai-analytics': { title: 'AI-аналитика', subtitle: 'Метрики и статистика по AI' },
   '/analytics': { title: 'Аналитика', subtitle: 'BI-дашборд и отчёты' },
-  '/backoffice': { title: 'Команда бэк-офиса', subtitle: 'Сотрудники к которым обращаются агенты' },
+  '/reports': { title: 'Отчёты', subtitle: 'Выгрузки и сводные отчёты' },
+  '/backoffice': { title: 'Команда бэк-офиса', subtitle: 'Сотрудники, к которым обращаются агенты' },
   '/support': { title: 'Поддержка', subtitle: 'Запросы агентов в техподдержку' },
+  '/subscriptions': { title: 'Абонентская плата', subtitle: 'Начисления и статусы оплаты' },
+  '/subscription-claims': { title: 'Заявки на оплату', subtitle: 'Подтверждение платежей агентов' },
   '/settings': { title: 'Настройки', subtitle: 'Комиссии, интеграции, параметры системы' },
 };
 
@@ -78,21 +98,33 @@ const notifConfig: Record<string, { icon: React.ReactNode; color: string }> = {
 const defaultNotifCfg = notifConfig.system;
 
 interface SearchResult {
-  type: 'agent' | 'deal' | 'page';
+  type: 'page';
   label: string;
   sub: string;
   path: string;
   icon: React.ReactNode;
 }
 
+// Честный поиск: только по разделам админки. Список синхронизирован с навигацией Sidebar.
 const pageResults: SearchResult[] = [
   { type: 'page', label: 'Обзор', sub: 'Дашборд платформы', path: '/dashboard', icon: <DashboardRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Инбокс', sub: 'Входящие сообщения', path: '/inbox', icon: <MoveToInboxRoundedIcon sx={{ fontSize: 18 }} /> },
   { type: 'page', label: 'Управление агентами', sub: 'Создание, MLM-дерево', path: '/agents', icon: <PeopleRoundedIcon sx={{ fontSize: 18 }} /> },
   { type: 'page', label: 'Сделки', sub: 'Верификация и оплата', path: '/deals', icon: <HandshakeRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Заявки', sub: 'Задачи для специалистов', path: '/cases', icon: <AssignmentRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Отдел рекламы', sub: 'Заявки на рекламу', path: '/ad-requests', icon: <CampaignRoundedIcon sx={{ fontSize: 18 }} /> },
   { type: 'page', label: 'Акции', sub: 'Курс и операции', path: '/shares', icon: <DiamondRoundedIcon sx={{ fontSize: 18 }} /> },
   { type: 'page', label: 'Академия', sub: 'Курсы и уроки', path: '/academy', icon: <SchoolRoundedIcon sx={{ fontSize: 18 }} /> },
   { type: 'page', label: 'Новости', sub: 'Публикации', path: '/news', icon: <ArticleRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'База документов', sub: 'Шаблоны и материалы', path: '/docs', icon: <FolderRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'AI-промпты', sub: 'Системные подсказки', path: '/ai-prompts', icon: <AutoAwesomeRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'AI-аналитика', sub: 'Метрики по AI', path: '/ai-analytics', icon: <InsightsRoundedIcon sx={{ fontSize: 18 }} /> },
   { type: 'page', label: 'Аналитика', sub: 'BI-отчёты', path: '/analytics', icon: <BarChartRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Отчёты', sub: 'Выгрузки и сводки', path: '/reports', icon: <AssessmentRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Команда бэк-офиса', sub: 'Сотрудники поддержки', path: '/backoffice', icon: <SupportAgentRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Поддержка', sub: 'Тикеты агентов', path: '/support', icon: <ContactSupportRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Абонентская плата', sub: 'Начисления и оплата', path: '/subscriptions', icon: <ReceiptLongRoundedIcon sx={{ fontSize: 18 }} /> },
+  { type: 'page', label: 'Заявки на оплату', sub: 'Подтверждение платежей', path: '/subscription-claims', icon: <ReceiptLongRoundedIcon sx={{ fontSize: 18 }} /> },
   { type: 'page', label: 'Настройки', sub: 'Комиссии, интеграции', path: '/settings', icon: <SettingsRoundedIcon sx={{ fontSize: 18 }} /> },
 ];
 
@@ -172,33 +204,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     window.open(`${PORTAL_URL}/dashboard`, '_blank', 'noopener,noreferrer');
   };
 
-  // Build search results dynamically
+  // Честный поиск: только по разделам админки (без людей и сделок из моков).
   const q = searchQuery.trim().toLowerCase();
-  const searchResults: SearchResult[] = q ? [
-    ...pageResults.filter(p => p.label.toLowerCase().includes(q) || p.sub.toLowerCase().includes(q)),
-    ...agents
-      .filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q) || a.city.toLowerCase().includes(q))
-      .slice(0, 5)
-      .map(a => ({
-        type: 'agent' as const,
-        label: a.name,
-        sub: `${a.city} · ${a.commission}% · ${a.vkdYear.toLocaleString('ru-RU')} ₽ ВКД`,
-        path: '/agents',
-        icon: <PeopleRoundedIcon sx={{ fontSize: 18 }} />,
-      })),
-    ...deals
-      .filter(d => d.clientName.toLowerCase().includes(q) || d.address.toLowerCase().includes(q) || d.agentName.toLowerCase().includes(q))
-      .slice(0, 5)
-      .map(d => ({
-        type: 'deal' as const,
-        label: `${d.clientName} — ${d.vkd.toLocaleString('ru-RU')} ₽`,
-        sub: `${d.agentName.split(' ').slice(0, 2).join(' ')} · ${d.address.slice(0, 40)}`,
-        path: '/deals',
-        icon: <HandshakeRoundedIcon sx={{ fontSize: 18 }} />,
-      })),
-  ] : pageResults;
+  const searchResults: SearchResult[] = q
+    ? pageResults.filter(p => p.label.toLowerCase().includes(q) || p.sub.toLowerCase().includes(q))
+    : pageResults;
 
-  const typeColor = { agent: '#3B82F6', deal: '#22C55E', page: '#C9A84C' };
+  const typeColor = { page: '#C9A84C' };
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', background: '#080C18' }}>
@@ -289,7 +301,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
             transformOrigin={{ vertical: 'top', horizontal: 'right' }}
             slotProps={{ paper: { sx: {
-              mt: 1.5, width: 400, maxHeight: 540,
+              mt: 1.5, width: 'min(400px, calc(100vw - 32px))', maxHeight: 540,
               background: 'linear-gradient(135deg, #0F1629 0%, #0A0E1A 100%)',
               border: '1px solid rgba(201,168,76,0.15)', borderRadius: 3,
               boxShadow: '0 24px 80px rgba(0,0,0,0.7)',
@@ -298,7 +310,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(201,168,76,0.08)' }}>
               <Box>
                 <Typography sx={{ fontWeight: 800, color: '#F1F5F9' }}>Уведомления</Typography>
-                <Typography variant="caption" sx={{ color: '#94A3B8' }}>{unreadCount} непрочитанных</Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>{unreadCount} {plural(unreadCount, 'непрочитанное', 'непрочитанных', 'непрочитанных')}</Typography>
               </Box>
               {unreadCount > 0 && (
                 <Button size="small" startIcon={<DoneAllRoundedIcon sx={{ fontSize: 14 }} />} onClick={handleMarkAllRead} sx={{ color: '#C9A84C', fontSize: 11, py: 0.3 }}>
@@ -306,6 +318,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Button>
               )}
             </Box>
+            {notifs.length === 0 ? (
+              <EmptyState
+                icon={<NotificationsRoundedIcon />}
+                title="Уведомлений пока нет"
+                hint="Новые события платформы появятся здесь"
+              />
+            ) : (
             <List sx={{ p: 0, maxHeight: 420, overflow: 'auto' }}>
               {notifs.map((n) => {
                 const cfg = notifConfig[n.type] || defaultNotifCfg;
@@ -346,6 +365,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 );
               })}
             </List>
+            )}
           </Popover>
         </Box>
 
@@ -368,7 +388,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <DialogContent sx={{ p: 0 }}>
           <TextField
             autoFocus fullWidth
-            placeholder="Поиск по агентам, сделкам, разделам…"
+            placeholder="Поиск по разделам админки…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             variant="standard"
@@ -407,7 +427,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           primary={<Typography variant="body2" sx={{ color: '#F1F5F9', fontWeight: 600 }}>{r.label}</Typography>}
                           secondary={<Typography variant="caption" sx={{ color: '#64748B', fontSize: 12 }}>{r.sub}</Typography>}
                         />
-                        <Chip label={r.type === 'agent' ? 'Агент' : r.type === 'deal' ? 'Сделка' : 'Раздел'} size="small" sx={{ background: `${typeColor[r.type]}15`, color: typeColor[r.type], fontSize: 10, fontWeight: 700, height: 20 }} />
+                        <Chip label="Раздел" size="small" sx={{ background: `${typeColor[r.type]}15`, color: typeColor[r.type], fontSize: 10, fontWeight: 700, height: 20 }} />
                       </ListItem>
                     </motion.div>
                   ))}
@@ -417,11 +437,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Box>
           <Box sx={{ px: 2, py: 1.2, borderTop: '1px solid rgba(201,168,76,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>
-              <kbd style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 3, fontFamily: 'inherit' }}>↑↓</kbd> навигация ·
-              <kbd style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 3, marginLeft: 6, fontFamily: 'inherit' }}>↵</kbd> открыть
+              Нажмите на раздел для перехода
             </Typography>
             <Typography variant="caption" sx={{ color: '#64748B', fontSize: 11 }}>
-              {searchResults.length} результатов
+              {searchResults.length} {plural(searchResults.length, 'результат', 'результата', 'результатов')}
             </Typography>
           </Box>
         </DialogContent>

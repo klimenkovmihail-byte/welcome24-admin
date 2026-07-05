@@ -5,7 +5,7 @@ import {
   Switch, FormControlLabel, Alert, Chip, InputAdornment,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, Tooltip,
   Select, MenuItem, FormControl, InputLabel,
-  Dialog, DialogTitle, DialogContent, DialogActions,
+  Dialog, DialogTitle, DialogContent, DialogActions, Snackbar,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
@@ -32,6 +32,8 @@ import { statsApi } from '../api/stats';
 import { backupApi, type BackupItem } from '../api/backup';
 import { CircularProgress } from '@mui/material';
 import { getCurrentUser } from '../auth/auth';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { formatRub } from '../utils/format';
 
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
@@ -118,7 +120,7 @@ function BackupsBlock() {
       {loading ? (
         <Box sx={{ py: 3, textAlign: 'center' }}><CircularProgress size={24} /></Box>
       ) : items.length === 0 ? (
-        <Alert severity="info">Бэкапов пока нет. Жми «Сделать бэкап сейчас» либо подожди ближайшего слота cron (00/06/12/18 UTC).</Alert>
+        <Alert severity="info">Бэкапов пока нет. Нажмите «Сделать бэкап сейчас» либо дождитесь ближайшего слота cron (00/06/12/18 UTC).</Alert>
       ) : (
         <Table size="small">
           <TableHead>
@@ -169,12 +171,18 @@ function Section({ title, subtitle, icon, children, delay = 0 }: SectionProps) {
 export default function Settings() {
   const [settings, setSettings] = useState(initialSettings);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Кол-во акций в обращении — для live-расчёта «Доступно к продаже».
   const [sharesInCirculation, setSharesInCirculation] = useState<number>(0);
   const [plan, setPlan] = useState<MarketingPlanRow[]>(initialPlan);
   const [achievements, setAchievements] = useState<AchievementDef[]>(initialAchievements);
   const [editAch, setEditAch] = useState<AchievementDef | null>(null);
+  // Подсветка полей с ошибкой валидации (ключ — id поля из validate()).
+  const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
+  // Снимок сохранённых значений порогов — для сводки «было → стало» в ConfirmDialog.
+  const [baseline, setBaseline] = useState<{ level1Threshold: number; level2Threshold: number } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Загрузка с бэка на старте.
   useEffect(() => {
@@ -188,6 +196,8 @@ export default function Settings() {
       .then(([s, p, a, stats]) => {
         if (cancelled) return;
         setSettings(prev => ({ ...prev, sharePrice: s.sharePrice || prev.sharePrice, totalSharesIssued: s.totalSharesIssued || prev.totalSharesIssued, totalSharesAvailable: s.totalSharesAvailable || prev.totalSharesAvailable }));
+        // Снимок текущих порогов — база для сводки изменений в диалоге подтверждения.
+        setBaseline({ level1Threshold: settings.level1Threshold, level2Threshold: settings.level2Threshold });
         if (stats?.settings?.sharesInCirculation != null) setSharesInCirculation(stats.settings.sharesInCirculation);
         setPlan(p.map(r => ({
           level: r.level,
@@ -211,7 +221,39 @@ export default function Settings() {
     return () => { cancelled = true; };
   }, []);
 
-  const handleSave = async () => {
+  // Проверка: все пороги комиссии и значения плана должны быть > 0.
+  // Number('') = 0 недопустим, отрицательные тоже. Возвращает набор id полей с ошибкой.
+  const validate = (): Record<string, boolean> => {
+    const errs: Record<string, boolean> = {};
+    const bad = (v: number | null | undefined) => v == null || !Number.isFinite(v) || v <= 0;
+    if (bad(settings.level1Threshold)) errs.level1Threshold = true;
+    if (bad(settings.level2Threshold)) errs.level2Threshold = true;
+    plan.forEach(r => {
+      if (bad(r.protected)) errs[`plan_${r.level}_protected`] = true;
+      // growing/required могут быть null «по смыслу» (последний уровень / всегда активен) —
+      // проверяем только заполненные значения.
+      if (r.growing !== null && bad(r.growing)) errs[`plan_${r.level}_growing`] = true;
+      if (r.required !== null && bad(r.required)) errs[`plan_${r.level}_required`] = true;
+      if (bad(r.capPerAgent)) errs[`plan_${r.level}_capPerAgent`] = true;
+    });
+    return errs;
+  };
+
+  // Клик по «Сохранить»: валидируем, при ошибках подсвечиваем поля и не открываем диалог.
+  const handleSave = () => {
+    setError(null);
+    const errs = validate();
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      setError('Проверьте выделенные поля: укажите положительное значение.');
+      return;
+    }
+    setConfirmOpen(true);
+  };
+
+  // Фактическая запись — после подтверждения в ConfirmDialog.
+  const doSave = async () => {
+    setSaving(true);
     setError(null);
     try {
       await settingsApi.update({
@@ -229,15 +271,33 @@ export default function Settings() {
         required: r.required,
         capPerAgent: r.capPerAgent,
       })));
+      // Обновляем базу для следующей сводки «было → стало».
+      setBaseline({ level1Threshold: settings.level1Threshold, level2Threshold: settings.level2Threshold });
+      setConfirmOpen(false);
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось сохранить');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const updatePlanCell = (level: number, field: keyof MarketingPlanRow, value: number | null) =>
+  // Сводка изменившихся порогов для тела ConfirmDialog («Порог L2: было → стало»).
+  const thresholdChanges = (): { label: string; from: number; to: number }[] => {
+    if (!baseline) return [];
+    const rows: { label: string; from: number; to: number }[] = [];
+    if (settings.level1Threshold !== baseline.level1Threshold)
+      rows.push({ label: 'Порог L2', from: baseline.level1Threshold, to: settings.level1Threshold });
+    if (settings.level2Threshold !== baseline.level2Threshold)
+      rows.push({ label: 'Порог L3', from: baseline.level2Threshold, to: settings.level2Threshold });
+    return rows;
+  };
+
+  const updatePlanCell = (level: number, field: keyof MarketingPlanRow, value: number | null) => {
     setPlan(prev => prev.map(r => r.level === level ? { ...r, [field]: value } : r));
+    const key = `plan_${level}_${field}`;
+    setFieldErrors(prev => (prev[key] ? { ...prev, [key]: false } : prev));
+  };
 
   const toggleAchActive = (id: string) => {
     const cur = achievements.find(a => a.id === id);
@@ -283,13 +343,18 @@ export default function Settings() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, maxWidth: 800 }}>
-      {saved && (
-        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}>
-          <Alert severity="success" icon={<CheckCircleRoundedIcon />} sx={{ borderRadius: 2.5 }}>
-            Настройки успешно сохранены
-          </Alert>
-        </motion.div>
-      )}
+      {/* Плавающий Snackbar внизу — виден с телефона после клика по кнопке внизу
+          длинной страницы (обычный Alert вверху оставался за кадром). */}
+      <Snackbar
+        open={saved}
+        autoHideDuration={3000}
+        onClose={() => setSaved(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" icon={<CheckCircleRoundedIcon />} onClose={() => setSaved(false)} sx={{ borderRadius: 2.5 }}>
+          Настройки успешно сохранены
+        </Alert>
+      </Snackbar>
       {error && (
         <Alert severity="error" onClose={() => setError(null)} sx={{ borderRadius: 2.5 }}>
           {error}
@@ -315,12 +380,16 @@ export default function Settings() {
                 label={`Порог ВКД для ${cp.commission}% (₽)`}
                 type="number"
                 value={i === 0 ? settings.level1Threshold : settings.level2Threshold}
-                onChange={e => setSettings(s => ({
-                  ...s,
-                  [i === 0 ? 'level1Threshold' : 'level2Threshold']: Number(e.target.value),
-                }))}
+                error={fieldErrors[i === 0 ? 'level1Threshold' : 'level2Threshold']}
+                onChange={e => {
+                  const key = i === 0 ? 'level1Threshold' : 'level2Threshold';
+                  setSettings(s => ({ ...s, [key]: Number(e.target.value) }));
+                  setFieldErrors(prev => (prev[key] ? { ...prev, [key]: false } : prev));
+                }}
                 slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }}
-                helperText={`Текущий порог: ${fmt(i === 0 ? settings.level1Threshold : settings.level2Threshold)} ₽ годового ВКД`}
+                helperText={fieldErrors[i === 0 ? 'level1Threshold' : 'level2Threshold']
+                  ? 'Укажите положительное значение'
+                  : `Текущий порог: ${fmt(i === 0 ? settings.level1Threshold : settings.level2Threshold)} ₽ годового ВКД`}
               />
             </Box>
           ))}
@@ -336,9 +405,9 @@ export default function Settings() {
               <Box sx={{ position: 'absolute', right: '10%', top: -3, width: 14, height: 14, borderRadius: '50%', background: '#C9A84C', border: '2px solid #080C18', boxShadow: '0 0 8px #C9A84C' }} />
             </Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="caption" sx={{ color: '#64748B' }}>0 — L1 (80%)</Typography>
-              <Typography variant="caption" sx={{ color: '#4361EE', fontWeight: 600 }}>{fmt(settings.level1Threshold)} ₽ — L2 (90%)</Typography>
-              <Typography variant="caption" sx={{ color: '#C9A84C', fontWeight: 600 }}>{fmt(settings.level2Threshold)} ₽ — L3 (95%)</Typography>
+              <Typography variant="caption" sx={{ color: '#64748B' }}>0 — L1 ({settings.level1Commission}%)</Typography>
+              <Typography variant="caption" sx={{ color: '#4361EE', fontWeight: 600 }}>{fmt(settings.level1Threshold)} ₽ — L2 ({settings.level2Commission}%)</Typography>
+              <Typography variant="caption" sx={{ color: '#C9A84C', fontWeight: 600 }}>{fmt(settings.level2Threshold)} ₽ — L3 ({settings.level3Commission}%)</Typography>
             </Box>
           </Box>
         </Stack>
@@ -349,8 +418,8 @@ export default function Settings() {
         <Alert severity="info" sx={{ borderRadius: 2, mb: 2 }}>
           Эта таблица определяет пассивный доход агентов команды. Изменения отразятся в портале на странице «Команда».
         </Alert>
-        <Box sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Table size="small">
+        <Box sx={{ borderRadius: 2, overflow: 'auto', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <Table size="small" sx={{ minWidth: 560 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 90, fontWeight: 700, color: '#94A3B8' }}>Уровень</TableCell>
@@ -370,6 +439,7 @@ export default function Settings() {
                     <TextField
                       size="small" type="number" sx={{ width: 110 }}
                       value={row.protected}
+                      error={fieldErrors[`plan_${row.level}_protected`]}
                       onChange={e => updatePlanCell(row.level, 'protected', Number(e.target.value))}
                       slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
                     />
@@ -381,6 +451,7 @@ export default function Settings() {
                       <TextField
                         size="small" type="number" sx={{ width: 110 }}
                         value={row.growing}
+                        error={fieldErrors[`plan_${row.level}_growing`]}
                         onChange={e => updatePlanCell(row.level, 'growing', Number(e.target.value))}
                         slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
                       />
@@ -393,6 +464,7 @@ export default function Settings() {
                       <TextField
                         size="small" type="number" sx={{ width: 110 }}
                         value={row.required}
+                        error={fieldErrors[`plan_${row.level}_required`]}
                         onChange={e => updatePlanCell(row.level, 'required', Number(e.target.value))}
                       />
                     )}
@@ -401,6 +473,7 @@ export default function Settings() {
                     <TextField
                       size="small" type="number" sx={{ width: 160 }}
                       value={row.capPerAgent}
+                      error={fieldErrors[`plan_${row.level}_capPerAgent`]}
                       onChange={e => updatePlanCell(row.level, 'capPerAgent', Number(e.target.value))}
                       slotProps={{ input: { endAdornment: <InputAdornment position="end">₽</InputAdornment> } }}
                     />
@@ -419,13 +492,13 @@ export default function Settings() {
             {achievements.filter(a => a.active).length} активны · {achievements.length} всего
           </Typography>
         </Box>
-        <Box sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Table size="small">
+        <Box sx={{ borderRadius: 2, overflow: 'auto', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <Table size="small" sx={{ minWidth: 640 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 60, fontWeight: 700, color: '#94A3B8' }}>Иконка</TableCell>
                 <TableCell sx={{ fontWeight: 700, color: '#94A3B8' }}>Название</TableCell>
-                <TableCell sx={{ fontWeight: 700, color: '#94A3B8' }}>Tier</TableCell>
+                <TableCell sx={{ fontWeight: 700, color: '#94A3B8' }}>Ранг</TableCell>
                 <TableCell sx={{ fontWeight: 700, color: '#94A3B8' }}>Условие</TableCell>
                 <TableCell sx={{ fontWeight: 700, color: '#94A3B8' }}>Активна</TableCell>
                 <TableCell align="center" sx={{ width: 100, fontWeight: 700, color: '#94A3B8' }}>Действия</TableCell>
@@ -483,8 +556,8 @@ export default function Settings() {
                 onChange={e => setAchForm(f => ({ ...f, description: e.target.value }))} />
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                 <FormControl size="small" sx={{ minWidth: 140 }}>
-                  <InputLabel>Tier</InputLabel>
-                  <Select label="Tier" value={achForm.tier} onChange={e => setAchForm(f => ({ ...f, tier: e.target.value as AchievementTier }))}>
+                  <InputLabel>Ранг</InputLabel>
+                  <Select label="Ранг" value={achForm.tier} onChange={e => setAchForm(f => ({ ...f, tier: e.target.value as AchievementTier }))}>
                     {(Object.keys(TIER_COLOR) as AchievementTier[]).map(t => (
                       <MenuItem key={t} value={t}><span style={{ color: TIER_COLOR[t], fontWeight: 700 }}>{t.toUpperCase()}</span></MenuItem>
                     ))}
@@ -600,10 +673,40 @@ export default function Settings() {
 
       {/* Save button */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', pb: 2 }}>
-        <Button variant="contained" size="large" startIcon={<SaveRoundedIcon />} onClick={handleSave} sx={{ px: 4 }}>
-          Сохранить все настройки
+        <Button
+          variant="contained" size="large"
+          startIcon={saving ? <CircularProgress size={18} sx={{ color: 'inherit' }} /> : <SaveRoundedIcon />}
+          onClick={handleSave}
+          disabled={saving}
+          sx={{ px: 4 }}
+        >
+          {saving ? 'Сохранение…' : 'Сохранить все настройки'}
         </Button>
       </Box>
+
+      {/* Подтверждение записи со сводкой изменившихся порогов. */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Сохранить настройки?"
+        confirmLabel="Сохранить"
+        loading={saving}
+        onConfirm={doSave}
+        onClose={() => { if (!saving) setConfirmOpen(false); }}
+        text={(() => {
+          const changes = thresholdChanges();
+          if (changes.length === 0) return 'Пороги комиссии не менялись. Сохранить остальные настройки (маркетинговый план)?';
+          return (
+            <Box component="span" sx={{ display: 'block' }}>
+              <Box component="span" sx={{ display: 'block', mb: 1 }}>Изменятся пороги комиссии:</Box>
+              {changes.map(c => (
+                <Box key={c.label} component="span" sx={{ display: 'block' }}>
+                  {c.label}: {formatRub(c.from)} → <b style={{ color: '#C9A84C' }}>{formatRub(c.to)}</b>
+                </Box>
+              ))}
+            </Box>
+          );
+        })()}
+      />
     </Box>
   );
 }

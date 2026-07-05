@@ -12,6 +12,7 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import { casesAdminApi, type CaseItem, type DealParticipant } from '../api/cases';
 import { uploadCaseAttachment, openCaseAttachment } from '../lib/attachments';
+import ConfirmDialog from './ConfirmDialog';
 
 const MAX_PARTICIPANTS = 5;
 const DOC_CATEGORIES = [
@@ -28,12 +29,29 @@ export default function DealParticipants({ caseItem, myId, isAdmin, onChanged }:
   const participants = caseItem.dealParticipants || [];
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Подтверждение удаления через ConfirmDialog (замена системного window.confirm):
+  // участник (с ФИО в тексте) либо отдельный файл.
+  const [confirm, setConfirm] = useState<
+    | { kind: 'participant'; participant: DealParticipant; index: number }
+    | { kind: 'file'; attId: number }
+    | null
+  >(null);
   const run = async (fn: () => Promise<CaseItem>) => {
     setBusy(true); setErr(null);
     try { onChanged(await fn()); }
     catch (e) { setErr(e instanceof Error ? e.message : 'Ошибка'); }
     finally { setBusy(false); }
   };
+  // Выполнение подтверждённого удаления: participant → участник + документы, file → один файл.
+  const doConfirmDelete = async () => {
+    if (!confirm) return;
+    if (confirm.kind === 'participant') await run(() => casesAdminApi.deleteDealParticipant(caseItem.id, confirm.participant.id));
+    else await run(() => casesAdminApi.deleteAttachment(caseItem.id, confirm.attId));
+    setConfirm(null);
+  };
+  const confirmName = confirm?.kind === 'participant'
+    ? (confirm.participant.name?.trim() || `Участник ${confirm.index + 1}`)
+    : '';
 
   return (
     <Box>
@@ -57,7 +75,7 @@ export default function DealParticipants({ caseItem, myId, isAdmin, onChanged }:
           {participants.map((p, i) => (
             <ParticipantCard key={p.id} caseItem={caseItem} p={p} index={i} myId={myId} isAdmin={isAdmin} busy={busy}
               onPatch={(body) => run(() => casesAdminApi.updateDealParticipant(caseItem.id, p.id, body))}
-              onRemove={() => { if (window.confirm('Удалить участника и все его документы?')) run(() => casesAdminApi.deleteDealParticipant(caseItem.id, p.id)); }}
+              onRemove={() => setConfirm({ kind: 'participant', participant: p, index: i })}
               onUpload={async (category, files) => {
                 if (!files.length) return;
                 setBusy(true); setErr(null);
@@ -65,11 +83,24 @@ export default function DealParticipants({ caseItem, myId, isAdmin, onChanged }:
                 catch (e) { setErr(e instanceof Error ? e.message : 'Не удалось загрузить файл'); }
                 finally { setBusy(false); }
               }}
-              onDeleteFile={(attId) => { if (window.confirm('Удалить файл?')) run(() => casesAdminApi.deleteAttachment(caseItem.id, attId)); }}
+              onDeleteFile={(attId) => setConfirm({ kind: 'file', attId })}
               onOpenError={(msg) => setErr(msg)} />
           ))}
         </Box>
       )}
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.kind === 'file' ? 'Удалить файл?' : 'Удалить участника?'}
+        text={confirm?.kind === 'file'
+          ? 'Файл будет удалён без возможности восстановления.'
+          : `Удалить участника «${confirmName}» и все его документы?`}
+        confirmLabel="Удалить"
+        danger
+        loading={busy}
+        onConfirm={doConfirmDelete}
+        onClose={() => { if (!busy) setConfirm(null); }}
+      />
     </Box>
   );
 }

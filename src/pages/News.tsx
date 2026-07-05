@@ -3,7 +3,7 @@ import {
   Box, Typography, Button, TextField, Select, MenuItem,
   Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Stack, Divider, Paper, Grid,
-  InputAdornment, Switch, FormControlLabel, Alert, CircularProgress,
+  InputAdornment, Switch, FormControlLabel, Alert, CircularProgress, Tooltip,
 } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -17,6 +17,9 @@ import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import { newsApi, type Article, type ArticleComment, type ArticlePayload } from '../api/news';
 import FileUploader from '../components/FileUploader';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { formatDate } from '../utils/format';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 
 const CATEGORIES = ['Компания', 'Рынок', 'Обучение', 'Итоги', 'Партнёры', 'Объявления'];
 
@@ -45,7 +48,7 @@ const emptyForm = (): FormState => ({
   published: false,
 });
 
-function toPayload(f: FormState, override?: { published?: boolean }): ArticlePayload {
+function toPayload(f: FormState): ArticlePayload {
   return {
     title: f.title.trim(),
     summary: f.summary,
@@ -56,11 +59,12 @@ function toPayload(f: FormState, override?: { published?: boolean }): ArticlePay
     date: f.date,
     readTime: f.readTime,
     isFeatured: f.pinned,
-    published: override?.published ?? f.published,
+    published: f.published,
   };
 }
 
 export default function News() {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,8 +73,14 @@ export default function News() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const [comments, setComments] = useState<ArticleComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsCount, setCommentsCount] = useState<Record<number, number>>({});
   const [commentsDlgFor, setCommentsDlgFor] = useState<Article | null>(null);
+
+  // Подтверждения удаления через themed ConfirmDialog вместо системного confirm().
+  const [articleToDelete, setArticleToDelete] = useState<Article | null>(null);
+  const [commentToDelete, setCommentToDelete] = useState<ArticleComment | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('all');
@@ -135,12 +145,12 @@ export default function News() {
     setDialogOpen(true);
   };
 
-  const handleSave = async (publishOverride?: boolean) => {
+  const handleSave = async () => {
     if (!form.title.trim() || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
-      const payload = toPayload(form, publishOverride !== undefined ? { published: publishOverride } : undefined);
+      const payload = toPayload(form);
       if (form.id != null) {
         await newsApi.update(form.id, payload);
       } else {
@@ -156,13 +166,18 @@ export default function News() {
     }
   };
 
-  const deleteArticle = async (id: number) => {
-    if (!confirm('Удалить статью?')) return;
+  const confirmDeleteArticle = async () => {
+    if (!articleToDelete) return;
+    const id = articleToDelete.id;
+    setDeleting(true);
     try {
       await newsApi.remove(id);
       setArticles(prev => prev.filter(a => a.id !== id));
+      setArticleToDelete(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -177,24 +192,34 @@ export default function News() {
 
   const openComments = async (a: Article) => {
     setCommentsDlgFor(a);
+    setComments([]);
+    setCommentsLoading(true);
     try {
       const list = await newsApi.comments(a.id);
       setComments(list);
       setCommentsCount(prev => ({ ...prev, [a.id]: list.length }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки комментариев');
+    } finally {
+      setCommentsLoading(false);
     }
   };
 
-  const deleteComment = async (id: number) => {
+  const confirmDeleteComment = async () => {
+    if (!commentToDelete) return;
+    const id = commentToDelete.id;
+    setDeleting(true);
     try {
       await newsApi.deleteComment(id);
       setComments(prev => prev.filter(c => c.id !== id));
       if (commentsDlgFor) {
         setCommentsCount(prev => ({ ...prev, [commentsDlgFor.id]: Math.max(0, (prev[commentsDlgFor.id] || 1) - 1) }));
       }
+      setCommentToDelete(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка удаления комментария');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -249,7 +274,11 @@ export default function News() {
                 <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ delay: i * 0.07 }}>
                   <Paper sx={{ p: 2.5, borderRadius: 3, border: `1px solid ${article.pinned ? 'rgba(201,168,76,0.3)' : 'rgba(201,168,76,0.1)'}`, position: 'relative', overflow: 'hidden' }}>
                     {article.pinned && (
-                      <Box sx={{ position: 'absolute', top: 0, right: 0, width: 0, height: 0, borderStyle: 'solid', borderWidth: '0 32px 32px 0', borderColor: `transparent #C9A84C transparent transparent` }} />
+                      <Tooltip title="Закреплена в ленте" placement="left">
+                        <Box sx={{ position: 'absolute', top: 0, right: 0, width: 32, height: 32, cursor: 'default' }}>
+                          <Box sx={{ position: 'absolute', top: 0, right: 0, width: 0, height: 0, borderStyle: 'solid', borderWidth: '0 32px 32px 0', borderColor: `transparent #C9A84C transparent transparent` }} />
+                        </Box>
+                      </Tooltip>
                     )}
 
                     <Box sx={{ height: 80, borderRadius: 2, mb: 2, overflow: 'hidden', position: 'relative', background: `linear-gradient(135deg, ${cc.color}15, ${cc.color}05)`, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${cc.color}15` }}>
@@ -276,7 +305,7 @@ export default function News() {
                     </Typography>
 
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="caption" sx={{ color: '#475569' }}>{article.author} · {article.date}</Typography>
+                      <Typography variant="caption" sx={{ color: '#475569' }}>{article.author} · {formatDate(article.date)}</Typography>
                       <Box sx={{ display: 'flex', gap: 1.5, color: '#64748B' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
                           <FavoriteRoundedIcon sx={{ fontSize: 13, color: '#EF4444' }} />
@@ -302,7 +331,7 @@ export default function News() {
                       <IconButton size="small" onClick={() => openEdit(article)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                         <EditRoundedIcon fontSize="small" />
                       </IconButton>
-                      <IconButton size="small" onClick={() => deleteArticle(article.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                      <IconButton size="small" onClick={() => setArticleToDelete(article)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                         <DeleteRoundedIcon fontSize="small" />
                       </IconButton>
                     </Box>
@@ -322,7 +351,7 @@ export default function News() {
       )}
 
       {/* Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>{form.id != null ? 'Редактировать статью' : 'Новая статья'}</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
@@ -343,19 +372,19 @@ export default function News() {
               <Typography variant="body1" sx={{ color: '#94A3B8', mb: 2 }}>{form.summary || 'Краткое описание…'}</Typography>
               <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)', my: 2 }} />
               <Typography variant="body2" sx={{ color: '#CBD5E1', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{form.content || 'Текст статьи появится здесь…'}</Typography>
-              <Typography variant="caption" sx={{ color: '#475569', display: 'block', mt: 2 }}>{form.author} · {form.date}</Typography>
+              <Typography variant="caption" sx={{ color: '#475569', display: 'block', mt: 2 }}>{form.author} · {formatDate(form.date)}</Typography>
             </Box>
           ) : (
             <Stack spacing={2.5}>
               <TextField fullWidth label="Заголовок статьи *" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} size="small" />
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <FormControl size="small" fullWidth>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <FormControl size="small" sx={{ flex: '1 1 160px', minWidth: 140 }}>
                   <InputLabel>Категория</InputLabel>
                   <Select value={form.category} label="Категория" onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
                     {CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                   </Select>
                 </FormControl>
-                <TextField fullWidth label="Автор" value={form.author} onChange={e => setForm(f => ({ ...f, author: e.target.value }))} size="small" />
+                <TextField label="Автор" value={form.author} onChange={e => setForm(f => ({ ...f, author: e.target.value }))} size="small" sx={{ flex: '1 1 160px', minWidth: 140 }} />
                 <TextField label="Дата" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} size="small" sx={{ width: 160 }}
                   slotProps={{ inputLabel: { shrink: true } }} />
               </Box>
@@ -368,7 +397,9 @@ export default function News() {
               />
               <TextField fullWidth label="Текст статьи" value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} multiline rows={8}
                 placeholder="Введите полный текст статьи…" />
-              <Box sx={{ display: 'flex', gap: 3 }}>
+              <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                <FormControlLabel control={<Switch checked={form.published} onChange={e => setForm(f => ({ ...f, published: e.target.checked }))} sx={{ '& .Mui-checked .MuiSwitch-thumb': { background: '#22C55E' }, '& .Mui-checked + .MuiSwitch-track': { background: '#22C55E50' } }} />}
+                  label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Опубликовано</Typography>} />
                 <FormControlLabel control={<Switch checked={form.pinned} onChange={e => setForm(f => ({ ...f, pinned: e.target.checked }))} sx={{ '& .MuiSwitch-thumb': { background: '#C9A84C' }, '& .Mui-checked + .MuiSwitch-track': { background: '#C9A84C50' } }} />}
                   label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Закрепить в ленте</Typography>} />
               </Box>
@@ -377,17 +408,15 @@ export default function News() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-          <Button variant="outlined" onClick={() => handleSave(false)} disabled={saving} sx={{ borderColor: 'rgba(245,158,11,0.3)', color: '#F59E0B' }}>
-            Сохранить черновик
-          </Button>
-          <Button variant="contained" onClick={() => handleSave(true)} disabled={!form.title.trim() || saving}>
-            {form.id != null ? 'Сохранить' : 'Опубликовать'}
+          <Button variant="contained" onClick={() => handleSave()} disabled={!form.title.trim() || saving}
+            startIcon={saving ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : undefined}>
+            Сохранить
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* ===== Comments moderation dialog ===== */}
-      <Dialog open={!!commentsDlgFor} onClose={() => setCommentsDlgFor(null)} maxWidth="md" fullWidth>
+      <Dialog open={!!commentsDlgFor} onClose={() => setCommentsDlgFor(null)} maxWidth="md" fullWidth fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Box>
             <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>Комментарии к статье</Typography>
@@ -402,6 +431,13 @@ export default function News() {
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 2 }}>
           {commentsDlgFor && (() => {
+            if (commentsLoading) {
+              return (
+                <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+                  <CircularProgress size={28} />
+                </Box>
+              );
+            }
             const list = [...comments].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
             if (list.length === 0) {
               return (
@@ -427,11 +463,11 @@ export default function News() {
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
                           <Typography variant="body2" sx={{ fontWeight: 700, color: '#F1F5F9' }}>{c.authorName}</Typography>
-                          <Typography variant="caption" sx={{ color: '#64748B' }}>{c.createdAt.slice(0, 10)}</Typography>
+                          <Typography variant="caption" sx={{ color: '#64748B' }}>{formatDate(c.createdAt)}</Typography>
                         </Box>
                         <Typography variant="body2" sx={{ color: '#CBD5E1', mb: 1, lineHeight: 1.5 }}>{c.text}</Typography>
                       </Box>
-                      <IconButton size="small" onClick={() => deleteComment(c.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                      <IconButton size="small" onClick={() => setCommentToDelete(c)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                         <DeleteRoundedIcon fontSize="small" />
                       </IconButton>
                     </Box>
@@ -442,6 +478,28 @@ export default function News() {
           })()}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!articleToDelete}
+        title="Удалить статью?"
+        text={articleToDelete ? `Удалить статью «${articleToDelete.title}»? Комментарии и лайки под ней тоже удалятся.` : ''}
+        confirmLabel="Удалить"
+        danger
+        loading={deleting}
+        onConfirm={confirmDeleteArticle}
+        onClose={() => setArticleToDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={!!commentToDelete}
+        title="Удалить комментарий?"
+        text={commentToDelete ? `Удалить комментарий ${commentToDelete.authorName}?` : ''}
+        confirmLabel="Удалить"
+        danger
+        loading={deleting}
+        onConfirm={confirmDeleteComment}
+        onClose={() => setCommentToDelete(null)}
+      />
     </Box>
   );
 }

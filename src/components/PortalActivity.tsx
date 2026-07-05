@@ -9,6 +9,7 @@ import {
   ScatterChart, Scatter, ZAxis, Cell,
 } from 'recharts';
 import { statsApi, type PortalActivity as Summary, type PortalActivityAgent } from '../api/stats';
+import { formatMoney } from '../utils/format';
 
 const fmtDateTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
@@ -119,10 +120,10 @@ export default function PortalActivity() {
         <Kpi label="DAU (сегодня)"   value={sum.dau} color="#C9A84C" />
         <Kpi label="WAU (7 дней)"    value={sum.wau} />
         <Kpi label="MAU (30 дней)"   value={sum.mau} />
-        <Kpi label="Stickiness"      value={`${sum.stickiness}%`} sub="DAU / MAU" color="#4361EE" />
+        <Kpi label="Возвращаемость"  value={`${sum.stickiness}%`} sub="DAU / MAU" color="#4361EE" />
         <Kpi label="Активны 30 дней" value={`${pct(sum.active30, sum.totalActiveAgents)}%`} sub={`${sum.active30} из ${sum.totalActiveAgents}`} color="#22C55E" />
         <Kpi label="Спящие 30д+"     value={sum.sleeping} sub="не заходили месяц" color="#EF4444" />
-        <Kpi label="Достижимы"       value={`${pct(sum.reachability.any, sum.totalActiveAgents)}%`} sub={`TG ${sum.reachability.telegram} · MAX ${sum.reachability.max} · Push ${sum.reachability.push}`} color="#06B6D4" />
+        <Kpi label="На связи"        value={`${pct(sum.reachability.any, sum.totalActiveAgents)}%`} sub={`TG ${sum.reachability.telegram} · MAX ${sum.reachability.max} · Push ${sum.reachability.push}`} color="#06B6D4" />
       </Box>
 
       {/* Тренд DAU по дням */}
@@ -156,8 +157,8 @@ export default function PortalActivity() {
         {/* Ключевые выводы */}
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
           <Kpi label="Продающих в портале" value={`${link.pctProducersActive}%`} sub={`из ${link.producersCount} закрывавших сделки`} color="#22C55E" />
-          <Kpi label="Ср. ВКД активных (90д)" value={mln(link.avgVkdActive)} sub="кто заходит в портал" color="#C9A84C" />
-          <Kpi label="Ср. ВКД неактивных (90д)" value={mln(link.avgVkdInactive)} sub="кто не заходит" color="#94A3B8" />
+          <Kpi label="Ср. ВКД активных (90д)" value={formatMoney(link.avgVkdActive)} sub="кто заходит в портал" color="#C9A84C" />
+          <Kpi label="Ср. ВКД неактивных (90д)" value={formatMoney(link.avgVkdInactive)} sub="кто не заходит" color="#94A3B8" />
         </Box>
 
         {/* Квадрант */}
@@ -233,7 +234,12 @@ export default function PortalActivity() {
         <TableContainer sx={{ maxHeight: 520 }}>
           <Table stickyHeader size="small">
             <TableHead>
-              <TableRow sx={{ '& th': { background: '#0F1629', color: '#94A3B8', fontWeight: 600, borderColor: 'rgba(255,255,255,0.06)' } }}>
+              <TableRow sx={{
+                '& th': { background: '#0F1629', color: '#94A3B8', fontWeight: 600, borderColor: 'rgba(255,255,255,0.06)' },
+                // Первая колонка «Агент» остаётся видимой при горизонтальном скролле.
+                // zIndex 3 — выше и sticky-header (2), и sticky-ячеек тела (2).
+                '& th:first-of-type': { position: 'sticky', left: 0, zIndex: 3 },
+              }}>
                 <TableCell sortDirection={sortKey === 'name' ? sortDir : false}>
                   <TableSortLabel active={sortKey === 'name'} direction={sortKey === 'name' ? sortDir : 'asc'} onClick={sortHandler('name')}>Агент</TableSortLabel>
                 </TableCell>
@@ -258,7 +264,12 @@ export default function PortalActivity() {
             </TableHead>
             <TableBody>
               {rows.map(a => (
-                <TableRow key={a.id} hover sx={{ '& td': { color: '#CBD5E1', borderColor: 'rgba(255,255,255,0.04)' } }}>
+                <TableRow key={a.id} hover sx={{
+                  '& td': { color: '#CBD5E1', borderColor: 'rgba(255,255,255,0.04)' },
+                  // Первая ячейка «Агент» липнет к левому краю при скролле таблицы.
+                  // Непрозрачный фон — чтобы прокручиваемые колонки не просвечивали.
+                  '& td:first-of-type': { position: 'sticky', left: 0, zIndex: 2, background: '#0A0E1A' },
+                }}>
                   <TableCell sx={{ fontWeight: 600, color: '#F1F5F9' }}>{a.name}</TableCell>
                   <TableCell>{a.city || '—'}</TableCell>
                   <TableCell sx={{ color: loginColor(a.lastLoginAt), fontWeight: 600 }}>{fmtDateTime(a.lastLoginAt)}</TableCell>

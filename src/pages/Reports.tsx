@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Box, Typography, Paper, CircularProgress, Alert, Tabs, Tab,
-  Table, TableHead, TableBody, TableRow, TableCell, TextField, Chip, Button,
+  Table, TableHead, TableBody, TableRow, TableCell, TextField, Chip, Button, Snackbar,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
@@ -25,20 +25,16 @@ async function downloadXlsx(tab: number, range: { from: string; to: string }) {
     `Типы_недвижимости_${range.from}_${range.to}.xlsx`,
   ];
   const url = `${API_BASE_URL}${paths[tab]}?from=${range.from}&to=${range.to}`;
-  try {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filenames[tab];
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
-  } catch (e) {
-    alert('Не удалось скачать: ' + (e instanceof Error ? e.message : 'ошибка'));
-  }
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filenames[tab];
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
 }
 
 // По умолчанию — текущий месяц.
@@ -63,12 +59,30 @@ export default function Reports() {
   const [range, setRange] = useState(defaultRange());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const [dealsByAgent, setDealsByAgent] = useState<DealsByAgentResponse | null>(null);
   const [mlmPayouts, setMlmPayouts] = useState<MlmPayoutsResponse | null>(null);
   const [propTypes, setPropTypes] = useState<PropertyTypesResponse | null>(null);
 
+  // Период задом наперёд (С позже По) — запросы и выгрузка бессмысленны.
+  const rangeInvalid = !!range.from && !!range.to && range.from > range.to;
+
+  const handleDownload = async () => {
+    if (downloading || rangeInvalid) return;
+    setDownloading(true); setDownloadError(null);
+    try {
+      await downloadXlsx(tab, range);
+    } catch (e) {
+      setDownloadError('Не удалось скачать: ' + (e instanceof Error ? e.message : 'ошибка'));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   useEffect(() => {
+    if (rangeInvalid) { setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -118,11 +132,12 @@ export default function Reports() {
             sx={dateInputSx}
           />
           <Button
-            variant="outlined" startIcon={<FileDownloadRoundedIcon />}
-            onClick={() => downloadXlsx(tab, range)}
+            variant="outlined" disabled={downloading || rangeInvalid}
+            startIcon={downloading ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : <FileDownloadRoundedIcon />}
+            onClick={handleDownload}
             sx={{ borderColor: 'rgba(34,197,94,0.4)', color: '#22C55E', '&:hover': { borderColor: '#22C55E', background: 'rgba(34,197,94,0.06)' } }}
           >
-            Скачать .xlsx
+            {downloading ? 'Скачивание…' : 'Скачать .xlsx'}
           </Button>
         </Box>
       </Box>
@@ -143,14 +158,17 @@ export default function Reports() {
         </Tabs>
 
         <Box sx={{ p: 3 }}>
-          {loading && (
+          {rangeInvalid && (
+            <Alert severity="warning">Дата «С» позже даты «По» — выберите корректный период.</Alert>
+          )}
+          {loading && !rangeInvalid && (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
               <CircularProgress sx={{ color: '#C9A84C' }} />
             </Box>
           )}
-          {error && !loading && <Alert severity="error">{error}</Alert>}
+          {error && !loading && !rangeInvalid && <Alert severity="error">{error}</Alert>}
 
-          {!loading && !error && (
+          {!loading && !error && !rangeInvalid && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
               {tab === 0 && dealsByAgent && <DealsByAgentTable data={dealsByAgent} />}
               {tab === 1 && mlmPayouts && <MlmPayoutsTable data={mlmPayouts} />}
@@ -159,6 +177,17 @@ export default function Reports() {
           )}
         </Box>
       </Paper>
+
+      <Snackbar
+        open={!!downloadError}
+        autoHideDuration={5000}
+        onClose={() => setDownloadError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setDownloadError(null)} sx={{ width: '100%' }}>
+          {downloadError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
@@ -171,6 +200,7 @@ function DealsByAgentTable({ data }: { data: DealsByAgentResponse }) {
     return <Typography variant="body2" sx={{ color: '#64748B', textAlign: 'center', py: 4 }}>За выбранный период сделок не было.</Typography>;
   }
   return (
+    <Box sx={{ overflowX: 'auto' }}>
     <Table size="small" sx={tableSx}>
       <TableHead>
         <TableRow>
@@ -213,6 +243,7 @@ function DealsByAgentTable({ data }: { data: DealsByAgentResponse }) {
         </TableRow>
       </TableBody>
     </Table>
+    </Box>
   );
 }
 
@@ -228,7 +259,7 @@ function MlmPayoutsTable({ data }: { data: MlmPayoutsResponse }) {
       <Table size="small" sx={tableSx}>
         <TableHead>
           <TableRow>
-            <TableCell>Ментор</TableCell>
+            <TableCell sx={{ position: 'sticky', left: 0, background: '#0B1120', zIndex: 2 }}>Ментор</TableCell>
             {Array.from({ length: 7 }, (_, i) => (
               <TableCell key={i} align="right" sx={{ color: LEVEL_COLORS[i] + ' !important' }}>{`У${i + 1}, ₽`}</TableCell>
             ))}
@@ -238,7 +269,7 @@ function MlmPayoutsTable({ data }: { data: MlmPayoutsResponse }) {
         <TableBody>
           {data.rows.map(r => (
             <TableRow key={r.mentorId} hover>
-              <TableCell sx={{ color: '#F1F5F9', fontWeight: 600 }}>{r.mentorName}</TableCell>
+              <TableCell sx={{ color: '#F1F5F9', fontWeight: 600, position: 'sticky', left: 0, background: '#0B1120', zIndex: 1 }}>{r.mentorName}</TableCell>
               {r.byLevel.map((v, i) => (
                 <TableCell key={i} align="right" sx={{ color: v > 0 ? '#F1F5F9' : '#334155' }}>
                   {v > 0 ? fmt(v) : '—'}
@@ -248,7 +279,7 @@ function MlmPayoutsTable({ data }: { data: MlmPayoutsResponse }) {
             </TableRow>
           ))}
           <TableRow sx={totalRowSx}>
-            <TableCell sx={{ color: '#F1F5F9', fontWeight: 800 }}>ИТОГО</TableCell>
+            <TableCell sx={{ color: '#F1F5F9', fontWeight: 800, position: 'sticky', left: 0, background: 'linear-gradient(#11162a,#11162a)', zIndex: 1 }}>ИТОГО</TableCell>
             {data.totals.byLevel.map((v, i) => (
               <TableCell key={i} align="right" sx={{ color: '#F1F5F9', fontWeight: 800 }}>
                 {v > 0 ? fmt(v) : '—'}
@@ -270,6 +301,7 @@ function PropertyTypesTable({ data }: { data: PropertyTypesResponse }) {
     return <Typography variant="body2" sx={{ color: '#64748B', textAlign: 'center', py: 4 }}>За выбранный период сделок не было.</Typography>;
   }
   return (
+    <Box sx={{ overflowX: 'auto' }}>
     <Table size="small" sx={tableSx}>
       <TableHead>
         <TableRow>
@@ -296,6 +328,7 @@ function PropertyTypesTable({ data }: { data: PropertyTypesResponse }) {
         </TableRow>
       </TableBody>
     </Table>
+    </Box>
   );
 }
 

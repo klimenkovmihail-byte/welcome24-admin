@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Box, Typography, Slider, Button, IconButton, Stack,
+  Box, Typography, Slider, Button, IconButton, Stack, Alert,
 } from '@mui/material';
 import Cropper from 'react-easy-crop';
 import type { Area } from 'react-easy-crop';
@@ -61,6 +61,7 @@ export default function ImageCropper({ file, aspect = 16 / 9, open, onClose, onA
   const [zoom, setZoom] = useState(1);
   const [areaPixels, setAreaPixels] = useState<Area | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Грузим File → ObjectURL
   useEffect(() => {
@@ -70,6 +71,7 @@ export default function ImageCropper({ file, aspect = 16 / 9, open, onClose, onA
     setCrop({ x: 0, y: 0 });
     setZoom(1);
     setAreaPixels(null);
+    setError(null);
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
@@ -80,6 +82,7 @@ export default function ImageCropper({ file, aspect = 16 / 9, open, onClose, onA
   const handleApply = async () => {
     if (!src || !areaPixels || !file) return;
     setBusy(true);
+    setError(null);
     try {
       const blob = await getCroppedBlob(src, areaPixels, file.type);
       // Возвращаем как jpeg (если не было png) с тем же базовым именем
@@ -88,6 +91,7 @@ export default function ImageCropper({ file, aspect = 16 / 9, open, onClose, onA
       onApply(blob, `${baseName}.${ext}`);
     } catch (e) {
       console.error('[crop] failed:', e);
+      setError('Не удалось обработать изображение. Попробуйте другой файл.');
     } finally {
       setBusy(false);
     }
@@ -134,6 +138,8 @@ export default function ImageCropper({ file, aspect = 16 / 9, open, onClose, onA
         <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 1, textAlign: 'center' }}>
           Перетаскивай картинку и крути колесо мыши для масштаба · соотношение сторон зафиксировано
         </Typography>
+
+        {error && <Alert severity="error" sx={{ mt: 2 }} onClose={() => setError(null)}>{error}</Alert>}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 3 }}>
         <Button onClick={onClose} disabled={busy} sx={{ color: '#64748B' }}>Отмена</Button>

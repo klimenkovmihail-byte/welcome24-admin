@@ -62,7 +62,7 @@ export default function Login() {
       ))}
 
       <motion.div initial={{ opacity: 0, y: 24, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.5 }}>
-        <Box sx={{ width: 420, p: 4.5, borderRadius: 4, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: '1px solid rgba(201,168,76,0.15)', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
+        <Box sx={{ width: 'min(420px, calc(100vw - 32px))', p: { xs: 3, sm: 4.5 }, borderRadius: 4, background: 'linear-gradient(135deg, rgba(15,22,41,0.95), rgba(12,18,35,0.98))', border: '1px solid rgba(201,168,76,0.15)', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
           {/* Logo */}
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2, filter: 'drop-shadow(0 8px 32px rgba(201,168,76,0.25))' }}>
             <Logo variant="full" size={56} color="#F1F5F9" />
@@ -101,6 +101,10 @@ export default function Login() {
               {loading ? 'Входим…' : 'Войти в админку'}
             </Button>
           </form>
+
+          <Typography variant="caption" sx={{ color: '#64748B', textAlign: 'center', display: 'block', mt: 2.5 }}>
+            Забыли пароль? Напишите супер-админу — сброс в карточке сотрудника.
+          </Typography>
 
         </Box>
       </motion.div>

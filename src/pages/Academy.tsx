@@ -29,8 +29,17 @@ import {
 } from '../data/mockData';
 import { academyApi } from '../api/academy';
 import FileUploader from '../components/FileUploader';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { EmptyState } from '../components/States';
+import { plural, formatDate } from '../utils/format';
+import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 import { API_BASE_URL, getToken } from '../api/apiClient';
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
+import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded';
+import TableChartRoundedIcon from '@mui/icons-material/TableChartRounded';
+import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 
 const LEVELS = ['Начинающий', 'Средний', 'Продвинутый'] as const;
@@ -68,6 +77,16 @@ function fmtSize(n?: number) {
   if (n < 1024) return `${n} Б`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} КБ`;
   return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+// Иконка приложения курса по расширению имени файла (как в базе документов).
+function attachIcon(name: string): { Icon: typeof PictureAsPdfRoundedIcon; color: string } {
+  const n = (name || '').toLowerCase();
+  if (n.endsWith('.pdf')) return { Icon: PictureAsPdfRoundedIcon, color: '#EF4444' };
+  if (/\.(png|jpg|jpeg|webp|gif|svg)$/.test(n)) return { Icon: ImageRoundedIcon, color: '#06B6D4' };
+  if (/\.(docx?|odt|rtf)$/.test(n)) return { Icon: DescriptionRoundedIcon, color: '#3B82F6' };
+  if (/\.(xlsx?|ods|csv)$/.test(n)) return { Icon: TableChartRoundedIcon, color: '#22C55E' };
+  return { Icon: InsertDriveFileRoundedIcon, color: '#94A3B8' };
 }
 
 // Список PDF-приложений курса с возможностью добавлять/удалять.
@@ -122,13 +141,15 @@ function CourseAttachmentsEditor({
         </Box>
       ) : (
         <Stack spacing={1}>
-          {attachments.map((a, i) => (
+          {attachments.map((a, i) => {
+            const { Icon, color } = attachIcon(a.name);
+            return (
             <Box key={`${a.url}-${i}`} sx={{
               display: 'flex', alignItems: 'center', gap: 1.5, p: 1.2,
               borderRadius: 2, border: '1px solid rgba(201,168,76,0.1)',
               background: 'rgba(201,168,76,0.03)',
             }}>
-              <PictureAsPdfRoundedIcon sx={{ color: '#EF4444', fontSize: 22 }} />
+              <Icon sx={{ color, fontSize: 22 }} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="body2" sx={{ color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {a.name}
@@ -137,14 +158,15 @@ function CourseAttachmentsEditor({
                   {fmtSize(a.size)}
                 </Typography>
               </Box>
-              <IconButton size="small" component="a" href={a.url} target="_blank" sx={{ color: '#94A3B8', '&:hover': { color: '#C9A84C' } }}>
-                <PlayCircleRoundedIcon sx={{ fontSize: 18 }} />
+              <IconButton size="small" component="a" href={a.url} target="_blank" title="Открыть" sx={{ color: '#94A3B8', p: { xs: 1, sm: 0.5 }, '&:hover': { color: '#C9A84C' } }}>
+                <OpenInNewRoundedIcon sx={{ fontSize: 18 }} />
               </IconButton>
-              <IconButton size="small" onClick={() => onChange(attachments.filter((_, j) => j !== i))} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+              <IconButton size="small" onClick={() => onChange(attachments.filter((_, j) => j !== i))} title="Удалить" sx={{ color: '#64748B', p: { xs: 1, sm: 0.5 }, '&:hover': { color: '#EF4444' } }}>
                 <DeleteRoundedIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Box>
-          ))}
+            );
+          })}
         </Stack>
       )}
     </Box>
@@ -152,10 +174,24 @@ function CourseAttachmentsEditor({
 }
 
 export default function Academy() {
+  const { fullScreen, paperSafeArea } = useFullScreenDialog();
   const [tab, setTab] = useState<'courses' | 'webinars' | 'events'>('courses');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Ошибка сохранения показывается ВНУТРИ активного диалога (page-level Alert прячется за модалкой).
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  // Флаг «форма менялась с открытия» на каждый диалог — чтобы спросить перед потерей ввода.
+  const [courseDirty, setCourseDirty] = useState(false);
+  const [webinarDirty, setWebinarDirty] = useState(false);
+  const [eventDirty, setEventDirty] = useState(false);
+  // Какой диалог просят закрыть с несохранёнными изменениями (null — ничего не спрашиваем).
+  const [confirmClose, setConfirmClose] = useState<null | 'course' | 'webinar' | 'event'>(null);
+  // Объекты, ожидающие подтверждения удаления (null — диалог закрыт).
+  const [confirmDelCourse, setConfirmDelCourse] = useState<AdminCourse | null>(null);
+  const [confirmDelWebinar, setConfirmDelWebinar] = useState<AdminWebinar | null>(null);
+  const [confirmDelEvent, setConfirmDelEvent] = useState<AdminEvent | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // ============== COURSES STATE ==============
   const [courses, setCourses] = useState<AdminCourse[]>([]);
@@ -174,12 +210,15 @@ export default function Academy() {
     (!coursesSearch || c.title.toLowerCase().includes(coursesSearch.toLowerCase()))
   );
 
-  const openCourseEdit = (c: AdminCourse) => { setCourseForm({ ...c, lessons: c.lessons.map(l => ({ ...l })) }); setCourseDlgOpen(true); };
-  const openCourseNew = () => { setCourseForm(emptyCourse()); setCourseDlgOpen(true); };
+  const openCourseEdit = (c: AdminCourse) => { setCourseForm({ ...c, lessons: c.lessons.map(l => ({ ...l })) }); setCourseDirty(false); setDialogError(null); setCourseDlgOpen(true); };
+  const openCourseNew = () => { setCourseForm(emptyCourse()); setCourseDirty(false); setDialogError(null); setCourseDlgOpen(true); };
+  // Запрос закрытия: при несохранённых изменениях спрашиваем, иначе закрываем сразу.
+  const requestCloseCourse = () => { if (courseDirty) setConfirmClose('course'); else setCourseDlgOpen(false); };
 
   const saveCourse = async () => {
     if (!courseForm.title.trim() || saving) return;
     setSaving(true);
+    setDialogError(null);
     try {
       const payload = {
         title: courseForm.title,
@@ -211,18 +250,22 @@ export default function Academy() {
       setCourseDlgOpen(false);
       await loadCourses();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка сохранения курса');
+      setDialogError(e instanceof Error ? e.message : 'Не удалось сохранить курс. Проверьте связь и повторите.');
     } finally {
       setSaving(false);
     }
   };
-  const deleteCourse = async (id: number) => {
-    if (!confirm('Удалить курс?')) return;
+  const deleteCourse = async () => {
+    if (!confirmDelCourse) return;
+    setDeleteBusy(true);
     try {
-      await academyApi.removeCourse(id);
-      setCourses(prev => prev.filter(c => c.id !== id));
+      await academyApi.removeCourse(confirmDelCourse.id);
+      setCourses(prev => prev.filter(c => c.id !== confirmDelCourse.id));
+      setConfirmDelCourse(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    } finally {
+      setDeleteBusy(false);
     }
   };
   const togglePublishCourse = async (c: AdminCourse) => {
@@ -234,9 +277,11 @@ export default function Academy() {
     }
   };
 
-  const addLesson = () => setCourseForm(f => ({ ...f, lessons: [...f.lessons, { id: Date.now(), title: '', duration: '', videoUrl: '' }] }));
-  const updateLesson = (i: number, patch: Partial<AdminLesson>) => setCourseForm(f => ({ ...f, lessons: f.lessons.map((l, idx) => idx === i ? { ...l, ...patch } : l) }));
-  const removeLesson = (i: number) => setCourseForm(f => ({ ...f, lessons: f.lessons.filter((_, idx) => idx !== i) }));
+  // Единый мутатор формы курса: любое изменение поля помечает форму как «грязную».
+  const patchCourse = (updater: (f: AdminCourse) => AdminCourse) => { setCourseDirty(true); setCourseForm(updater); };
+  const addLesson = () => patchCourse(f => ({ ...f, lessons: [...f.lessons, { id: Date.now(), title: '', duration: '', videoUrl: '' }] }));
+  const updateLesson = (i: number, patch: Partial<AdminLesson>) => patchCourse(f => ({ ...f, lessons: f.lessons.map((l, idx) => idx === i ? { ...l, ...patch } : l) }));
+  const removeLesson = (i: number) => patchCourse(f => ({ ...f, lessons: f.lessons.filter((_, idx) => idx !== i) }));
 
   // ============== WEBINARS STATE ==============
   const [webinars, setWebinars] = useState<AdminWebinar[]>([]);
@@ -254,11 +299,15 @@ export default function Academy() {
     (!webinarSearch || w.title.toLowerCase().includes(webinarSearch.toLowerCase()))
   );
 
-  const openWebinarEdit = (w: AdminWebinar) => { setWebinarForm({ ...w }); setWebinarDlgOpen(true); };
-  const openWebinarNew = () => { setWebinarForm(emptyWebinar()); setWebinarDlgOpen(true); };
+  const openWebinarEdit = (w: AdminWebinar) => { setWebinarForm({ ...w }); setWebinarDirty(false); setDialogError(null); setWebinarDlgOpen(true); };
+  const openWebinarNew = () => { setWebinarForm(emptyWebinar()); setWebinarDirty(false); setDialogError(null); setWebinarDlgOpen(true); };
+  const requestCloseWebinar = () => { if (webinarDirty) setConfirmClose('webinar'); else setWebinarDlgOpen(false); };
+  // Единый мутатор формы вебинара: помечает форму «грязной» при любом изменении.
+  const patchWebinar = (updater: (f: AdminWebinar) => AdminWebinar) => { setWebinarDirty(true); setWebinarForm(updater); };
   const saveWebinar = async () => {
     if (!webinarForm.title.trim() || saving) return;
     setSaving(true);
+    setDialogError(null);
     try {
       const payload = {
         title: webinarForm.title,
@@ -280,18 +329,22 @@ export default function Academy() {
       setWebinarDlgOpen(false);
       await loadWebinars();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка сохранения вебинара');
+      setDialogError(e instanceof Error ? e.message : 'Не удалось сохранить вебинар. Проверьте связь и повторите.');
     } finally {
       setSaving(false);
     }
   };
-  const deleteWebinar = async (id: number) => {
-    if (!confirm('Удалить запись вебинара?')) return;
+  const deleteWebinar = async () => {
+    if (!confirmDelWebinar) return;
+    setDeleteBusy(true);
     try {
-      await academyApi.removeWebinar(id);
-      setWebinars(prev => prev.filter(w => w.id !== id));
+      await academyApi.removeWebinar(confirmDelWebinar.id);
+      setWebinars(prev => prev.filter(w => w.id !== confirmDelWebinar.id));
+      setConfirmDelWebinar(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    } finally {
+      setDeleteBusy(false);
     }
   };
   const togglePublishWebinar = async (w: AdminWebinar) => {
@@ -313,11 +366,15 @@ export default function Academy() {
   });
   const [eventForm, setEventForm] = useState<AdminEvent>(emptyEvent());
 
-  const openEventEdit = (e: AdminEvent) => { setEventForm({ ...e }); setEventDlgOpen(true); };
-  const openEventNew = () => { setEventForm(emptyEvent()); setEventDlgOpen(true); };
+  const openEventEdit = (e: AdminEvent) => { setEventForm({ ...e }); setEventDirty(false); setDialogError(null); setEventDlgOpen(true); };
+  const openEventNew = () => { setEventForm(emptyEvent()); setEventDirty(false); setDialogError(null); setEventDlgOpen(true); };
+  const requestCloseEvent = () => { if (eventDirty) setConfirmClose('event'); else setEventDlgOpen(false); };
+  // Единый мутатор формы события: помечает форму «грязной» при любом изменении.
+  const patchEvent = (updater: (f: AdminEvent) => AdminEvent) => { setEventDirty(true); setEventForm(updater); };
   const saveEvent = async () => {
     if (!eventForm.title.trim() || saving) return;
     setSaving(true);
+    setDialogError(null);
     try {
       const payload = {
         title: eventForm.title,
@@ -341,18 +398,31 @@ export default function Academy() {
       setEventDlgOpen(false);
       await loadEvents();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка сохранения события');
+      setDialogError(e instanceof Error ? e.message : 'Не удалось сохранить событие. Проверьте связь и повторите.');
     } finally {
       setSaving(false);
     }
   };
-  const deleteEvent = async (id: number) => {
-    if (!confirm('Удалить событие?')) return;
+  const deleteEvent = async () => {
+    if (!confirmDelEvent) return;
+    setDeleteBusy(true);
     try {
-      await academyApi.removeEvent(id);
-      setEvents(prev => prev.filter(e => e.id !== id));
+      await academyApi.removeEvent(confirmDelEvent.id);
+      setEvents(prev => prev.filter(e => e.id !== confirmDelEvent.id));
+      setConfirmDelEvent(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка удаления');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+  // Быстрая публикация/скрытие события одним кликом из карточки (как у курсов и вебинаров).
+  const togglePublishEvent = async (ev: AdminEvent) => {
+    try {
+      await academyApi.updateEvent(ev.id, { published: !ev.published });
+      setEvents(prev => prev.map(x => x.id === ev.id ? { ...x, published: !x.published } : x));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка обновления');
     }
   };
 
@@ -414,7 +484,7 @@ export default function Academy() {
         ))}
       </Grid>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, '& .MuiTabs-indicator': { background: '#C9A84C', height: 3, borderRadius: 99 }, '& .MuiTab-root': { color: '#64748B', fontWeight: 700, textTransform: 'none', '&.Mui-selected': { color: '#F1F5F9' } } }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ mb: 3, '& .MuiTabs-indicator': { background: '#C9A84C', height: 3, borderRadius: 99 }, '& .MuiTab-root': { color: '#64748B', fontWeight: 700, textTransform: 'none', '&.Mui-selected': { color: '#F1F5F9' } } }}>
         <Tab value="courses"  label="Курсы"             icon={<SchoolRoundedIcon />}          iconPosition="start" />
         <Tab value="webinars" label="Записи вебинаров" icon={<OndemandVideoRoundedIcon />}    iconPosition="start" />
         <Tab value="events"   label="Расписание"        icon={<EventAvailableRoundedIcon />} iconPosition="start" />
@@ -461,7 +531,7 @@ export default function Academy() {
                       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', color: '#94A3B8', fontSize: 12 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <PlayCircleRoundedIcon sx={{ fontSize: 14 }} />
-                          <Typography variant="caption" fontSize={11}>{c.lessons.length} уроков</Typography>
+                          <Typography variant="caption" fontSize={11}>{c.lessons.length} {plural(c.lessons.length, 'урок', 'урока', 'уроков')}</Typography>
                         </Box>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <AccessTimeRoundedIcon sx={{ fontSize: 14 }} />
@@ -477,12 +547,12 @@ export default function Academy() {
                         <Button size="small" variant="outlined" onClick={() => togglePublishCourse(c)}
                           sx={{ flex: 1, borderColor: c.published ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)', color: c.published ? '#F59E0B' : '#22C55E', fontSize: 12,
                             '&:hover': { borderColor: c.published ? '#F59E0B' : '#22C55E', background: c.published ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)' } }}>
-                          {c.published ? 'Снять' : 'Опубликовать'}
+                          {c.published ? 'Скрыть' : 'Опубликовать'}
                         </Button>
                         <IconButton size="small" onClick={() => openCourseEdit(c)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                           <EditRoundedIcon fontSize="small" />
                         </IconButton>
-                        <IconButton size="small" onClick={() => deleteCourse(c.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                        <IconButton size="small" onClick={() => setConfirmDelCourse(c)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                           <DeleteRoundedIcon fontSize="small" />
                         </IconButton>
                       </Box>
@@ -492,6 +562,23 @@ export default function Academy() {
               ))}
             </AnimatePresence>
           </Grid>
+
+          {filteredCourses.length === 0 && (
+            courses.length === 0 ? (
+              <EmptyState
+                icon={<SchoolRoundedIcon />}
+                title="Пока нет курсов"
+                hint="Добавьте первый курс — он появится в академии агентов."
+                action={<Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCourseNew}>Добавить курс</Button>}
+              />
+            ) : (
+              <EmptyState
+                icon={<SchoolRoundedIcon />}
+                title="Ничего не найдено"
+                hint="Измените поиск или фильтр категории."
+              />
+            )
+          )}
         </Box>
       )}
 
@@ -526,7 +613,7 @@ export default function Academy() {
                         <Chip label={w.topic} size="small" sx={{ background: 'rgba(67,97,238,0.15)', color: '#60A5FA', fontWeight: 700, fontSize: 11 }} />
                         {w.isNew && <Chip label="NEW" size="small" sx={{ background: '#EF4444', color: '#fff', fontWeight: 800, fontSize: 10 }} />}
                         <Chip
-                          label={w.published ? 'Опубликован' : 'Черновик'}
+                          label={w.published ? 'Опубликована' : 'Черновик'}
                           size="small"
                           sx={{ background: w.published ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)', color: w.published ? '#22C55E' : '#F59E0B', fontWeight: 700, fontSize: 11, ml: 'auto' }}
                         />
@@ -548,18 +635,18 @@ export default function Academy() {
                         </Box>
                       </Box>
                       <Typography variant="caption" sx={{ color: '#64748B', mb: 1.5 }}>
-                        Спикер: <b style={{ color: '#94A3B8' }}>{w.speaker}</b> · {new Date(w.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: '2-digit' })}
+                        Спикер: <b style={{ color: '#94A3B8' }}>{w.speaker}</b> · {formatDate(w.date)}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button size="small" variant="outlined" onClick={() => togglePublishWebinar(w)}
                           sx={{ flex: 1, borderColor: w.published ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)', color: w.published ? '#F59E0B' : '#22C55E', fontSize: 12,
                             '&:hover': { borderColor: w.published ? '#F59E0B' : '#22C55E', background: w.published ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)' } }}>
-                          {w.published ? 'Снять' : 'Опубликовать'}
+                          {w.published ? 'Скрыть' : 'Опубликовать'}
                         </Button>
                         <IconButton size="small" onClick={() => openWebinarEdit(w)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                           <EditRoundedIcon fontSize="small" />
                         </IconButton>
-                        <IconButton size="small" onClick={() => deleteWebinar(w.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                        <IconButton size="small" onClick={() => setConfirmDelWebinar(w)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                           <DeleteRoundedIcon fontSize="small" />
                         </IconButton>
                       </Box>
@@ -569,6 +656,23 @@ export default function Academy() {
               ))}
             </AnimatePresence>
           </Grid>
+
+          {filteredWebinars.length === 0 && (
+            webinars.length === 0 ? (
+              <EmptyState
+                icon={<OndemandVideoRoundedIcon />}
+                title="Пока нет записей вебинаров"
+                hint="Добавьте первую запись — она станет доступна агентам."
+                action={<Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openWebinarNew}>Добавить запись</Button>}
+              />
+            ) : (
+              <EmptyState
+                icon={<OndemandVideoRoundedIcon />}
+                title="Ничего не найдено"
+                hint="Измените поиск или фильтр темы."
+              />
+            )
+          )}
         </Box>
       )}
 
@@ -579,7 +683,7 @@ export default function Academy() {
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 700, color: '#F1F5F9' }}>Расписание мероприятий</Typography>
               <Typography variant="caption" sx={{ color: '#64748B' }}>
-                {events.length} событий · {events.filter(e => new Date(`${e.date}T${e.endTime}`).getTime() > Date.now()).length} впереди
+                {events.length} {plural(events.length, 'событие', 'события', 'событий')} · {events.filter(e => new Date(`${e.date}T${e.endTime}`).getTime() > Date.now()).length} впереди
               </Typography>
             </Box>
             <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openEventNew}>
@@ -630,7 +734,7 @@ export default function Academy() {
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
                             <PeopleRoundedIcon sx={{ fontSize: 13 }} />
                             <Typography variant="caption">
-                              {e.registered}{e.capacity ? ` / ${e.capacity}` : ''} участников
+                              {e.registered}{e.capacity ? ` / ${e.capacity}` : ''} {plural(e.capacity || e.registered, 'участник', 'участника', 'участников')}
                             </Typography>
                           </Box>
                         </Box>
@@ -640,11 +744,16 @@ export default function Academy() {
                       </Box>
 
                       {/* Actions */}
-                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Button size="small" variant="outlined" onClick={() => togglePublishEvent(e)}
+                          sx={{ borderColor: e.published ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)', color: e.published ? '#F59E0B' : '#22C55E', fontSize: 12,
+                            '&:hover': { borderColor: e.published ? '#F59E0B' : '#22C55E', background: e.published ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)' } }}>
+                          {e.published ? 'Скрыть' : 'Опубликовать'}
+                        </Button>
                         <IconButton size="small" onClick={() => openEventEdit(e)} sx={{ color: '#64748B', '&:hover': { color: '#C9A84C' } }}>
                           <EditRoundedIcon fontSize="small" />
                         </IconButton>
-                        <IconButton size="small" onClick={() => deleteEvent(e.id)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
+                        <IconButton size="small" onClick={() => setConfirmDelEvent(e)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
                           <DeleteRoundedIcon fontSize="small" />
                         </IconButton>
                       </Box>
@@ -654,50 +763,60 @@ export default function Academy() {
               })}
             </AnimatePresence>
           </Stack>
+
+          {sortedEvents.length === 0 && (
+            <EmptyState
+              icon={<EventAvailableRoundedIcon />}
+              title="Пока нет событий"
+              hint="Запланируйте первое событие — оно появится в расписании агентов."
+              action={<Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openEventNew}>Запланировать событие</Button>}
+            />
+          )}
         </Box>
       )}
 
       {/* ============== COURSE DIALOG ============== */}
-      <Dialog open={courseDlgOpen} onClose={() => setCourseDlgOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={courseDlgOpen} onClose={(_, reason) => { if (!saving && reason !== 'backdropClick') requestCloseCourse(); }} maxWidth="md" fullWidth fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
             {courseForm.id > 0 ? 'Редактировать курс' : 'Новый курс'}
           </Typography>
-          <IconButton size="small" onClick={() => setCourseDlgOpen(false)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
+          <IconButton size="small" onClick={requestCloseCourse} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
         </DialogTitle>
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 3 }}>
+          {dialogError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDialogError(null)}>{dialogError}</Alert>}
           <Stack spacing={2.5}>
-            <TextField fullWidth size="small" label="Название курса *" value={courseForm.title} onChange={e => setCourseForm(f => ({ ...f, title: e.target.value }))} />
-            <TextField fullWidth size="small" label="Описание" value={courseForm.description} multiline rows={2} onChange={e => setCourseForm(f => ({ ...f, description: e.target.value }))} />
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl size="small" fullWidth>
+            <TextField fullWidth size="small" label="Название курса *" value={courseForm.title} onChange={e => patchCourse(f => ({ ...f, title: e.target.value }))} />
+            <TextField fullWidth size="small" label="Описание" value={courseForm.description} multiline rows={2} onChange={e => patchCourse(f => ({ ...f, description: e.target.value }))} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <FormControl size="small" sx={{ flex: '1 1 160px', minWidth: 140 }}>
                 <InputLabel>Категория</InputLabel>
-                <Select value={courseForm.category} label="Категория" onChange={e => setCourseForm(f => ({ ...f, category: e.target.value as AcademyCategoryName }))}>
+                <Select value={courseForm.category} label="Категория" onChange={e => patchCourse(f => ({ ...f, category: e.target.value as AcademyCategoryName }))}>
                   {COURSE_CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                 </Select>
               </FormControl>
-              <FormControl size="small" fullWidth>
+              <FormControl size="small" sx={{ flex: '1 1 160px', minWidth: 140 }}>
                 <InputLabel>Уровень</InputLabel>
-                <Select value={courseForm.level} label="Уровень" onChange={e => setCourseForm(f => ({ ...f, level: e.target.value as typeof LEVELS[number] }))}>
+                <Select value={courseForm.level} label="Уровень" onChange={e => patchCourse(f => ({ ...f, level: e.target.value as typeof LEVELS[number] }))}>
                   {LEVELS.map(l => <MenuItem key={l} value={l}>{l}</MenuItem>)}
                 </Select>
               </FormControl>
               <TextField
                 size="small" type="number" label="Порядок"
                 value={courseForm.orderIdx ?? 0}
-                onChange={e => setCourseForm(f => ({ ...f, orderIdx: Number(e.target.value) || 0 }))}
+                onChange={e => patchCourse(f => ({ ...f, orderIdx: Number(e.target.value) || 0 }))}
                 sx={{ width: 110 }}
                 helperText="внутри категории"
               />
             </Box>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth size="small" label="Длительность" value={courseForm.duration} placeholder="4 часа 30 мин" onChange={e => setCourseForm(f => ({ ...f, duration: e.target.value }))} />
-              <TextField fullWidth size="small" label="Автор" value={courseForm.author} onChange={e => setCourseForm(f => ({ ...f, author: e.target.value }))} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField size="small" label="Длительность" value={courseForm.duration} placeholder="4 часа 30 мин" onChange={e => patchCourse(f => ({ ...f, duration: e.target.value }))} sx={{ flex: '1 1 200px', minWidth: 160 }} />
+              <TextField size="small" label="Автор" value={courseForm.author} onChange={e => patchCourse(f => ({ ...f, author: e.target.value }))} sx={{ flex: '1 1 200px', minWidth: 160 }} />
             </Box>
             <FileUploader
               value={courseForm.coverUrl}
-              onChange={(url) => setCourseForm(f => ({ ...f, coverUrl: url }))}
+              onChange={(url) => patchCourse(f => ({ ...f, coverUrl: url }))}
               type="cover"
               label="Обложка курса"
             />
@@ -718,8 +837,8 @@ export default function Academy() {
                         <CloseRoundedIcon sx={{ fontSize: 16 }} />
                       </IconButton>
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 1.5 }}>
-                      <TextField fullWidth size="small" label="Название урока" value={l.title} onChange={e => updateLesson(i, { title: e.target.value })} />
+                    <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                      <TextField size="small" label="Название урока" value={l.title} onChange={e => updateLesson(i, { title: e.target.value })} sx={{ flex: '1 1 200px', minWidth: 160 }} />
                       <TextField label="Длительность" value={l.duration} onChange={e => updateLesson(i, { duration: e.target.value })} size="small" sx={{ width: 120 }} placeholder="15 мин" />
                     </Box>
                     <TextField fullWidth size="small" label="Ссылка на видео" value={l.videoUrl} onChange={e => updateLesson(i, { videoUrl: e.target.value })} sx={{ mt: 1 }} />
@@ -747,109 +866,171 @@ export default function Academy() {
             </Box>
 
             <FormControlLabel
-              control={<Switch checked={courseForm.published} onChange={e => setCourseForm(f => ({ ...f, published: e.target.checked }))} />}
+              control={<Switch checked={courseForm.published} onChange={e => patchCourse(f => ({ ...f, published: e.target.checked }))} />}
               label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Опубликован (видно агентам)</Typography>}
             />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setCourseDlgOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-          <Button variant="contained" onClick={saveCourse} disabled={!courseForm.title.trim() || saving}>
-            Сохранить курс
+          <Button onClick={requestCloseCourse} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={saveCourse} disabled={!courseForm.title.trim() || saving}
+            startIcon={saving ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : undefined}>
+            {saving ? 'Сохранение…' : 'Сохранить курс'}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* ============== WEBINAR DIALOG ============== */}
-      <Dialog open={webinarDlgOpen} onClose={() => setWebinarDlgOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={webinarDlgOpen} onClose={(_, reason) => { if (!saving && reason !== 'backdropClick') requestCloseWebinar(); }} maxWidth="sm" fullWidth fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
             {webinarForm.id > 0 ? 'Редактировать запись' : 'Новая запись вебинара'}
           </Typography>
-          <IconButton size="small" onClick={() => setWebinarDlgOpen(false)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
+          <IconButton size="small" onClick={requestCloseWebinar} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
         </DialogTitle>
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 3 }}>
+          {dialogError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDialogError(null)}>{dialogError}</Alert>}
           <Stack spacing={2.5}>
-            <TextField fullWidth size="small" label="Название *" value={webinarForm.title} onChange={e => setWebinarForm(f => ({ ...f, title: e.target.value }))} />
-            <TextField fullWidth size="small" label="Описание" multiline rows={2} value={webinarForm.description} onChange={e => setWebinarForm(f => ({ ...f, description: e.target.value }))} />
+            <TextField fullWidth size="small" label="Название *" value={webinarForm.title} onChange={e => patchWebinar(f => ({ ...f, title: e.target.value }))} />
+            <TextField fullWidth size="small" label="Описание" multiline rows={2} value={webinarForm.description} onChange={e => patchWebinar(f => ({ ...f, description: e.target.value }))} />
             <FormControl size="small" fullWidth>
               <InputLabel>Тема</InputLabel>
-              <Select value={webinarForm.topic} label="Тема" onChange={e => setWebinarForm(f => ({ ...f, topic: e.target.value as WebinarTopicName }))}>
+              <Select value={webinarForm.topic} label="Тема" onChange={e => patchWebinar(f => ({ ...f, topic: e.target.value as WebinarTopicName }))}>
                 {WEBINAR_TOPICS.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
               </Select>
             </FormControl>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth size="small" label="Спикер" value={webinarForm.speaker} onChange={e => setWebinarForm(f => ({ ...f, speaker: e.target.value }))} />
-              <TextField fullWidth size="small" label="Длительность" placeholder="1ч 24мин" value={webinarForm.duration} onChange={e => setWebinarForm(f => ({ ...f, duration: e.target.value }))} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField size="small" label="Спикер" value={webinarForm.speaker} onChange={e => patchWebinar(f => ({ ...f, speaker: e.target.value }))} sx={{ flex: '1 1 200px', minWidth: 160 }} />
+              <TextField size="small" label="Длительность" placeholder="1ч 24мин" value={webinarForm.duration} onChange={e => patchWebinar(f => ({ ...f, duration: e.target.value }))} sx={{ flex: '1 1 200px', minWidth: 160 }} />
             </Box>
-            <TextField fullWidth size="small" label="Дата проведения" type="date" value={webinarForm.date} onChange={e => setWebinarForm(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField fullWidth size="small" label="Ссылка на видео" value={webinarForm.videoUrl} onChange={e => setWebinarForm(f => ({ ...f, videoUrl: e.target.value }))} placeholder="https://kinescope.io/..." />
+            <TextField fullWidth size="small" label="Дата проведения" type="date" value={webinarForm.date} onChange={e => patchWebinar(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField fullWidth size="small" label="Ссылка на видео" value={webinarForm.videoUrl} onChange={e => patchWebinar(f => ({ ...f, videoUrl: e.target.value }))} placeholder="https://kinescope.io/..." />
             <FileUploader
               value={webinarForm.coverUrl}
-              onChange={(url) => setWebinarForm(f => ({ ...f, coverUrl: url }))}
+              onChange={(url) => patchWebinar(f => ({ ...f, coverUrl: url }))}
               type="cover"
               label="Обложка вебинара"
             />
             <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControlLabel control={<Switch checked={webinarForm.published} onChange={e => setWebinarForm(f => ({ ...f, published: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Опубликован</Typography>} />
-              <FormControlLabel control={<Switch checked={webinarForm.isNew} onChange={e => setWebinarForm(f => ({ ...f, isNew: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Новая запись (бейдж NEW)</Typography>} />
+              <FormControlLabel control={<Switch checked={webinarForm.published} onChange={e => patchWebinar(f => ({ ...f, published: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Опубликована</Typography>} />
+              <FormControlLabel control={<Switch checked={webinarForm.isNew} onChange={e => patchWebinar(f => ({ ...f, isNew: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Новая запись (бейдж NEW)</Typography>} />
             </Box>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setWebinarDlgOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-          <Button variant="contained" onClick={saveWebinar} disabled={!webinarForm.title.trim() || saving}>Сохранить</Button>
+          <Button onClick={requestCloseWebinar} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={saveWebinar} disabled={!webinarForm.title.trim() || saving}
+            startIcon={saving ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : undefined}>
+            {saving ? 'Сохранение…' : 'Сохранить'}
+          </Button>
         </DialogActions>
       </Dialog>
 
       {/* ============== EVENT DIALOG ============== */}
-      <Dialog open={eventDlgOpen} onClose={() => setEventDlgOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={eventDlgOpen} onClose={(_, reason) => { if (!saving && reason !== 'backdropClick') requestCloseEvent(); }} maxWidth="sm" fullWidth fullScreen={fullScreen} slotProps={{ paper: { sx: { ...paperSafeArea } } }}>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography sx={{ fontWeight: 800, fontSize: 18, color: '#F1F5F9' }}>
             {eventForm.id > 0 ? 'Редактировать событие' : 'Новое событие'}
           </Typography>
-          <IconButton size="small" onClick={() => setEventDlgOpen(false)} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
+          <IconButton size="small" onClick={requestCloseEvent} sx={{ color: '#64748B' }}><CloseRoundedIcon /></IconButton>
         </DialogTitle>
         <Divider sx={{ borderColor: 'rgba(201,168,76,0.1)' }} />
         <DialogContent sx={{ pt: 3 }}>
+          {dialogError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDialogError(null)}>{dialogError}</Alert>}
           <Stack spacing={2.5}>
-            <TextField fullWidth size="small" label="Название *" value={eventForm.title} onChange={e => setEventForm(f => ({ ...f, title: e.target.value }))} />
-            <TextField fullWidth size="small" label="Описание" multiline rows={2} value={eventForm.description} onChange={e => setEventForm(f => ({ ...f, description: e.target.value }))} />
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl size="small" fullWidth>
+            <TextField fullWidth size="small" label="Название *" value={eventForm.title} onChange={e => patchEvent(f => ({ ...f, title: e.target.value }))} />
+            <TextField fullWidth size="small" label="Описание" multiline rows={2} value={eventForm.description} onChange={e => patchEvent(f => ({ ...f, description: e.target.value }))} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <FormControl size="small" sx={{ flex: '1 1 160px', minWidth: 140 }}>
                 <InputLabel>Формат</InputLabel>
-                <Select value={eventForm.format} label="Формат" onChange={e => setEventForm(f => ({ ...f, format: e.target.value as AdminEventFormat }))}>
+                <Select value={eventForm.format} label="Формат" onChange={e => patchEvent(f => ({ ...f, format: e.target.value as AdminEventFormat }))}>
                   {FORMATS.map(f => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
                 </Select>
               </FormControl>
-              <FormControl size="small" fullWidth>
+              <FormControl size="small" sx={{ flex: '1 1 160px', minWidth: 140 }}>
                 <InputLabel>Тема</InputLabel>
-                <Select value={eventForm.topic} label="Тема" onChange={e => setEventForm(f => ({ ...f, topic: e.target.value }))}>
+                <Select value={eventForm.topic} label="Тема" onChange={e => patchEvent(f => ({ ...f, topic: e.target.value }))}>
                   <MenuItem value=""><em>не указана</em></MenuItem>
                   {COURSE_CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                 </Select>
               </FormControl>
             </Box>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <TextField size="small" label="Дата" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 160px' }} />
-              <TextField size="small" label="Начало" type="time" value={eventForm.startTime} onChange={e => setEventForm(f => ({ ...f, startTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 140px', minWidth: 140 }} />
-              <TextField size="small" label="Конец" type="time" value={eventForm.endTime} onChange={e => setEventForm(f => ({ ...f, endTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 140px', minWidth: 140 }} />
+              <TextField size="small" label="Дата" type="date" value={eventForm.date} onChange={e => patchEvent(f => ({ ...f, date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 160px' }} />
+              <TextField size="small" label="Начало" type="time" value={eventForm.startTime} onChange={e => patchEvent(f => ({ ...f, startTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 140px', minWidth: 140 }} />
+              <TextField size="small" label="Конец" type="time" value={eventForm.endTime} onChange={e => patchEvent(f => ({ ...f, endTime: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} sx={{ flex: '1 1 140px', minWidth: 140 }} />
             </Box>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <TextField fullWidth size="small" label="Спикер" value={eventForm.speaker} onChange={e => setEventForm(f => ({ ...f, speaker: e.target.value }))} />
-              <TextField size="small" label="Лимит мест" type="number" placeholder="без лимита" helperText="Макс. участников" value={eventForm.capacity ?? ''} onChange={e => setEventForm(f => ({ ...f, capacity: e.target.value ? Number(e.target.value) : null }))} sx={{ width: 160 }} />
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField size="small" label="Спикер" value={eventForm.speaker} onChange={e => patchEvent(f => ({ ...f, speaker: e.target.value }))} sx={{ flex: '1 1 200px', minWidth: 160 }} />
+              <TextField size="small" label="Лимит мест" type="number" placeholder="без лимита" helperText="Макс. участников" value={eventForm.capacity ?? ''} onChange={e => patchEvent(f => ({ ...f, capacity: e.target.value ? Number(e.target.value) : null }))} sx={{ width: 160 }} />
             </Box>
-            <TextField fullWidth size="small" label="Локация" value={eventForm.location} placeholder="Онлайн / Zoom / адрес" onChange={e => setEventForm(f => ({ ...f, location: e.target.value }))} />
-            <TextField fullWidth size="small" label="Ссылка на трансляцию" value={eventForm.link} placeholder="https://..." onChange={e => setEventForm(f => ({ ...f, link: e.target.value }))} />
-            <FormControlLabel control={<Switch checked={eventForm.published} onChange={e => setEventForm(f => ({ ...f, published: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Опубликовано (видно агентам)</Typography>} />
+            <TextField fullWidth size="small" label="Локация" value={eventForm.location} placeholder="Онлайн / Zoom / адрес" onChange={e => patchEvent(f => ({ ...f, location: e.target.value }))} />
+            <TextField fullWidth size="small" label="Ссылка на трансляцию" value={eventForm.link} placeholder="https://..." onChange={e => patchEvent(f => ({ ...f, link: e.target.value }))} />
+            <FormControlLabel control={<Switch checked={eventForm.published} onChange={e => patchEvent(f => ({ ...f, published: e.target.checked }))} />} label={<Typography variant="body2" sx={{ color: '#94A3B8' }}>Опубликовано (видно агентам)</Typography>} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setEventDlgOpen(false)} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
-          <Button variant="contained" onClick={saveEvent} disabled={!eventForm.title.trim() || saving}>Сохранить событие</Button>
+          <Button onClick={requestCloseEvent} sx={{ color: '#64748B' }} disabled={saving}>Отмена</Button>
+          <Button variant="contained" onClick={saveEvent} disabled={!eventForm.title.trim() || saving}
+            startIcon={saving ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : undefined}>
+            {saving ? 'Сохранение…' : 'Сохранить событие'}
+          </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ============== CONFIRM DIALOGS ============== */}
+      {/* Подтверждение закрытия формы с несохранёнными изменениями */}
+      <ConfirmDialog
+        open={confirmClose !== null}
+        title="Закрыть без сохранения?"
+        text="Введённое пропадёт."
+        confirmLabel="Закрыть"
+        danger
+        onConfirm={() => {
+          if (confirmClose === 'course') setCourseDlgOpen(false);
+          else if (confirmClose === 'webinar') setWebinarDlgOpen(false);
+          else if (confirmClose === 'event') setEventDlgOpen(false);
+          setConfirmClose(null);
+        }}
+        onClose={() => setConfirmClose(null)}
+      />
+
+      {/* Подтверждение удаления курса */}
+      <ConfirmDialog
+        open={!!confirmDelCourse}
+        title="Удалить курс?"
+        text={confirmDelCourse ? <>Удалить курс «{confirmDelCourse.title}»? Уроки и прогресс агентов по нему будут удалены безвозвратно.</> : undefined}
+        confirmLabel="Удалить"
+        danger
+        loading={deleteBusy}
+        onConfirm={deleteCourse}
+        onClose={() => setConfirmDelCourse(null)}
+      />
+
+      {/* Подтверждение удаления записи вебинара */}
+      <ConfirmDialog
+        open={!!confirmDelWebinar}
+        title="Удалить запись вебинара?"
+        text={confirmDelWebinar ? <>Удалить запись «{confirmDelWebinar.title}»? Просмотры и лайки будут удалены безвозвратно.</> : undefined}
+        confirmLabel="Удалить"
+        danger
+        loading={deleteBusy}
+        onConfirm={deleteWebinar}
+        onClose={() => setConfirmDelWebinar(null)}
+      />
+
+      {/* Подтверждение удаления события */}
+      <ConfirmDialog
+        open={!!confirmDelEvent}
+        title="Удалить событие?"
+        text={confirmDelEvent ? <>Удалить событие «{confirmDelEvent.title}»? Регистрации участников будут удалены безвозвратно.</> : undefined}
+        confirmLabel="Удалить"
+        danger
+        loading={deleteBusy}
+        onConfirm={deleteEvent}
+        onClose={() => setConfirmDelEvent(null)}
+      />
     </Box>
   );
 }
