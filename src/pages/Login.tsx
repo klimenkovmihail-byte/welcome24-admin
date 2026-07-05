@@ -102,17 +102,6 @@ export default function Login() {
             </Button>
           </form>
 
-          <Box sx={{ mt: 3, p: 2, borderRadius: 2.5, background: 'rgba(201,168,76,0.04)', border: '1px dashed rgba(201,168,76,0.15)' }}>
-            <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mb: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10 }}>
-              Демо-доступ
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#64748B', fontSize: 12, display: 'block' }}>
-              Админ: <code style={{ color: '#C9A84C' }}>admin@w24.agency</code>
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#64748B', fontSize: 12 }}>
-              Любой агент → перенаправит на портал агента
-            </Typography>
-          </Box>
         </Box>
       </motion.div>
     </Box>

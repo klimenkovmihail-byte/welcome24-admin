@@ -4,7 +4,7 @@ import {
   Box, Card, CardContent, Typography, Chip, Button, CircularProgress, Alert,
   Tabs, Tab, Stack, Divider, MenuItem, Select, FormControl, TextField,
   Dialog, DialogTitle, DialogContent, IconButton, Link, Badge, Tooltip,
-  Menu, Autocomplete, Avatar, InputAdornment,
+  Menu, Autocomplete, Avatar, InputAdornment, useMediaQuery, useTheme,
 } from '@mui/material';
 import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
@@ -81,6 +81,9 @@ export default function Cases() {
   const user = getCurrentUser();
   const role = user?.role;
   const isAdmin = role === 'super_admin' || role === 'admin';
+  const theme = useTheme();
+  // Детальный диалог заявки на телефоне — во весь экран (CEO смотрит заявки с телефона).
+  const fsXs = useMediaQuery(theme.breakpoints.down('sm'));
   const isSuperAdmin = role === 'super_admin';
   const [adminTrack, setAdminTrack] = useState<TaskTrack>('legal');
 
@@ -396,20 +399,21 @@ export default function Cases() {
       )}
 
       {/* Детальный диалог заявки */}
-      <Dialog open={!!detail || detailLoading} onClose={() => { setDetail(null); load(); }} fullWidth maxWidth="lg"
-        slotProps={{ paper: { sx: { background: 'linear-gradient(135deg, #0F1629, #0A0E1A)', border: '1px solid rgba(201,168,76,0.15)', height: { md: '88vh' } } } }}>
+      <Dialog open={!!detail || detailLoading} onClose={() => { setDetail(null); load(); }} fullWidth maxWidth="lg" fullScreen={fsXs}
+        slotProps={{ paper: { sx: { background: 'linear-gradient(135deg, #0F1629, #0A0E1A)', border: fsXs ? 'none' : '1px solid rgba(201,168,76,0.15)', height: { md: '88vh' }, pt: fsXs ? 'env(safe-area-inset-top)' : 0, pb: fsXs ? 'env(safe-area-inset-bottom)' : 0 } } }}>
         {detailLoading || !detail ? (
           <Box sx={{ p: 6, textAlign: 'center' }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>
         ) : (
           <>
-            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{detail.client_name}</Typography>
-                <Typography variant="caption" sx={{ color: '#64748B' }}>
+            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+              {/* minWidth:0 — длинные ФИО/дата переносятся, а не подлезают под иконки. */}
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9', overflowWrap: 'anywhere' }}>{detail.client_name}</Typography>
+                <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>
                   Заявка от {detail.agent_name || 'агента'} · {fmtDate(detail.created_at)}
                 </Typography>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
                 {(isSuperAdmin || (getCurrentUser()?.role === 'broker' && detail.tasks.some(t => t.assignee_id === getCurrentUser()?.id))) && (
                   <Tooltip title="Удалить заявку полностью">
                     <IconButton onClick={() => handleDeleteCase(detail.id, detail.client_name)} sx={{ color: '#64748B', '&:hover': { color: '#EF4444' } }}>
@@ -526,7 +530,7 @@ export default function Cases() {
                     getOptionLabel={a => a.name}
                     value={null} blurOnSelect clearOnBlur
                     onChange={(_, v) => { if (v) handleAddParticipant(v.id); }}
-                    renderInput={params => <TextField {...params} label="Добавить агента (совместная сделка)" placeholder="ФИО агента" />}
+                    renderInput={params => <TextField {...params} label={fsXs ? 'Добавить агента' : 'Добавить агента (совместная сделка)'} placeholder="ФИО агента" helperText={fsXs ? 'Совместная сделка' : undefined} />}
                   />
                 </Box>
 
