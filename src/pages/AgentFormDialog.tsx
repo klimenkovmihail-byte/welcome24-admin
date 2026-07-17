@@ -193,8 +193,9 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
     if (!form.name.trim()) return;
     if (createIssue) { setError(createIssue); return; }
     const parentId = form.parentType === 'company' ? null : form.parentId;
-    // Если тип — «Сотрудник», MLM-привязки нет.
-    const finalParentId = form.kind === 'staff' ? null : parentId;
+    // MLM-привязка есть у агентов И у партнёров привлечения (referral_partner участвует
+    // в MLM/Акциях). У прочих сотрудников (юрист/бухгалтер/админ и т.п.) ментора нет.
+    const finalParentId = (form.kind === 'staff' && form.staffRole !== 'referral_partner') ? null : parentId;
     setSaving(true); setError(null);
     try {
       if (editTarget) {
@@ -242,6 +243,8 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
   };
 
   const isStaff = form.kind === 'staff';
+  // Партнёр привлечения (referral_partner) — сотрудник, но участник MLM: ему нужен ментор.
+  const mlmMember = !isStaff || form.staffRole === 'referral_partner';
 
   // Защита UI: только super_admin может трогать супер-админ-цель.
   // (Бэк уже это запрещает — здесь прячем элементы, чтобы не вводить в заблуждение.)
@@ -382,11 +385,11 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               slotProps={{ inputLabel: { shrink: true } }} />
           </Box>
 
-          {/* MLM binding — только для агентов */}
-          {!isStaff && (
+          {/* MLM binding — для агентов и партнёров привлечения */}
+          {mlmMember && (
             <Box sx={{ p: 2, borderRadius: 2.5, border: '1px solid rgba(201,168,76,0.15)', background: 'rgba(201,168,76,0.04)' }}>
               <FormLabel sx={{ color: '#94A3B8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', mb: 1.5 }}>
-                Источник агента (MLM)
+                {isStaff ? 'Наставник (MLM)' : 'Источник агента (MLM)'}
               </FormLabel>
               <RadioGroup row value={form.parentType} onChange={e => setForm(f => ({ ...f, parentType: e.target.value as 'company' | 'agent', parentId: null, parentName: null }))}>
                 <FormControlLabel value="company" control={<Radio size="small" sx={{ color: '#C9A84C', '&.Mui-checked': { color: '#C9A84C' } }} />}
