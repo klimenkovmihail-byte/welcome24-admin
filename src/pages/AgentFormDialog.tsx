@@ -29,6 +29,7 @@ import { agentsApi } from '../api/agents';
 import { getCurrentUser } from '../auth/auth';
 import { ROLE_LABEL, ROLE_COLOR, type Role } from '../auth/roles';
 import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
+import { RU_CITIES } from '../lib/cities';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 const SPECIALIZATIONS = ['Вторичная', 'Первичная', 'Аренда', 'Коммерческая', 'Загородная'];
@@ -375,7 +376,17 @@ export default function AgentFormDialog({ open, onClose, agents, editTarget, can
               )}
             </Box>
           )}
-          {editTarget && <TextField fullWidth label="Город" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} size="small" />}
+          {editTarget && (
+            <Autocomplete
+              freeSolo
+              options={RU_CITIES}
+              inputValue={form.city}
+              onInputChange={(_, v) => setForm(f => ({ ...f, city: v }))}
+              onChange={(_, v) => { if (typeof v === 'string') setForm(f => ({ ...f, city: v })); }}
+              autoHighlight selectOnFocus handleHomeEndKeys
+              renderInput={params => <TextField {...params} fullWidth label="Город" size="small" />}
+            />
+          )}
           <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
             <TextField fullWidth label="Дата присоединения" type="date" value={form.joinDate}
               onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} size="small"
