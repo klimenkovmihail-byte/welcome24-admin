@@ -539,7 +539,7 @@ export default function Cases() {
                         )}
                         {/* Финансы сделки — для юр-задач у исполнителя (с этапа «Сделка») */}
                         {t.assignee_id && t.track === 'legal' && (
-                          <CaseFinance caseId={detail.id} task={t} onSaved={() => { openDetail(detail.id); bumpTimeline(); }} />
+                          <CaseFinance caseId={detail.id} task={t} caseCity={detail.city} onSaved={() => { openDetail(detail.id); bumpTimeline(); }} />
                         )}
                       </Box>
                     ))}

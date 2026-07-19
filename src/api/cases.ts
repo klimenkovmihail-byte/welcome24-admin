@@ -18,8 +18,39 @@ export interface CaseTask {
   commission_pct: number | null;
   deal_date: string | null;
   deal_id: number | null;
+  deal_city: string | null;
+  deal_type: 'primary' | 'secondary' | 'rent' | null;
+  approval_status: 'pending' | 'approved' | 'rejected' | null;
+  hasReceipt?: boolean;
+  reject_reason: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export const DEAL_TYPE_OPTIONS: { value: 'primary' | 'secondary' | 'rent'; label: string }[] = [
+  { value: 'secondary', label: 'Вторичка' },
+  { value: 'primary', label: 'Первичка' },
+  { value: 'rent', label: 'Аренда' },
+];
+
+export interface DealApproval {
+  taskId: number;
+  caseId: number;
+  type: TaskType;
+  vkd: number | null;
+  commissionPct: number | null;
+  dealDate: string | null;
+  city: string | null;
+  dealType: 'primary' | 'secondary' | 'rent' | null;
+  typeLabel: string;
+  submittedAt: string | null;
+  agentId: number | null;
+  agentName: string | null;
+  lawyerName: string | null;
+  clientName: string | null;
+  address: string | null;
+  hasReceipt: boolean;
+  participants: { agentId: number; sharePct: number; name: string | null }[];
 }
 
 export interface CaseAttachment {
@@ -114,8 +145,14 @@ export const casesAdminApi = {
   take: (taskId: number) => api.post<CaseItem>(`/api/cases/tasks/${taskId}/take`, {}),
   updateTask: (taskId: number, body: { status?: string; assigneeId?: number | null }) =>
     api.patch<CaseItem>(`/api/cases/tasks/${taskId}`, body),
-  setFinance: (taskId: number, body: { vkd: number; commissionPct?: number; dealDate?: string }) =>
+  setFinance: (taskId: number, body: { vkd: number; commissionPct?: number; dealDate?: string; city?: string; dealType?: string }) =>
     api.patch<CaseItem>(`/api/cases/tasks/${taskId}/finance`, body),
+  // Согласование сделок (admin/super_admin).
+  approvals: () => api.get<DealApproval[]>('/api/cases/approvals'),
+  approveDeal: (taskId: number, body?: { vkd?: number; city?: string; dealType?: string; commissionPct?: number; dealDate?: string }) =>
+    api.post<{ ok: boolean }>(`/api/cases/tasks/${taskId}/approve`, body || {}),
+  rejectDeal: (taskId: number, reason?: string) =>
+    api.post<{ ok: boolean }>(`/api/cases/tasks/${taskId}/reject`, { reason: reason || '' }),
   commissionSuggestion: (caseId: number, date?: string) =>
     api.get<{ ytdVkdBefore: number; commission: number; level: number }>(`/api/cases/${caseId}/commission-suggestion${date ? `?date=${date}` : ''}`),
   analytics: (period = 'all') => api.get<CaseAnalytics>(`/api/cases/analytics?period=${period}`),

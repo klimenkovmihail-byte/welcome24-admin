@@ -31,6 +31,35 @@ export async function uploadCaseAttachment(
   return res.json();
 }
 
+// Чек об оплате (PDF) задачи: приватная загрузка. Возвращает обновлённую заявку.
+export async function uploadCaseReceipt(taskId: number, file: File): Promise<CaseItem> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/api/cases/tasks/${taskId}/receipt`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: fd,
+  });
+  if (!res.ok) throw new Error(await readUploadError(res));
+  return res.json();
+}
+
+// Открыть чек об оплате (presigned PDF) — синхронно окно в клике, затем presigned-URL.
+export async function openCaseReceipt(taskId: number): Promise<void> {
+  const w = window.open('', '_blank');
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/cases/tasks/${taskId}/receipt`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok) throw new Error('Не удалось открыть чек');
+    const { url } = await res.json();
+    if (w) w.location.href = url; else window.open(url, '_blank', 'noopener');
+  } catch (e) {
+    if (w) w.close();
+    throw e;
+  }
+}
+
 // Открыть файл заявки в новой вкладке. Приватные файлы отдаются presigned-ссылкой
 // (клиент качает напрямую из Object Storage — масштаб/скорость); вкладку открываем
 // СИНХРОННО в рамках клика (иначе попап-блокер срежет после await).

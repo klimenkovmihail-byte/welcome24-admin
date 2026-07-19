@@ -22,6 +22,7 @@ import type { Deal, Agent } from '../types';
 import type { Role } from '../auth/roles';
 import { dealsApi } from '../api/deals';
 import ConfirmDialog from '../components/ConfirmDialog';
+import DealApprovals from '../components/DealApprovals';
 import { useAgents } from '../hooks/useAgents';
 import { useFullScreenDialog } from '../hooks/useFullScreenDialog';
 import { api, API_BASE_URL, getToken } from '../api/apiClient';
@@ -870,6 +871,7 @@ export default function Deals() {
 
   return (
     <Box>
+      {['admin', 'super_admin'].includes(getCurrentUser()?.role || '') && <DealApprovals onChanged={reloadDeals} />}
       <Box sx={{ display: 'flex', gap: 2, mb: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
         <TextField
           placeholder="Поиск по агенту, городу…"
