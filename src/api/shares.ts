@@ -97,4 +97,28 @@ export const sharesApi = {
   addOperation: (p: OperationCreatePayload) =>
     api.post<{ id: number }>('/api/shares/operations', p as unknown as Record<string, unknown>),
   deleteOperation: (id: number) => api.del<{ ok: true }>(`/api/shares/operations/${id}`),
+
+  // Этап 2: начисления «положено» + право на покупку.
+  params:       () => api.get<ShareParams>('/api/shares/params'),
+  entitlements: () => api.get<ShareEntitlement[]>('/api/shares/entitlements'),
+  grantEntitlement: (id: number, body: { quantity: number; fromAgentId?: number; pricePerShare?: number }) =>
+    api.post<{ ok: true }>(`/api/shares/entitlements/${id}/grant`, body),
+  skipEntitlement: (id: number) => api.post<{ ok: true }>(`/api/shares/entitlements/${id}/skip`, {}),
+  purchaseEligibility: (from?: string, to?: string) =>
+    api.get<{ from: string; to: string; price: number; rows: SharePurchaseRow[] }>(`/api/shares/purchase-eligibility${from && to ? `?from=${from}&to=${to}` : ''}`),
 };
+
+export interface ShareParams {
+  threshold: number; bonusRub: number; purchasePct: number; discountPct: number; cutoff: string;
+  price: number; founderId: number | null;
+}
+export interface ShareEntitlement {
+  id: number; agent_id: number; kind: 'first_deal' | 'recruit'; source_agent_id: number | null;
+  deal_id: number | null; amount_rub: number;
+  agent_name: string | null; agent_status: string | null; source_name: string | null;
+  deal_vkd: number | null; deal_date: string | null;
+}
+export interface SharePurchaseRow {
+  agentId: number; name: string; city: string | null; vkd: number;
+  purchasePct: number; amountRub: number; price: number; discountPct: number; discountedPrice: number; maxShares: number;
+}

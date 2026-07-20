@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import SharesStage2 from '../components/SharesStage2';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
@@ -254,6 +255,9 @@ export default function Shares() {
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
+      {/* Этап 2: очередь начислений «положено» + право на покупку */}
+      <SharesStage2 onGranted={reloadAll} />
 
       {/* Share price hero */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
