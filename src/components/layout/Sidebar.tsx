@@ -42,6 +42,7 @@ export default function Sidebar({ isMobile = false, mobileOpen = false, onClose 
   const [pendingClaims, setPendingClaims] = useState(0);
   const [adUnread, setAdUnread] = useState(0);
   const [casesQueue, setCasesQueue] = useState(0);
+  const [dealApprovals, setDealApprovals] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -66,6 +67,8 @@ export default function Sidebar({ isMobile = false, mobileOpen = false, onClose 
       });
       // Заявки специалистам (юр/ипотека): незанятые задачи в очереди.
       if (canAccess(r, '/cases', sa)) casesAdminApi.queue().catch(() => []).then(q => setCasesQueue((q as unknown[]).length));
+      // Сделки юристов, ждущие согласования (бейдж «горит» у админа/суперадмина).
+      if (canAccess(r, '/deals', sa)) casesAdminApi.approvalsCount().catch(() => ({ count: 0 })).then(x => setDealApprovals(x?.count || 0));
     };
     load();
     const iv = setInterval(load, 20000);
@@ -76,7 +79,7 @@ export default function Sidebar({ isMobile = false, mobileOpen = false, onClose 
     { path: '/dashboard', label: 'Обзор', icon: <DashboardRoundedIcon /> },
     { path: '/inbox', label: 'Инбокс', icon: <MoveToInboxRoundedIcon /> },
     { path: '/agents', label: 'Агенты', icon: <PeopleRoundedIcon />, badge: pendingReviews || null, tooltip: pendingReviews ? `${pendingReviews} отзывов на модерации` : '' },
-    { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon /> },
+    { path: '/deals', label: 'Сделки', icon: <HandshakeRoundedIcon />, badge: dealApprovals || null, tooltip: dealApprovals ? `${dealApprovals} сделок на согласовании` : '' },
     { path: '/cases', label: 'Заявки', icon: <AssignmentRoundedIcon />, badge: casesQueue || null, tooltip: casesQueue ? `${casesQueue} заявок в очереди` : '' },
     { path: '/ad-requests', label: 'Отдел рекламы', icon: <CampaignRoundedIcon />, badge: adUnread || null, tooltip: adUnread ? `${adUnread} заявок с новыми сообщениями` : '' },
     { path: '/shares', label: 'Акции', icon: <DiamondRoundedIcon /> },

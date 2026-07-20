@@ -149,6 +149,7 @@ export const casesAdminApi = {
     api.patch<CaseItem>(`/api/cases/tasks/${taskId}/finance`, body),
   // Согласование сделок (admin/super_admin).
   approvals: () => api.get<DealApproval[]>('/api/cases/approvals'),
+  approvalsCount: () => api.get<{ count: number }>('/api/cases/approvals/count'),
   approveDeal: (taskId: number, body?: { vkd?: number; city?: string; dealType?: string; commissionPct?: number; dealDate?: string }) =>
     api.post<{ ok: boolean }>(`/api/cases/tasks/${taskId}/approve`, body || {}),
   rejectDeal: (taskId: number, reason?: string) =>

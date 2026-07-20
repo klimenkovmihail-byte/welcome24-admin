@@ -82,7 +82,9 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
           {rows.map(r => {
             const e = edits[r.taskId] || { vkd: '', city: '', dealType: 'secondary', pct: '' };
             const busy = busyId === r.taskId;
-            const income = e.vkd && e.pct ? Math.round(Number(e.vkd) * Number(e.pct) / 100) : 0;
+            // Показываем доход КОМПАНИИ (ВКД − доход агента); доход агента — мелкой подписью для сверки.
+            const agentIncome = e.vkd && e.pct ? Math.round(Number(e.vkd) * Number(e.pct) / 100) : 0;
+            const companyIncome = e.vkd ? Math.max(0, Math.round(Number(e.vkd)) - agentIncome) : 0;
             return (
               <Box key={r.taskId} sx={{ p: 1.5, borderRadius: 1.5, background: 'rgba(15,22,41,0.6)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flexWrap: 'wrap', mb: 1 }}>
@@ -103,7 +105,16 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
                   <TextField size="small" label="Тип" select value={e.dealType} onChange={ev => patch(r.taskId, 'dealType', ev.target.value)} sx={{ width: 125 }}>
                     {DEAL_TYPE_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
                   </TextField>
-                  {income > 0 && <Typography variant="caption" sx={{ color: '#22C55E', fontWeight: 700 }}>доход {formatRub(income)}</Typography>}
+                  {companyIncome > 0 && (
+                    <Box>
+                      <Typography variant="caption" sx={{ color: '#22C55E', fontWeight: 800, display: 'block', lineHeight: 1.2 }}>
+                        доход компании {formatRub(companyIncome)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#64748B', fontSize: 10.5 }}>
+                        агенту {formatRub(agentIncome)}
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 1.2, flexWrap: 'wrap' }}>
                   {r.hasReceipt ? (
