@@ -16,6 +16,7 @@ export interface DocItem {
   mimeType: string | null;
   fileSize: number;
   minRole?: 'all' | 'staff';
+  restricted?: boolean;   // есть ли у самого элемента собственный ACL (замок в списке)
   orderIdx: number;
   createdBy: number | null;
   createdAt: string;
@@ -23,6 +24,17 @@ export interface DocItem {
 }
 
 export interface Breadcrumb { id: number; name: string }
+
+export interface DocAccessAgent { id: number; name: string }
+export interface DocAccess {
+  restricted: boolean;
+  roles: string[];
+  agents: DocAccessAgent[];
+  // Ближайший ограниченный предок (для инфо и честного сообщения при снятии своего ACL).
+  inherited?: { fromId: number; fromName: string; roles: string[]; agents: DocAccessAgent[] } | null;
+  // В поддереве есть legacy-публичные файлы, доступные по прямой ссылке в обход ACL (152-ФЗ).
+  hasLegacyPublic?: boolean;
+}
 
 export const docsApi = {
   list:        (parentId?: number | null) =>
@@ -53,4 +65,9 @@ export const docsApi = {
   update: (id: number, payload: { name?: string; description?: string; parentId?: number | null; orderIdx?: number; minRole?: 'all' | 'staff' }) =>
     api.patch<DocItem>(`/api/docs/${id}`, payload as unknown as Record<string, unknown>),
   remove: (id: number) => api.del<{ ok: true }>(`/api/docs/${id}`),
+
+  // Гранулярный доступ к папке (ACL): чтение и запись. Пустые списки = снять ограничение.
+  getAccess: (id: number) => api.get<DocAccess>(`/api/docs/${id}/access`),
+  setAccess: (id: number, payload: { roles: string[]; agentIds: number[] }) =>
+    api.put<DocAccess & { ok: true }>(`/api/docs/${id}/access`, payload),
 };

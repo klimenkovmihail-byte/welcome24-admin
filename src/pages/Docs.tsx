@@ -9,11 +9,12 @@
  * Управление: super_admin + admin + manager.
  */
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Box, Typography, Button, IconButton, TextField, InputAdornment, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, Stack, Alert,
   CircularProgress, Tooltip, Menu, MenuItem, Divider, LinearProgress,
+  Switch, FormControlLabel, FormGroup, Checkbox, Autocomplete,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
@@ -34,9 +35,23 @@ import ImageRoundedIcon from '@mui/icons-material/ImageRounded';
 import TableChartRoundedIcon from '@mui/icons-material/TableChartRounded';
 import MovieRoundedIcon from '@mui/icons-material/MovieRounded';
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
-import { docsApi, type DocItem, type Breadcrumb } from '../api/docs';
+import LockRoundedIcon from '@mui/icons-material/LockRounded';
+import { docsApi, type DocItem, type Breadcrumb, type DocAccessAgent } from '../api/docs';
+import { agentsApi } from '../api/agents';
 import { getToken, API_BASE_URL, ApiError } from '../api/apiClient';
 import ConfirmDialog from '../components/ConfirmDialog';
+
+// Роли, которым можно выдать доступ к папке (staff — super_admin/admin/manager — видят всё всегда,
+// поэтому в списке только «рядовые» роли, которые ограничение реально касается).
+const ACCESS_ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'agent', label: 'Агенты' },
+  { value: 'lawyer', label: 'Юристы' },
+  { value: 'broker', label: 'Брокеры' },
+  { value: 'listing_manager', label: 'Листинг-менеджеры' },
+  { value: 'employee', label: 'Сотрудники' },
+  { value: 'referral_partner', label: 'Партнёры привлечения' },
+];
+const ACCESS_ROLE_LABEL: Record<string, string> = Object.fromEntries(ACCESS_ROLE_OPTIONS.map(o => [o.value, o.label]));
 
 // Иконка по mime/имени
 function fileIcon(item: DocItem) {
@@ -84,6 +99,21 @@ export default function Docs() {
   const [deleting, setDeleting] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; item: DocItem } | null>(null);
 
+  // Диалог «Доступ» (ACL папки)
+  const [accessFor, setAccessFor] = useState<DocItem | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessSaving, setAccessSaving] = useState(false);
+  const [accessRestricted, setAccessRestricted] = useState(false);
+  const [accessRoles, setAccessRoles] = useState<string[]>([]);
+  const [accessAgents, setAccessAgents] = useState<DocAccessAgent[]>([]);
+  const [accessInherited, setAccessInherited] = useState<{ fromName: string; roles: string[]; agents: DocAccessAgent[] } | null>(null);
+  // Можно ли редактировать доступ этой папки. Фиксируется при ОТКРЫТИИ (не реактивно от тумблера):
+  // редактируем, если нет ограниченного предка ЛИБО у папки уже есть свой ACL. Иначе — только инфо.
+  const [accessCanEdit, setAccessCanEdit] = useState(true);
+  const [accessHasLegacyPublic, setAccessHasLegacyPublic] = useState(false);
+  // Полный список агентов для автокомплита (по ФИО) — грузим один раз при первом открытии.
+  const [allAgents, setAllAgents] = useState<DocAccessAgent[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const reloadCurrent = useCallback(async () => {
@@ -106,11 +136,16 @@ export default function Docs() {
 
   useEffect(() => { reloadCurrent(); }, [reloadCurrent]);
 
-  // Поиск с дебаунсом
+  // Поиск с дебаунсом. searchSeqRef — guard от гонки: debounce гасит только несработавший таймер,
+  // но не уже улетевший fetch; без счётчика поздний ответ перетирал очищенный поиск (как в портале).
+  const searchSeqRef = useRef(0);
   useEffect(() => {
-    if (search.trim().length < 2) { setSearchResults(null); return; }
+    if (search.trim().length < 2) { searchSeqRef.current++; setSearchResults(null); return; }
+    const seq = ++searchSeqRef.current;
     const h = setTimeout(() => {
-      docsApi.search(search.trim()).then(setSearchResults).catch(() => setSearchResults([]));
+      docsApi.search(search.trim())
+        .then(r => { if (searchSeqRef.current === seq) setSearchResults(r); })
+        .catch(() => { if (searchSeqRef.current === seq) setSearchResults([]); });
     }, 300);
     return () => clearTimeout(h);
   }, [search]);
@@ -228,6 +263,53 @@ export default function Docs() {
       setError(e instanceof Error ? e.message : 'Не удалось удалить');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openAccess = async (item: DocItem) => {
+    setAccessFor(item);
+    setAccessLoading(true);
+    setAccessInherited(null);
+    try {
+      // ACL — критичен для диалога. Список агентов (для автокомплита ФИО) грузим ОТДЕЛЬНО и лениво:
+      // если /api/agents упадёт — диалог всё равно откроется (просто без автоподсказки ФИО).
+      const acc = await docsApi.getAccess(item.id);
+      setAccessRestricted(acc.restricted);
+      setAccessRoles(acc.roles);
+      setAccessAgents(acc.agents);
+      setAccessInherited(acc.inherited ? { fromName: acc.inherited.fromName, roles: acc.inherited.roles, agents: acc.inherited.agents } : null);
+      setAccessHasLegacyPublic(!!acc.hasLegacyPublic);
+      // Редактируем, если нет ограниченного предка ЛИБО у папки уже есть свой ACL (переопределение).
+      setAccessCanEdit(!acc.inherited || acc.restricted);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить доступ');
+      setAccessFor(null);
+      setAccessLoading(false);
+      return;
+    }
+    setAccessLoading(false);
+    if (!allAgents.length) {
+      agentsApi.list()
+        .then(list => setAllAgents(list.map(a => ({ id: a.id, name: a.name }))))
+        .catch(() => { /* без автокомплита ФИО — не критично для управления доступом */ });
+    }
+  };
+
+  const saveAccess = async () => {
+    if (!accessFor) return;
+    setAccessSaving(true);
+    try {
+      // «Доступно всем» → пустой ACL (снять ограничение). «Ограничить» → выбранные роли + агенты.
+      const payload = accessRestricted
+        ? { roles: accessRoles, agentIds: accessAgents.map(a => a.id) }
+        : { roles: [], agentIds: [] };
+      await docsApi.setAccess(accessFor.id, payload);
+      setAccessFor(null);
+      reloadCurrent();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить доступ');
+    } finally {
+      setAccessSaving(false);
     }
   };
 
@@ -395,6 +477,11 @@ export default function Docs() {
                       >
                         <MoreVertRoundedIcon fontSize="small" />
                       </IconButton>
+                      {isFolder && item.restricted && (
+                        <Tooltip title="Доступ ограничен">
+                          <LockRoundedIcon sx={{ position: 'absolute', top: 8, left: 8, fontSize: 16, color: '#C9A84C' }} />
+                        </Tooltip>
+                      )}
                       <Box sx={{ textAlign: 'center', mb: 1 }}>
                         <Icon sx={{ fontSize: 52, color }} />
                       </Box>
@@ -452,6 +539,11 @@ export default function Docs() {
             <DownloadRoundedIcon fontSize="small" sx={{ mr: 1, color: '#94A3B8' }} /> Скачать
           </MenuItem>
         )}
+        {menuAnchor?.item.type === 'folder' && (
+          <MenuItem onClick={() => { if (menuAnchor) { openAccess(menuAnchor.item); setMenuAnchor(null); } }}>
+            <LockRoundedIcon fontSize="small" sx={{ mr: 1, color: '#C9A84C' }} /> Доступ
+          </MenuItem>
+        )}
         {menuAnchor && <Divider />}
         <MenuItem onClick={() => {
           if (!menuAnchor) return;
@@ -503,6 +595,117 @@ export default function Docs() {
         <DialogActions>
           <Button onClick={() => setRenameFor(null)}>Отмена</Button>
           <Button variant="contained" onClick={handleRename} disabled={!renameValue.trim()}>Сохранить</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог «Доступ к папке» (ACL) */}
+      <Dialog open={!!accessFor} onClose={() => { if (!accessSaving) setAccessFor(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle>Доступ к папке «{accessFor?.name}»</DialogTitle>
+        <DialogContent>
+          {accessLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress sx={{ color: '#C9A84C' }} /></Box>
+          ) : (() => {
+            // Редактор доступен, если папка не наследует ограничение родителя ЛИБО у неё уже есть свой доступ
+            // (accessCanEdit фиксируется при открытии). Иначе (наследует и своего нет) — только инфо.
+            const canEdit = accessCanEdit;
+            const nothingChosen = accessRestricted && accessRoles.length === 0 && accessAgents.length === 0;
+            const inheritedWho = accessInherited
+              ? ([...accessInherited.roles.map(r => ACCESS_ROLE_LABEL[r] || r), ...accessInherited.agents.map(a => a.name)].join(', ') || 'только сотрудники')
+              : '';
+            return (
+              <Stack spacing={2} sx={{ pt: 1 }}>
+                {!canEdit && accessInherited && (
+                  <Alert severity="info" icon={<LockRoundedIcon fontSize="small" />}>
+                    Папка наследует доступ от «{accessInherited.fromName}». Доступ есть у: {inheritedWho}.
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#94A3B8' }}>
+                      Чтобы изменить — настройте доступ на родительской папке.
+                    </Typography>
+                  </Alert>
+                )}
+
+                {canEdit && (
+                  <>
+                    <FormControlLabel
+                      control={<Switch checked={accessRestricted} onChange={e => setAccessRestricted(e.target.checked)} />}
+                      label={accessRestricted ? 'Доступ ограничен' : 'Доступно всем'}
+                    />
+                    {!accessRestricted ? (
+                      accessInherited ? (
+                        <Alert severity="info">
+                          После снятия своего ограничения папка не станет видна всем — она унаследует доступ от «{accessInherited.fromName}» (доступ у: {inheritedWho}). Чтобы открыть полностью, снимите ограничение и на «{accessInherited.fromName}».
+                        </Alert>
+                      ) : (
+                        <Typography variant="body2" sx={{ color: '#94A3B8' }}>
+                          Папку и всё её содержимое видят все роли портала. Включите «Доступ ограничен», чтобы открыть только выбранным ролям и агентам.
+                        </Typography>
+                      )
+                    ) : (
+                      <>
+                        {accessHasLegacyPublic && (
+                          <Alert severity="warning">
+                            В папке есть старые файлы из публичного хранилища — они останутся доступны по прямой ссылке в обход ограничения. Чтобы ограничение реально защищало, такие файлы нужно перезалить заново.
+                          </Alert>
+                        )}
+                        <Box>
+                          <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
+                            По ролям
+                          </Typography>
+                          <FormGroup sx={{ mt: 0.5 }}>
+                            {ACCESS_ROLE_OPTIONS.map(opt => (
+                              <FormControlLabel
+                                key={opt.value}
+                                control={
+                                  <Checkbox
+                                    size="small"
+                                    checked={accessRoles.includes(opt.value)}
+                                    onChange={e => setAccessRoles(prev => e.target.checked ? [...prev, opt.value] : prev.filter(r => r !== opt.value))}
+                                  />
+                                }
+                                label={opt.label}
+                              />
+                            ))}
+                          </FormGroup>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" sx={{ color: '#64748B', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em', display: 'block', mb: 0.5 }}>
+                            Отдельные агенты (по ФИО)
+                          </Typography>
+                          <Autocomplete
+                            multiple
+                            options={allAgents}
+                            value={accessAgents}
+                            onChange={(_, v) => setAccessAgents(v)}
+                            getOptionLabel={a => a.name}
+                            isOptionEqualToValue={(a, b) => a.id === b.id}
+                            renderOption={(props, a) => {
+                              const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key };
+                              return <li key={a.id} {...rest}>{a.name} <Typography component="span" variant="caption" sx={{ color: '#64748B', ml: 0.5 }}>#{a.id}</Typography></li>;
+                            }}
+                            renderInput={params => <TextField {...params} size="small" placeholder="Начните вводить имя…" />}
+                          />
+                        </Box>
+                        {nothingChosen && (
+                          <Alert severity="warning">Выберите хотя бы одну роль или агента — иначе папку увидят только сотрудники.</Alert>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </Stack>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAccessFor(null)} disabled={accessSaving}>{accessCanEdit ? 'Отмена' : 'Закрыть'}</Button>
+          {accessCanEdit && !accessLoading && (
+            <Button
+              variant="contained"
+              onClick={saveAccess}
+              disabled={accessSaving || (accessRestricted && accessRoles.length === 0 && accessAgents.length === 0)}
+            >
+              {accessSaving ? 'Сохранение…' : 'Сохранить'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
