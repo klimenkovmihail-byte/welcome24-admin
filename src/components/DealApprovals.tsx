@@ -8,7 +8,7 @@ import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import { casesAdminApi, DEAL_TYPE_OPTIONS, type DealApproval } from '../api/cases';
-import { openCaseReceipt } from '../lib/attachments';
+import { openCaseReceipt, uploadCaseReceipt } from '../lib/attachments';
 import { formatRub } from '../utils/format';
 
 /** Очередь сделок юристов на согласование (admin/super_admin). Админ проверяет чек и данные,
@@ -19,7 +19,7 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   // локальные правки по задаче: { [taskId]: {vkd, city, dealType, pct} }
-  const [edits, setEdits] = useState<Record<number, { vkd: string; city: string; dealType: string; pct: string }>>({});
+  const [edits, setEdits] = useState<Record<number, { vkd: string; city: string; dealType: string; pct: string; dealDate: string }>>({});
   const [rejecting, setRejecting] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
@@ -27,16 +27,18 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
     casesAdminApi.approvals()
       .then(list => {
         setRows(list);
-        const e: Record<number, { vkd: string; city: string; dealType: string; pct: string }> = {};
-        for (const r of list) e[r.taskId] = { vkd: r.vkd ? String(r.vkd) : '', city: r.city || '', dealType: r.dealType || 'secondary', pct: r.commissionPct ? String(r.commissionPct) : '' };
+        const e: Record<number, { vkd: string; city: string; dealType: string; pct: string; dealDate: string }> = {};
+        for (const r of list) e[r.taskId] = { vkd: r.vkd ? String(r.vkd) : '', city: r.city || '', dealType: r.dealType || 'secondary', pct: r.commissionPct ? String(r.commissionPct) : '', dealDate: r.dealDate || '' };
         setEdits(e);
       })
       .catch(() => setError('Не удалось загрузить очередь согласования'));
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const patch = (taskId: number, field: 'vkd' | 'city' | 'dealType' | 'pct', value: string) =>
-    setEdits(prev => ({ ...prev, [taskId]: { ...prev[taskId], [field]: value } }));
+  const patch = (taskId: number, field: 'vkd' | 'city' | 'dealType' | 'pct' | 'dealDate', value: string) =>
+    // Смена даты может изменить ГОД сделки → сбрасываем %, чтобы бэк пересчитал его по правилу года
+    // (иначе % «замёрзнет» на старом годе и разойдётся с долями участников — ревью 22.07, HIGH).
+    setEdits(prev => ({ ...prev, [taskId]: { ...prev[taskId], [field]: value, ...(field === 'dealDate' ? { pct: '' } : {}) } }));
 
   const approve = (r: DealApproval) => {
     const e = edits[r.taskId];
@@ -47,6 +49,7 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
       city: e.city.trim(),
       dealType: e.dealType,
       commissionPct: e.pct === '' ? undefined : Math.min(100, Math.max(0, Number(e.pct))),
+      dealDate: e.dealDate || undefined,
     })
       .then(() => { load(); onChanged?.(); })
       .catch((err) => setError(err instanceof Error ? err.message : 'Не удалось согласовать'))
@@ -58,6 +61,16 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
     casesAdminApi.rejectDeal(taskId, rejectReason.trim())
       .then(() => { setRejecting(null); setRejectReason(''); load(); })
       .catch((err) => setError(err instanceof Error ? err.message : 'Не удалось отклонить'))
+      .finally(() => setBusyId(null));
+  };
+
+  // Загрузить/заменить чек (PDF) — в т.ч. восстановить потерянный из хранилища.
+  const replaceReceipt = (taskId: number, file: File) => {
+    setBusyId(taskId); setError(null);
+    uploadCaseReceipt(taskId, file)
+      // НЕ зовём load() — он затёр бы несохранённые правки строки (ВКД/%/дата). Обновляем только флаг чека.
+      .then(() => setRows(prev => prev ? prev.map(x => x.taskId === taskId ? { ...x, hasReceipt: true } : x) : prev))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Не удалось загрузить чек'))
       .finally(() => setBusyId(null));
   };
 
@@ -80,7 +93,7 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
         {error && <Alert severity="error" sx={{ m: 2, mb: 0 }} onClose={() => setError(null)}>{error}</Alert>}
         <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           {rows.map(r => {
-            const e = edits[r.taskId] || { vkd: '', city: '', dealType: 'secondary', pct: '' };
+            const e = edits[r.taskId] || { vkd: '', city: '', dealType: 'secondary', pct: '', dealDate: '' };
             const busy = busyId === r.taskId;
             // Показываем доход КОМПАНИИ (ВКД − доход агента); доход агента — мелкой подписью для сверки.
             const agentIncome = e.vkd && e.pct ? Math.round(Number(e.vkd) * Number(e.pct) / 100) : 0;
@@ -100,11 +113,15 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                   <TextField size="small" label="ВКД, ₽" type="number" value={e.vkd} onChange={ev => patch(r.taskId, 'vkd', ev.target.value)} sx={{ width: 120 }} />
-                  <TextField size="small" label="%" type="number" value={e.pct} onChange={ev => patch(r.taskId, 'pct', ev.target.value)} sx={{ width: 70 }} />
+                  <TextField size="small" label="%" type="number" placeholder="авто" value={e.pct} onChange={ev => patch(r.taskId, 'pct', ev.target.value)} sx={{ width: 78 }} slotProps={{ inputLabel: { shrink: true } }} />
                   <TextField size="small" label="Город" value={e.city} onChange={ev => patch(r.taskId, 'city', ev.target.value)} sx={{ width: 150 }} />
                   <TextField size="small" label="Тип" select value={e.dealType} onChange={ev => patch(r.taskId, 'dealType', ev.target.value)} sx={{ width: 125 }}>
                     {DEAL_TYPE_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
                   </TextField>
+                  <TextField size="small" label="Дата сделки" type="date" value={e.dealDate}
+                    onChange={ev => patch(r.taskId, 'dealDate', ev.target.value)} sx={{ width: 160 }}
+                    slotProps={{ inputLabel: { shrink: true } }} />
+
                   {companyIncome > 0 && (
                     <Box>
                       <Typography variant="caption" sx={{ color: '#22C55E', fontWeight: 800, display: 'block', lineHeight: 1.2 }}>
@@ -119,11 +136,17 @@ export default function DealApprovals({ onChanged }: { onChanged?: () => void })
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 1.2, flexWrap: 'wrap' }}>
                   {r.hasReceipt ? (
                     <Button size="small" startIcon={<DescriptionRoundedIcon sx={{ fontSize: 16 }} />}
-                      onClick={() => openCaseReceipt(r.taskId).catch(() => setError('Не удалось открыть чек'))}
+                      onClick={() => openCaseReceipt(r.taskId).catch((err) => setError(err instanceof Error ? err.message : 'Не удалось открыть чек'))}
                       sx={{ color: '#60A5FA', textTransform: 'none', fontWeight: 700 }}>Открыть чек (PDF)</Button>
                   ) : (
                     <Chip size="small" label="Чек не приложен" sx={{ background: 'rgba(239,68,68,0.12)', color: '#EF4444', fontWeight: 700 }} />
                   )}
+                  <Button component="label" size="small" disabled={busy}
+                    sx={{ color: '#94A3B8', textTransform: 'none', minWidth: 0 }}>
+                    {r.hasReceipt ? 'заменить' : 'загрузить чек'}
+                    <input hidden type="file" accept="application/pdf"
+                      onChange={ev => { const f = ev.target.files?.[0]; if (f) replaceReceipt(r.taskId, f); ev.target.value = ''; }} />
+                  </Button>
                   <Box sx={{ flex: 1 }} />
                   <Button size="small" variant="contained" disabled={busy} startIcon={busy ? <CircularProgress size={14} sx={{ color: '#0A0E1A' }} /> : <CheckCircleRoundedIcon />}
                     onClick={() => approve(r)}

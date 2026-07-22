@@ -22,7 +22,7 @@ import {
 import { getCurrentUser } from '../auth/auth';
 import DealParticipants from '../components/DealParticipants';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { uploadCaseAttachment, openCaseAttachment } from '../lib/attachments';
+import { uploadCaseAttachment, openCaseAttachment, openCaseReceipt } from '../lib/attachments';
 import Thread from '../components/Thread';
 import CaseStatusStepper from '../components/CaseStatusStepper';
 import CaseFinance from '../components/CaseFinance';
@@ -618,6 +618,18 @@ export default function Cases() {
                       <input type="file" hidden multiple onChange={handleUpload} />
                     </Button>
                   </Box>
+                  {/* Чек об оплате — хранится отдельно (фин.документ сделки), но показываем здесь на
+                      видном месте (зелёная плашка). Открывается presigned-ссылкой с проверкой прав. */}
+                  {detail.tasks.filter(t => t.hasReceipt).map(t => (
+                    <Box key={`receipt-${t.id}`} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 1.5, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', mt: 0.5 }}>
+                      <DescriptionRoundedIcon sx={{ fontSize: 18, color: '#22C55E' }} />
+                      <Link component="button" type="button"
+                        onClick={() => openCaseReceipt(t.id).catch(e => setError(e instanceof Error ? e.message : 'Не удалось открыть чек'))}
+                        sx={{ color: '#22C55E', flex: 1, fontSize: 13, textAlign: 'left', fontWeight: 700, textDecoration: 'none', background: 'none', border: 0, cursor: 'pointer', p: 0, '&:hover': { textDecoration: 'underline' } }}>
+                        Чек об оплате (PDF)
+                      </Link>
+                    </Box>
+                  ))}
                   {(detail.attachments || []).filter(a => a.participant_id == null).length === 0 ? (
                     <Typography variant="caption" sx={{ color: '#64748B' }}>Файлов пока нет.</Typography>
                   ) : (

@@ -51,7 +51,11 @@ export async function openCaseReceipt(taskId: number): Promise<void> {
     const res = await fetch(`${API_BASE_URL}/api/cases/tasks/${taskId}/receipt`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
-    if (!res.ok) throw new Error('Не удалось открыть чек');
+    if (!res.ok) {
+      // Показываем сообщение бэка (напр. «Чек не найден в хранилище — загрузите заново»)
+      const msg = await res.json().then(e => e?.error).catch(() => null);
+      throw new Error(msg || 'Не удалось открыть чек');
+    }
     const { url } = await res.json();
     if (w) w.location.href = url; else window.open(url, '_blank', 'noopener');
   } catch (e) {

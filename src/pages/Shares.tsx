@@ -6,7 +6,7 @@ import {
   TableContainer, TableHead, TableRow, Paper, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Stack, Divider, Autocomplete,
-  ToggleButtonGroup, ToggleButton, Alert, Tooltip,
+  ToggleButtonGroup, ToggleButton, Alert, Tooltip, Tabs, Tab,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import DiamondRoundedIcon from '@mui/icons-material/DiamondRounded';
@@ -90,6 +90,7 @@ export default function Shares() {
   const [opsRowsPerPage, setOpsRowsPerPage] = useState(20);
   const [settings, setSettings] = useState(initialSettings);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState(0); // 0 — Обзор и операции, 1 — Начисления и выкуп (Этап-2)
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [totalDialogOpen, setTotalDialogOpen] = useState(false);
@@ -256,9 +257,15 @@ export default function Shares() {
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-      {/* Этап 2: очередь начислений «положено» + право на покупку */}
-      <SharesStage2 onGranted={reloadAll} />
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: '1px solid rgba(148,163,184,0.15)' }}>
+        <Tab label="Обзор и операции" sx={{ fontWeight: 700, textTransform: 'none' }} />
+        <Tab label="Начисления и выкуп" sx={{ fontWeight: 700, textTransform: 'none' }} />
+      </Tabs>
 
+      {/* Этап 2: очередь начислений «положено» + право на покупку — отдельная вкладка */}
+      {tab === 1 && <SharesStage2 onGranted={reloadAll} />}
+
+      {tab === 0 && (<>
       {/* Share price hero */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <Box sx={{ mb: 3, p: 3, borderRadius: 3, background: 'linear-gradient(135deg, rgba(201,168,76,0.1) 0%, rgba(201,168,76,0.04) 100%)', border: '1px solid rgba(201,168,76,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
@@ -597,6 +604,7 @@ export default function Shares() {
           labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
         />
       </TableContainer>
+      </>)}
 
       {/* New operation dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth
