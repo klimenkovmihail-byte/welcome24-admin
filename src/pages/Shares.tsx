@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import SharesStage2 from '../components/SharesStage2';
+import { getCurrentUser } from '../auth/auth';
 import {
   Box, Typography, Button, TextField, Select, MenuItem,
   InputAdornment, Chip, Table, TableBody, TableCell,
@@ -72,7 +73,7 @@ type FormState = {
 };
 
 const emptyForm: FormState = {
-  type: 'issue',
+  type: 'transfer',
   fromAgentId: null, fromAgentName: null,
   toAgentId: null, toAgentName: null,
   quantity: '', pricePerShare: '', notes: '',
@@ -82,6 +83,8 @@ const emptyForm: FormState = {
 
 export default function Shares() {
   const { fullScreen, paperSafeArea } = useFullScreenDialog();
+  // Эмиссия (выпуск новых акций) доступна только super_admin — остальные видят лишь передачи/выкуп.
+  const isSuperAdmin = getCurrentUser()?.role === 'super_admin';
   const [ops, setOps] = useState<ShareOperation[]>([]);
   const [holders, setHolders] = useState<ShareHolder[]>([]);
   const { data: agents = [] } = useAgents(); // общий кэш агентов
@@ -173,7 +176,7 @@ export default function Shares() {
     const price = parseFloat(form.pricePerShare);
     if (!(qty > 0) || !(price > 0)) return false;
     if (form.type === 'issue') return !!form.toAgentId;
-    if (form.type === 'transfer') return !!form.fromAgentId && !!form.toAgentId;
+    if (form.type === 'transfer') return !!form.fromAgentId && !!form.toAgentId && form.fromAgentId !== form.toAgentId;
     return !!form.fromAgentId; // buyback
   }, [form.type, form.quantity, form.pricePerShare, form.fromAgentId, form.toAgentId]);
 
@@ -202,21 +205,24 @@ export default function Shares() {
     return map;
   }, [holders]);
 
-  const handleOpSave = async () => {
+  const handleOpSave = async (forceExceed = false) => {
     const qty = parseInt(form.quantity);
     const price = parseFloat(form.pricePerShare);
     if (!(qty > 0) || !(price > 0)) return;
 
     if (form.type === 'issue' && !form.toAgentId) return;
     if (form.type === 'transfer' && (!form.fromAgentId || !form.toAgentId)) return;
+    if (form.type === 'transfer' && form.fromAgentId === form.toAgentId) { setError('Передача самому себе невозможна — выберите разных акционеров.'); return; }
     if (form.type === 'buyback' && !form.fromAgentId) return;
 
-    // Контроль лимита: эмиссия не может превысить общее число акций.
-    if (form.type === 'issue') {
+    // Потолок эмиссии ЖЁСТКИЙ. Превысить может только super_admin осознанно (увеличение уставного
+    // капитала) — по явному подтверждению; тогда шлём confirmExceed, и бэк пропустит.
+    let confirmExceed = forceExceed;
+    if (form.type === 'issue' && !forceExceed) {
       const inCirculation = totalIssued - totalBuyback;
       if (inCirculation + qty > settings.totalSharesIssued) {
-        setError(`Превышен лимит: всего акций ${fmt(settings.totalSharesIssued)}, в обращении ${fmt(inCirculation)}, можно эмитировать максимум ${fmt(settings.totalSharesIssued - inCirculation)} шт. Увеличьте лимит или измените количество.`);
-        return;
+        confirmExceed = window.confirm(`Эмиссия превысит потолок ${fmt(settings.totalSharesIssued)} акций (в обращении ${fmt(inCirculation)}). Это увеличение уставного капитала. Подтвердить?`);
+        if (!confirmExceed) return;
       }
     }
 
@@ -240,12 +246,19 @@ export default function Shares() {
         reason: form.reason,
         discountPct: form.reason === 'discount_purchase' ? 10 : 0,
         date: form.date || undefined,
+        confirmExceed,
       });
       await reloadAll();
       setDialogOpen(false);
       setForm({ ...emptyForm });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось создать операцию');
+      const msg = e instanceof Error ? e.message : 'Не удалось создать операцию';
+      // Бэк отклонил эмиссию по потолку (напр. локальный settings разошёлся с реальным) — бэк
+      // источник правды: предлагаем осознанно превысить и повторяем один раз с forceExceed.
+      if (form.type === 'issue' && !forceExceed && /потолок/i.test(msg)) {
+        if (window.confirm(`${msg} Провести как осознанное увеличение уставного капитала?`)) { void handleOpSave(true); return; }
+      }
+      setError(msg);
     }
   };
 
@@ -279,11 +292,12 @@ export default function Shares() {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            <Box sx={{ textAlign: 'right', cursor: 'pointer' }} onClick={() => { setNewTotal(String(settings.totalSharesIssued)); setTotalDialogOpen(true); }}>
+            <Box sx={{ textAlign: 'right', cursor: isSuperAdmin ? 'pointer' : 'default' }}
+              onClick={isSuperAdmin ? () => { setNewTotal(String(settings.totalSharesIssued)); setTotalDialogOpen(true); } : undefined}>
               <Typography variant="caption" sx={{ color: '#64748B', display: 'block' }}>Всего акций</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end' }}>
                 <Typography variant="h6" sx={{ fontWeight: 800, color: '#F1F5F9' }}>{fmt(settings.totalSharesIssued)}</Typography>
-                <EditRoundedIcon sx={{ fontSize: 14, color: '#64748B' }} />
+                {isSuperAdmin && <EditRoundedIcon sx={{ fontSize: 14, color: '#64748B' }} />}
               </Box>
             </Box>
             <Box sx={{ textAlign: 'right' }}>
@@ -622,7 +636,7 @@ export default function Shares() {
                 Тип операции
               </Typography>
               <ToggleButtonGroup exclusive value={form.type} onChange={(_, v) => v && setForm(f => ({ ...f, type: v as ShareOperationType, fromAgentId: null, fromAgentName: null, toAgentId: null, toAgentName: null, reason: '', pricePerShare: String(settings.sharePrice) }))} fullWidth size="small">
-                {(Object.entries(opConfig) as [ShareOperationType, typeof opConfig[ShareOperationType]][]).map(([t, cfg]) => (
+                {(Object.entries(opConfig) as [ShareOperationType, typeof opConfig[ShareOperationType]][]).filter(([t]) => t !== 'issue' || isSuperAdmin).map(([t, cfg]) => (
                   <ToggleButton key={t} value={t} sx={{ flex: 1, borderColor: 'rgba(201,168,76,0.15)', '&.Mui-selected': { background: cfg.bg, color: cfg.color, borderColor: `${cfg.color}40` } }}>
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>{cfg.label}</Typography>
                   </ToggleButton>
@@ -728,7 +742,7 @@ export default function Shares() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button onClick={() => setDialogOpen(false)} sx={{ color: '#64748B' }}>Отмена</Button>
-          <Button variant="contained" onClick={handleOpSave} disabled={!opFormValid}>
+          <Button variant="contained" onClick={() => handleOpSave()} disabled={!opFormValid}>
             Провести операцию
           </Button>
         </DialogActions>

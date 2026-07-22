@@ -74,6 +74,7 @@ export interface OperationCreatePayload {
   notes?: string;
   reason?: '' | 'first_deal_bonus' | 'recruit_bonus' | 'yearly_2m_vkd' | 'discount_purchase';
   discountPct?: number;
+  confirmExceed?: boolean;  // super_admin осознанно превышает потолок (доп.эмиссия капитала)
 }
 
 export interface ShareHolder {
